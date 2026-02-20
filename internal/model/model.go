@@ -43,6 +43,7 @@ type RawDamage struct {
 	Weapon                              string
 	IsUtility                           bool   // HE/molotov/incendiary
 	HitGroup                            string // "head", "chest", "stomach", "left_arm", "right_arm", "left_leg", "right_leg", "other"
+	VictimPos                           Vec3   // victim world position at hurt tick
 }
 
 type RawFlash struct {
@@ -80,6 +81,9 @@ type RawFirstSight struct {
 	ObserverYawDeg   float64
 }
 
+// Vec3 is a 3D world-space position in Hammer units.
+type Vec3 struct{ X, Y, Z float64 }
+
 // RawWeaponFire is emitted by the parser each time a player fires a weapon.
 type RawWeaponFire struct {
 	Tick        int
@@ -88,6 +92,7 @@ type RawWeaponFire struct {
 	Weapon      string
 	PitchDeg    float64 // normalized view pitch at fire tick
 	YawDeg      float64 // view yaw at fire tick
+	AttackerPos Vec3    // shooter world position at fire tick
 }
 
 type RawMatch struct {
@@ -244,6 +249,20 @@ func (s *PlayerWeaponStats) AvgDamagePerHit() float64 {
 		return 0
 	}
 	return float64(s.Damage) / float64(s.Hits)
+}
+
+// PlayerDuelSegment holds FHHS stats for one (weapon_bucket, distance_bin) segment per player per demo.
+type PlayerDuelSegment struct {
+	DemoHash        string
+	SteamID         uint64
+	WeaponBucket    string  // e.g. "AK", "M4", "AWP", "Deagle", "Pistol", "Other"
+	DistanceBin     string  // e.g. "10-15m", "unknown"
+	DuelCount       int     // duels won in this segment (with a first-sight)
+	FirstHitCount   int     // duels where first shot hit (denominator for FHHS-Hit)
+	FirstHitHSCount int     // duels where first shot was a head hit (numerator)
+	MedianCorrDeg   float64 // median pre-shot correction angle (degrees)
+	MedianSightDeg  float64 // median first-sight angular deviation (degrees)
+	MedianExpoWinMs float64 // median exposure time for won duels (ms)
 }
 
 // MatchSummary is a lightweight record for list/show commands.

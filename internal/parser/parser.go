@@ -318,6 +318,7 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 			isUtil = isUtilityWeapon(e.Weapon.Type)
 		}
 
+		vp := e.Player.Position()
 		raw.Damages = append(raw.Damages, model.RawDamage{
 			Tick:            p.GameState().IngameTick(),
 			RoundNumber:     roundNumber,
@@ -328,6 +329,7 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 			Weapon:          weapName,
 			IsUtility:       isUtil,
 			HitGroup:        hitGroupName(e.HitGroup),
+			VictimPos:       model.Vec3{X: vp.X, Y: vp.Y, Z: vp.Z},
 		})
 	})
 
@@ -376,6 +378,7 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 			pitch -= 360 // normalize
 		}
 
+		sp := e.Shooter.Position()
 		raw.WeaponFires = append(raw.WeaponFires, model.RawWeaponFire{
 			Tick:        p.GameState().IngameTick(),
 			RoundNumber: roundNumber,
@@ -383,6 +386,7 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 			Weapon:      e.Weapon.Type.String(),
 			PitchDeg:    pitch,
 			YawDeg:      yaw,
+			AttackerPos: model.Vec3{X: sp.X, Y: sp.Y, Z: sp.Z},
 		})
 	})
 

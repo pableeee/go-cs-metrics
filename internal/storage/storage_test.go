@@ -110,6 +110,7 @@ func TestPlayerMatchStatsRoundTrip(t *testing.T) {
 			TotalDamage: 2500, UtilityDamage: 200, RoundsPlayed: 25,
 			OpeningKills: 4, OpeningDeaths: 2, TradeKills: 3, TradeDeaths: 1,
 			KASTRounds: 18, UnusedUtility: 5,
+			CrosshairEncounters: 12, CrosshairMedianDeg: 4.3, CrosshairPctUnder5: 58.3,
 		},
 		{
 			DemoHash: "h1", SteamID: 76561198000000002, Name: "Bob", Team: model.TeamT,
@@ -117,6 +118,7 @@ func TestPlayerMatchStatsRoundTrip(t *testing.T) {
 			TotalDamage: 1800, UtilityDamage: 0, RoundsPlayed: 25,
 			OpeningKills: 1, OpeningDeaths: 3, TradeKills: 1, TradeDeaths: 2,
 			KASTRounds: 12, UnusedUtility: 2,
+			CrosshairEncounters: 0, CrosshairMedianDeg: 0, CrosshairPctUnder5: 0,
 		},
 	}
 
@@ -147,6 +149,15 @@ func TestPlayerMatchStatsRoundTrip(t *testing.T) {
 	}
 	if alice.Team != model.TeamCT {
 		t.Errorf("Alice team: expected CT, got %v", alice.Team)
+	}
+	if alice.CrosshairEncounters != 12 {
+		t.Errorf("Alice CrosshairEncounters: want 12, got %d", alice.CrosshairEncounters)
+	}
+	if alice.CrosshairMedianDeg != 4.3 {
+		t.Errorf("Alice CrosshairMedianDeg: want 4.3, got %f", alice.CrosshairMedianDeg)
+	}
+	if alice.CrosshairPctUnder5 != 58.3 {
+		t.Errorf("Alice CrosshairPctUnder5: want 58.3, got %f", alice.CrosshairPctUnder5)
 	}
 }
 

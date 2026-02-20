@@ -162,7 +162,7 @@ func runFetch(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		matchStats, roundStats, weaponStats, err := aggregator.Aggregate(raw)
+		matchStats, roundStats, weaponStats, duelSegs, err := aggregator.Aggregate(raw)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  [error] aggregate: %v\n", err)
 			continue
@@ -192,6 +192,9 @@ func runFetch(cmd *cobra.Command, args []string) error {
 		}
 		if err := db.InsertPlayerWeaponStats(weaponStats); err != nil {
 			return fmt.Errorf("insert weapon stats: %w", err)
+		}
+		if err := db.InsertPlayerDuelSegments(duelSegs); err != nil {
+			return fmt.Errorf("insert duel segments: %w", err)
 		}
 
 		fmt.Printf("  stored: %d players, %d rounds\n", len(matchStats), len(raw.Rounds))

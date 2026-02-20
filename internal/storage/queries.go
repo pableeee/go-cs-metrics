@@ -271,6 +271,71 @@ func (db *DB) GetPlayerWeaponStats(demoHash string) ([]model.PlayerWeaponStats, 
 	return out, rows.Err()
 }
 
+// InsertPlayerDuelSegments bulk-inserts FHHS segments in a transaction.
+func (db *DB) InsertPlayerDuelSegments(segs []model.PlayerDuelSegment) error {
+	if len(segs) == 0 {
+		return nil
+	}
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+		INSERT OR REPLACE INTO player_duel_segments(
+			demo_hash, steam_id, weapon_bucket, distance_bin,
+			duel_count, first_hit_count, first_hit_hs_count,
+			median_corr_deg, median_sight_deg, median_expo_win_ms
+		) VALUES (?,?,?,?,?,?,?,?,?,?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, s := range segs {
+		_, err = stmt.Exec(
+			s.DemoHash, strconv.FormatUint(s.SteamID, 10), s.WeaponBucket, s.DistanceBin,
+			s.DuelCount, s.FirstHitCount, s.FirstHitHSCount,
+			s.MedianCorrDeg, s.MedianSightDeg, s.MedianExpoWinMs,
+		)
+		if err != nil {
+			return fmt.Errorf("insert player_duel_segments for %d/%s/%s: %w", s.SteamID, s.WeaponBucket, s.DistanceBin, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// GetPlayerDuelSegments returns all FHHS segments for a demo hash.
+func (db *DB) GetPlayerDuelSegments(demoHash string) ([]model.PlayerDuelSegment, error) {
+	rows, err := db.conn.Query(`
+		SELECT steam_id, weapon_bucket, distance_bin,
+		       duel_count, first_hit_count, first_hit_hs_count,
+		       median_corr_deg, median_sight_deg, median_expo_win_ms
+		FROM player_duel_segments WHERE demo_hash = ?`, demoHash)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []model.PlayerDuelSegment
+	for rows.Next() {
+		var s model.PlayerDuelSegment
+		var steamIDStr string
+		if err := rows.Scan(
+			&steamIDStr, &s.WeaponBucket, &s.DistanceBin,
+			&s.DuelCount, &s.FirstHitCount, &s.FirstHitHSCount,
+			&s.MedianCorrDeg, &s.MedianSightDeg, &s.MedianExpoWinMs,
+		); err != nil {
+			return nil, err
+		}
+		s.DemoHash = demoHash
+		s.SteamID, _ = strconv.ParseUint(steamIDStr, 10, 64)
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 func boolInt(b bool) int {
 	if b {
 		return 1

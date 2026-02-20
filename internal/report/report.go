@@ -3,7 +3,9 @@ package report
 import (
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"sort"
 	"strconv"
 
 	"github.com/olekukonko/tablewriter"
@@ -172,6 +174,198 @@ func PrintAWPTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uin
 		)
 	}
 	table.Render()
+}
+
+// binOrder returns a sort key for distance bin strings (ascending distance).
+func binOrder(bin string) int {
+	switch bin {
+	case "0-5m":
+		return 0
+	case "5-10m":
+		return 1
+	case "10-15m":
+		return 2
+	case "15-20m":
+		return 3
+	case "20-30m":
+		return 4
+	case "30m+":
+		return 5
+	default:
+		return 6
+	}
+}
+
+// bucketOrder returns a sort key for weapon bucket strings.
+func bucketOrder(bucket string) int {
+	switch bucket {
+	case "AK":
+		return 0
+	case "M4":
+		return 1
+	case "Galil":
+		return 2
+	case "FAMAS":
+		return 3
+	case "ScopedRifle":
+		return 4
+	case "AWP":
+		return 5
+	case "Scout":
+		return 6
+	case "Deagle":
+		return 7
+	case "Pistol":
+		return 8
+	default:
+		return 9
+	}
+}
+
+func sampleFlag(n int) string {
+	switch {
+	case n >= 50:
+		return "OK"
+	case n >= 20:
+		return "LOW"
+	default:
+		return "VERY_LOW"
+	}
+}
+
+func isRifleBucket(b string) bool {
+	return b == "AK" || b == "M4" || b == "Galil" || b == "FAMAS" || b == "ScopedRifle"
+}
+
+func isMidRangeBin(b string) bool {
+	return b == "10-15m" || b == "15-20m" || b == "20-30m"
+}
+
+// PrintFHHSTable prints the First-Hit Headshot Rate segmented by weapon + distance.
+// Priority bins (high sample, low FHHS relative to overall, mid-range rifle) are marked with "*".
+// If focusSteamID is non-zero, only rows for that player are shown.
+func PrintFHHSTable(w io.Writer, segs []model.PlayerDuelSegment, players []model.PlayerMatchStats, focusSteamID uint64) {
+	// Build name and overall-FHHS lookup.
+	nameByID := make(map[uint64]string, len(players))
+	overallFHHS := make(map[uint64]float64, len(players))
+	for _, p := range players {
+		nameByID[p.SteamID] = p.Name
+		overallFHHS[p.SteamID] = p.FirstHitHSRate
+	}
+
+	// Filter segments.
+	var relevant []model.PlayerDuelSegment
+	for _, s := range segs {
+		if focusSteamID != 0 && s.SteamID != focusSteamID {
+			continue
+		}
+		relevant = append(relevant, s)
+	}
+	if len(relevant) == 0 {
+		return
+	}
+
+	// Sort: by player SteamID, then weapon bucket, then distance bin.
+	sort.Slice(relevant, func(i, j int) bool {
+		a, b := relevant[i], relevant[j]
+		if a.SteamID != b.SteamID {
+			return a.SteamID < b.SteamID
+		}
+		oa, ob := bucketOrder(a.WeaponBucket), bucketOrder(b.WeaponBucket)
+		if oa != ob {
+			return oa < ob
+		}
+		return binOrder(a.DistanceBin) < binOrder(b.DistanceBin)
+	})
+
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row: tw.CellConfig{
+			Alignment: tw.CellAlignment{Global: tw.AlignRight},
+		},
+		Header: tw.CellConfig{
+			Alignment: tw.CellAlignment{Global: tw.AlignCenter},
+		},
+	}))
+	table.Header(" ", "PLAYER", "WEAPON", "DISTANCE", "N(hits)", "FHHS%", "95% CI", "MED_CORR", "FLAG")
+
+	var priorityLines []string
+
+	for _, s := range relevant {
+		fhhs := 0.0
+		if s.FirstHitCount > 0 {
+			fhhs = float64(s.FirstHitHSCount) / float64(s.FirstHitCount) * 100
+		}
+
+		fhhsStr := "—"
+		ciStr := "—"
+		if s.FirstHitCount > 0 {
+			fhhsStr = fmt.Sprintf("%.0f%%", fhhs)
+			lo, hi := wilsonCI(s.FirstHitHSCount, s.FirstHitCount)
+			ciStr = fmt.Sprintf("%.0f–%.0f%%", lo*100, hi*100)
+		}
+
+		corrStr := "—"
+		if s.MedianCorrDeg > 0 {
+			corrStr = fmt.Sprintf("%.1f°", s.MedianCorrDeg)
+		}
+
+		flag := sampleFlag(s.FirstHitCount)
+		overall := overallFHHS[s.SteamID]
+		isPriority := s.FirstHitCount >= 50 &&
+			fhhs < overall-6.0 &&
+			isRifleBucket(s.WeaponBucket) &&
+			isMidRangeBin(s.DistanceBin)
+
+		marker := " "
+		if isPriority {
+			marker = "*"
+			name := nameByID[s.SteamID]
+			priorityLines = append(priorityLines,
+				fmt.Sprintf("%s %s@%s is your weakest stable bin: %.0f%% FHHS (N=%d).",
+					name, s.WeaponBucket, s.DistanceBin, fhhs, s.FirstHitCount))
+		}
+
+		name := nameByID[s.SteamID]
+		if name == "" {
+			name = strconv.FormatUint(s.SteamID, 10)
+		}
+
+		table.Append(
+			marker,
+			name,
+			s.WeaponBucket,
+			s.DistanceBin,
+			strconv.Itoa(s.FirstHitCount),
+			fhhsStr,
+			ciStr,
+			corrStr,
+			flag,
+		)
+	}
+	table.Render()
+
+	if len(priorityLines) > 0 {
+		fmt.Fprintln(w, "\nPriority bins:")
+		for _, line := range priorityLines {
+			fmt.Fprintf(w, "  * %s\n", line)
+		}
+		fmt.Fprintln(w)
+	}
+}
+
+// wilsonCI computes the 95% Wilson score confidence interval for a proportion.
+// Returns (lo, hi) as fractions in [0, 1].
+func wilsonCI(hits, n int) (lo, hi float64) {
+	if n == 0 {
+		return 0, 1
+	}
+	z := 1.96
+	p := float64(hits) / float64(n)
+	nf := float64(n)
+	denom := 1 + z*z/nf
+	center := (p + z*z/(2*nf)) / denom
+	half := z * math.Sqrt(p*(1-p)/nf+z*z/(4*nf*nf)) / denom
+	return math.Max(0, center-half), math.Min(1, center+half)
 }
 
 // PrintWeaponTable prints a per-weapon breakdown table.

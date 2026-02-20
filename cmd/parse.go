@@ -63,7 +63,7 @@ func runParse(cmd *cobra.Command, args []string) error {
 		return showByHash(db, raw.DemoHash)
 	}
 
-	matchStats, roundStats, weaponStats, err := aggregator.Aggregate(raw)
+	matchStats, roundStats, weaponStats, duelSegs, err := aggregator.Aggregate(raw)
 	if err != nil {
 		return fmt.Errorf("aggregate: %w", err)
 	}
@@ -94,11 +94,15 @@ func runParse(cmd *cobra.Command, args []string) error {
 	if err := db.InsertPlayerWeaponStats(weaponStats); err != nil {
 		return fmt.Errorf("insert weapon stats: %w", err)
 	}
+	if err := db.InsertPlayerDuelSegments(duelSegs); err != nil {
+		return fmt.Errorf("insert duel segments: %w", err)
+	}
 
 	report.PrintMatchSummary(os.Stdout, summary)
 	report.PrintPlayerTable(matchStats, playerSteamID)
 	report.PrintDuelTable(os.Stdout, matchStats, playerSteamID)
 	report.PrintAWPTable(os.Stdout, matchStats, playerSteamID)
+	report.PrintFHHSTable(os.Stdout, duelSegs, matchStats, playerSteamID)
 	report.PrintWeaponTable(os.Stdout, weaponStats, matchStats, playerSteamID)
 	return nil
 }
@@ -128,10 +132,15 @@ func showByHash(db *storage.DB, hash string) error {
 	if err != nil {
 		return err
 	}
+	duelSegs, err := db.GetPlayerDuelSegments(hash)
+	if err != nil {
+		return err
+	}
 	report.PrintMatchSummary(os.Stdout, *demo)
 	report.PrintPlayerTable(stats, playerSteamID)
 	report.PrintDuelTable(os.Stdout, stats, playerSteamID)
 	report.PrintAWPTable(os.Stdout, stats, playerSteamID)
+	report.PrintFHHSTable(os.Stdout, duelSegs, stats, playerSteamID)
 	report.PrintWeaponTable(os.Stdout, weaponStats, stats, playerSteamID)
 	return nil
 }

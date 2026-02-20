@@ -83,3 +83,17 @@ CREATE TABLE IF NOT EXISTS player_weapon_stats (
     hits           INTEGER NOT NULL DEFAULT 0,
     UNIQUE(demo_hash, steam_id, weapon)
 );
+
+CREATE TABLE IF NOT EXISTS player_duel_segments (
+    demo_hash          TEXT NOT NULL REFERENCES demos(hash),
+    steam_id           TEXT NOT NULL,
+    weapon_bucket      TEXT NOT NULL,
+    distance_bin       TEXT NOT NULL,
+    duel_count         INTEGER NOT NULL DEFAULT 0,
+    first_hit_count    INTEGER NOT NULL DEFAULT 0,
+    first_hit_hs_count INTEGER NOT NULL DEFAULT 0,
+    median_corr_deg    REAL    NOT NULL DEFAULT 0,
+    median_sight_deg   REAL    NOT NULL DEFAULT 0,
+    median_expo_win_ms REAL    NOT NULL DEFAULT 0,
+    UNIQUE(demo_hash, steam_id, weapon_bucket, distance_bin)
+);

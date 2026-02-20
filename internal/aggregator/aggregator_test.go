@@ -85,7 +85,7 @@ func TestTradeKill_ExactlyAtWindow(t *testing.T) {
 	kills, round := buildTradeScenario(deltaTicks)
 	raw := makeRaw(kills, []model.RawRound{round})
 
-	matchStats, roundStats, _, err := Aggregate(raw)
+	matchStats, roundStats, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestTradeKill_JustOverWindow(t *testing.T) {
 	kills, round := buildTradeScenario(deltaTicks)
 	raw := makeRaw(kills, []model.RawRound{round})
 
-	_, roundStats, _, err := Aggregate(raw)
+	_, roundStats, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestTradeKill_DoesNotCrossRounds(t *testing.T) {
 	r2 := makeRound(2, 5005, []uint64{playerB, playerC}, map[uint64]bool{playerC: true})
 
 	raw := makeRaw([]model.RawKill{k1, k2}, []model.RawRound{r1, r2})
-	_, roundStats, _, err := Aggregate(raw)
+	_, roundStats, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestKAST_Survived(t *testing.T) {
 	)
 	raw := makeRaw([]model.RawKill{k1}, []model.RawRound{round})
 
-	matchStats, roundStats, _, err := Aggregate(raw)
+	matchStats, roundStats, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestKAST_Traded(t *testing.T) {
 	kills, round := buildTradeScenario(deltaTicks)
 	raw := makeRaw(kills, []model.RawRound{round})
 
-	matchStats, roundStats, _, err := Aggregate(raw)
+	matchStats, roundStats, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestOpeningKill(t *testing.T) {
 		},
 	}
 
-	_, roundStats, _, err := Aggregate(raw)
+	_, roundStats, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestCrosshairAggregation(t *testing.T) {
 	raw.PlayerNames[playerA] = "A"
 	raw.PlayerNames[playerB] = "B"
 
-	matchStats, _, _, err := Aggregate(raw)
+	matchStats, _, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestCrosshairAggregation_NoData(t *testing.T) {
 	raw.PlayerNames[playerB] = "B"
 	// No FirstSights.
 
-	matchStats, _, _, err := Aggregate(raw)
+	matchStats, _, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -382,7 +382,7 @@ func TestDuelEngine_BasicWin(t *testing.T) {
 		{Tick: sightTick, RoundNumber: 1, ObserverID: playerA, EnemyID: playerB, AngleDeg: 2.0},
 	}
 
-	matchStats, _, _, err := Aggregate(raw)
+	matchStats, _, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -407,6 +407,129 @@ func TestDuelEngine_BasicWin(t *testing.T) {
 	}
 }
 
+// ---- FHHS segment tests ----
+
+// TestWeaponBucket: weapon names map to expected buckets.
+func TestWeaponBucket(t *testing.T) {
+	cases := []struct {
+		weapon string
+		want   string
+	}{
+		{"AK-47", "AK"},
+		{"M4A1-S", "M4"},
+		{"M4A4", "M4"},
+		{"Galil AR", "Galil"},
+		{"FAMAS", "FAMAS"},
+		{"AUG", "ScopedRifle"},
+		{"SG 553", "ScopedRifle"},
+		{"AWP", "AWP"},
+		{"SSG 08", "Scout"},
+		{"Desert Eagle", "Deagle"},
+		{"Glock-18", "Pistol"},
+		{"USP-S", "Pistol"},
+		{"P250", "Pistol"},
+		{"knife", "Other"},
+	}
+	for _, c := range cases {
+		got := weaponBucket(c.weapon)
+		if got != c.want {
+			t.Errorf("weaponBucket(%q): want %q, got %q", c.weapon, c.want, got)
+		}
+	}
+}
+
+// TestDistanceBin: distance values map to correct bins, including edge cases.
+func TestDistanceBin(t *testing.T) {
+	cases := []struct {
+		m    float64
+		want string
+	}{
+		{-1.0, "unknown"},
+		{0.0, "0-5m"},
+		{4.99, "0-5m"},
+		{5.0, "5-10m"},
+		{9.99, "5-10m"},
+		{10.0, "10-15m"},
+		{14.99, "10-15m"},
+		{15.0, "15-20m"},
+		{19.99, "15-20m"},
+		{20.0, "20-30m"},
+		{29.99, "20-30m"},
+		{30.0, "30m+"},
+		{100.0, "30m+"},
+	}
+	for _, c := range cases {
+		got := distanceBin(c.m)
+		if got != c.want {
+			t.Errorf("distanceBin(%.2f): want %q, got %q", c.m, c.want, got)
+		}
+	}
+}
+
+// TestFHHSSegment: a duel with head-hit damage and a weapon fire with position
+// produces a PlayerDuelSegment with correct counts and distance bin.
+func TestFHHSSegment(t *testing.T) {
+	sightTick := 1000
+	fireTick := 1050
+	hurtTick := 1060
+	killTick := 1100
+
+	k1 := model.RawKill{
+		Tick: killTick, RoundNumber: 1,
+		KillerSteamID: playerA, VictimSteamID: playerB,
+		KillerTeam: model.TeamT, VictimTeam: model.TeamCT,
+		Weapon: "AK-47", IsHeadshot: true,
+	}
+	round := makeRound(1, 500, []uint64{playerA, playerB}, map[uint64]bool{playerA: true})
+	raw := makeRaw([]model.RawKill{k1}, []model.RawRound{round})
+
+	// Attacker at origin; victim 1000 units away in X → ~19.05m → "15-20m".
+	raw.Damages = []model.RawDamage{
+		{
+			Tick: hurtTick, RoundNumber: 1,
+			AttackerSteamID: playerA, VictimSteamID: playerB,
+			AttackerTeam: model.TeamT,
+			HealthDamage: 100, Weapon: "AK-47", HitGroup: "head",
+			VictimPos: model.Vec3{X: 1000, Y: 0, Z: 0},
+		},
+	}
+	raw.WeaponFires = []model.RawWeaponFire{
+		{
+			Tick: fireTick, RoundNumber: 1,
+			ShooterID: playerA, Weapon: "AK-47",
+			AttackerPos: model.Vec3{X: 0, Y: 0, Z: 0},
+		},
+	}
+	raw.FirstSights = []model.RawFirstSight{
+		{Tick: sightTick, RoundNumber: 1, ObserverID: playerA, EnemyID: playerB, AngleDeg: 2.0},
+	}
+
+	_, _, _, segs, err := Aggregate(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Find the segment for (playerA, "AK", "15-20m").
+	var found *model.PlayerDuelSegment
+	for i := range segs {
+		if segs[i].SteamID == playerA && segs[i].WeaponBucket == "AK" && segs[i].DistanceBin == "15-20m" {
+			found = &segs[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("segment (playerA, AK, 15-20m) not found; all segments: %+v", segs)
+	}
+	if found.DuelCount != 1 {
+		t.Errorf("DuelCount: want 1, got %d", found.DuelCount)
+	}
+	if found.FirstHitCount != 1 {
+		t.Errorf("FirstHitCount: want 1, got %d", found.FirstHitCount)
+	}
+	if found.FirstHitHSCount != 1 {
+		t.Errorf("FirstHitHSCount: want 1, got %d", found.FirstHitHSCount)
+	}
+}
+
 // TestADR_Basic: damage is correctly rolled into ADR.
 func TestADR_Basic(t *testing.T) {
 	k1 := model.RawKill{
@@ -422,7 +545,7 @@ func TestADR_Basic(t *testing.T) {
 			AttackerTeam: model.TeamT, HealthDamage: 75},
 	}
 
-	matchStats, _, _, err := Aggregate(raw)
+	matchStats, _, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

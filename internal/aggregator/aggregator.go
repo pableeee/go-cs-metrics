@@ -8,10 +8,75 @@ import (
 	"github.com/pable/go-cs-metrics/internal/model"
 )
 
-// Aggregate computes PlayerMatchStats, PlayerRoundStats, and PlayerWeaponStats from a RawMatch.
-func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRoundStats, []model.PlayerWeaponStats, error) {
+const unitsToMeters = 0.01905
+
+// weaponBucket maps a weapon name (as returned by demoinfocs .String()) to a broad bucket.
+func weaponBucket(weapon string) string {
+	switch weapon {
+	case "AK-47":
+		return "AK"
+	case "M4A1-S", "M4A4":
+		return "M4"
+	case "Galil AR":
+		return "Galil"
+	case "FAMAS":
+		return "FAMAS"
+	case "AUG", "SG 553":
+		return "ScopedRifle"
+	case "AWP":
+		return "AWP"
+	case "SSG 08":
+		return "Scout"
+	case "Desert Eagle":
+		return "Deagle"
+	case "USP-S", "Glock-18", "P250", "Five-SeveN", "Tec-9", "CZ75 Auto", "P2000", "Dual Berettas", "R8 Revolver":
+		return "Pistol"
+	default:
+		return "Other"
+	}
+}
+
+// distanceBin converts a distance in meters to a named bin string.
+// A negative value (unknown distance) returns "unknown".
+func distanceBin(meters float64) string {
+	if meters < 0 {
+		return "unknown"
+	}
+	switch {
+	case meters < 5:
+		return "0-5m"
+	case meters < 10:
+		return "5-10m"
+	case meters < 15:
+		return "10-15m"
+	case meters < 20:
+		return "15-20m"
+	case meters < 30:
+		return "20-30m"
+	default:
+		return "30m+"
+	}
+}
+
+// wilsonCI computes the 95% Wilson score confidence interval for a proportion.
+// Returns (lo, hi) as fractions in [0, 1].
+func wilsonCI(hits, n int) (lo, hi float64) {
+	if n == 0 {
+		return 0, 1
+	}
+	z := 1.96
+	p := float64(hits) / float64(n)
+	nf := float64(n)
+	denom := 1 + z*z/nf
+	center := (p + z*z/(2*nf)) / denom
+	half := z * math.Sqrt(p*(1-p)/nf+z*z/(4*nf*nf)) / denom
+	return math.Max(0, center-half), math.Min(1, center+half)
+}
+
+// Aggregate computes PlayerMatchStats, PlayerRoundStats, PlayerWeaponStats, and PlayerDuelSegments from a RawMatch.
+func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRoundStats, []model.PlayerWeaponStats, []model.PlayerDuelSegment, error) {
 	if raw == nil {
-		return nil, nil, nil, fmt.Errorf("nil RawMatch")
+		return nil, nil, nil, nil, fmt.Errorf("nil RawMatch")
 	}
 
 	tradeWindowTicks := int(5.0 * raw.TicksPerSecond)
@@ -553,6 +618,22 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		return duelAccums[id]
 	}
 
+	// Segment accumulators: per (player, weapon_bucket, distance_bin).
+	type segKey struct {
+		playerID uint64
+		bucket   string
+		bin      string
+	}
+	type segAccum struct {
+		duelCount       int
+		firstHitCount   int
+		firstHitHSCount int
+		corrDegs        []float64
+		sightDegs       []float64
+		expoWinMs       []float64
+	}
+	segAccums := make(map[segKey]*segAccum)
+
 	tps := raw.TicksPerSecond
 	if tps == 0 {
 		tps = 64.0
@@ -570,12 +651,14 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			sightTick := fs.Tick
 			winMs := float64(killTick-sightTick) / tps * 1000
 
-			// Count hits from killer→victim in [sightTick, killTick].
+			// Count hits from killer→victim in [sightTick, killTick]; capture victim position from first hit.
 			dmgKey := duelDmgKey{rn, killerID, victimID}
 			damages := duelDmgIdx[dmgKey]
 			hits := 0
 			firstHitHS := false
 			firstHitCounted := false
+			victimPos := model.Vec3{}
+			victimPosSet := false
 			for _, d := range damages {
 				if d.Tick < sightTick || d.Tick > killTick {
 					continue
@@ -583,6 +666,8 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 				if !firstHitCounted {
 					firstHitHS = d.HitGroup == "head"
 					firstHitCounted = true
+					victimPos = d.VictimPos
+					victimPosSet = true
 				}
 				hits++
 			}
@@ -597,15 +682,51 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 				}
 			}
 
-			// Pre-shot correction: angle between observer's view at first-sight and at first shot.
+			// Pre-shot correction and attacker position from first weapon fire in window.
 			wfList := wfIdx[wfKey{killerID, rn}]
+			corrDeg := 0.0
+			corrComputed := false
+			attackerPos := model.Vec3{}
+			attackerPosSet := false
 			for _, wf := range wfList {
 				if wf.Tick < sightTick || wf.Tick > killTick {
 					continue
 				}
-				corrDeg := angularDeltaDeg(fs.ObserverPitchDeg, fs.ObserverYawDeg, wf.PitchDeg, wf.YawDeg)
+				corrDeg = angularDeltaDeg(fs.ObserverPitchDeg, fs.ObserverYawDeg, wf.PitchDeg, wf.YawDeg)
+				corrComputed = true
 				acc.correctionDegs = append(acc.correctionDegs, corrDeg)
+				attackerPos = wf.AttackerPos
+				attackerPosSet = true
 				break
+			}
+
+			// Compute distance and segment.
+			distM := -1.0
+			if attackerPosSet && victimPosSet {
+				dx := attackerPos.X - victimPos.X
+				dy := attackerPos.Y - victimPos.Y
+				dz := attackerPos.Z - victimPos.Z
+				distM = math.Sqrt(dx*dx+dy*dy+dz*dz) * unitsToMeters
+			}
+			bucket := weaponBucket(kill.Weapon)
+			bin := distanceBin(distM)
+
+			sk2 := segKey{killerID, bucket, bin}
+			if segAccums[sk2] == nil {
+				segAccums[sk2] = &segAccum{}
+			}
+			sa := segAccums[sk2]
+			sa.duelCount++
+			sa.sightDegs = append(sa.sightDegs, fs.AngleDeg)
+			sa.expoWinMs = append(sa.expoWinMs, winMs)
+			if firstHitCounted {
+				sa.firstHitCount++
+				if firstHitHS {
+					sa.firstHitHSCount++
+				}
+			}
+			if corrComputed {
+				sa.corrDegs = append(sa.corrDegs, corrDeg)
 			}
 		}
 
@@ -662,6 +783,26 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			}
 			matchStats[i].PctCorrectionUnder2Deg = float64(under2) / float64(len(acc.correctionDegs)) * 100
 		}
+	}
+
+	// Convert segment accumulators to []PlayerDuelSegment.
+	var duelSegments []model.PlayerDuelSegment
+	for k, sa := range segAccums {
+		sort.Float64s(sa.corrDegs)
+		sort.Float64s(sa.sightDegs)
+		sort.Float64s(sa.expoWinMs)
+		duelSegments = append(duelSegments, model.PlayerDuelSegment{
+			DemoHash:        raw.DemoHash,
+			SteamID:         k.playerID,
+			WeaponBucket:    k.bucket,
+			DistanceBin:     k.bin,
+			DuelCount:       sa.duelCount,
+			FirstHitCount:   sa.firstHitCount,
+			FirstHitHSCount: sa.firstHitHSCount,
+			MedianCorrDeg:   median(sa.corrDegs),
+			MedianSightDeg:  median(sa.sightDegs),
+			MedianExpoWinMs: median(sa.expoWinMs),
+		})
 	}
 
 	// ---- Pass 7: AWP Death Classifier ----
@@ -770,7 +911,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		matchStats[i].EffectiveFlashes = effectiveFlashAccum[matchStats[i].SteamID]
 	}
 
-	return matchStats, allRoundStats, weaponStats, nil
+	return matchStats, allRoundStats, weaponStats, duelSegments, nil
 }
 
 // median returns the median of a pre-sorted (ascending) slice of float64.
