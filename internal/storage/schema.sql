@@ -1,0 +1,65 @@
+CREATE TABLE IF NOT EXISTS demos (
+    hash        TEXT PRIMARY KEY,
+    map_name    TEXT NOT NULL,
+    match_date  TEXT NOT NULL,
+    match_type  TEXT NOT NULL,
+    tickrate    REAL NOT NULL,
+    ct_score    INTEGER NOT NULL DEFAULT 0,
+    t_score     INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS player_match_stats (
+    demo_hash       TEXT NOT NULL REFERENCES demos(hash),
+    steam_id        TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    team            TEXT NOT NULL,
+    kills           INTEGER NOT NULL DEFAULT 0,
+    assists         INTEGER NOT NULL DEFAULT 0,
+    deaths          INTEGER NOT NULL DEFAULT 0,
+    headshot_kills  INTEGER NOT NULL DEFAULT 0,
+    flash_assists   INTEGER NOT NULL DEFAULT 0,
+    total_damage    INTEGER NOT NULL DEFAULT 0,
+    utility_damage  INTEGER NOT NULL DEFAULT 0,
+    rounds_played   INTEGER NOT NULL DEFAULT 0,
+    opening_kills   INTEGER NOT NULL DEFAULT 0,
+    opening_deaths  INTEGER NOT NULL DEFAULT 0,
+    trade_kills     INTEGER NOT NULL DEFAULT 0,
+    trade_deaths    INTEGER NOT NULL DEFAULT 0,
+    kast_rounds     INTEGER NOT NULL DEFAULT 0,
+    unused_utility  INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(demo_hash, steam_id)
+);
+
+CREATE TABLE IF NOT EXISTS player_round_stats (
+    demo_hash       TEXT NOT NULL REFERENCES demos(hash),
+    steam_id        TEXT NOT NULL,
+    round_number    INTEGER NOT NULL,
+    team            TEXT NOT NULL,
+    got_kill        INTEGER NOT NULL DEFAULT 0,
+    got_assist      INTEGER NOT NULL DEFAULT 0,
+    survived        INTEGER NOT NULL DEFAULT 0,
+    was_traded      INTEGER NOT NULL DEFAULT 0,
+    kast_earned     INTEGER NOT NULL DEFAULT 0,
+    is_opening_kill  INTEGER NOT NULL DEFAULT 0,
+    is_opening_death INTEGER NOT NULL DEFAULT 0,
+    is_trade_kill    INTEGER NOT NULL DEFAULT 0,
+    is_trade_death   INTEGER NOT NULL DEFAULT 0,
+    kills           INTEGER NOT NULL DEFAULT 0,
+    assists         INTEGER NOT NULL DEFAULT 0,
+    damage          INTEGER NOT NULL DEFAULT 0,
+    unused_utility  INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(demo_hash, steam_id, round_number)
+);
+
+CREATE TABLE IF NOT EXISTS player_weapon_stats (
+    demo_hash      TEXT NOT NULL REFERENCES demos(hash),
+    steam_id       TEXT NOT NULL,
+    weapon         TEXT NOT NULL,
+    kills          INTEGER NOT NULL DEFAULT 0,
+    headshot_kills INTEGER NOT NULL DEFAULT 0,
+    assists        INTEGER NOT NULL DEFAULT 0,
+    deaths         INTEGER NOT NULL DEFAULT 0,
+    damage         INTEGER NOT NULL DEFAULT 0,
+    hits           INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(demo_hash, steam_id, weapon)
+);
