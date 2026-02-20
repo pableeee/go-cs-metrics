@@ -1,5 +1,9 @@
 # Build output
 go-cs-metrics
+go-cs-metrics.exe
+
+# Private / local analysis notes
+.mine/
 
 # SQLite databases
 *.db

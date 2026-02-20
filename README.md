@@ -15,6 +15,7 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
   - [list](#list)
   - [show](#show)
   - [fetch](#fetch)
+  - [player](#player)
 - [Metric Definitions](#metric-definitions)
   - [General](#general)
   - [Entry Frags](#entry-frags)
@@ -41,6 +42,8 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
 
 - **Full demo parsing** — tick-level event extraction using [`demoinfocs-golang`](https://github.com/markus-wa/demoinfocs-golang): kills, damage, flashes, weapon fires, spotted-flag transitions.
 - **Rich metric suite** — K/D/A, ADR, KAST, HS%, entry frags, trade kills/deaths, utility damage, unused utility, flash assists, flash quality, crosshair placement, duel engine (exposure time, hits-to-kill, pre-shot correction), AWP death classification.
+- **FHHS breakdown** — first-hit headshot rate segmented by weapon bucket and distance bin, with Wilson 95% CI and automatic priority bin detection.
+- **Cross-match player analysis** — `player` command aggregates stats across all stored demos for one or more SteamID64s, producing a full overview + duel + AWP + FHHS report per player.
 - **Per-weapon breakdown** — kills, HS%, assists, deaths, damage, hits, damage-per-hit per weapon per player.
 - **Idempotent ingestion** — demos are SHA-256 hashed; re-parsing the same file is a no-op.
 - **SQLite storage** — portable single-file database at `~/.csmetrics/metrics.db`; no server required.
@@ -92,6 +95,12 @@ The binary is named `go-cs-metrics` (or `csmetrics` if you install via `go insta
 # 5. Fetch FACEIT baselines
 ./go-cs-metrics fetch --player EvilMacri --count 10 --tier faceit-2
 ./go-cs-metrics fetch --player <level5-nickname> --level 5 --map de_mirage --count 20 --tier faceit-5
+
+# 6. Cross-match analysis for a player (all stored demos)
+./go-cs-metrics player 76561198031906602
+
+# 7. Compare two players side-by-side
+./go-cs-metrics player 76561198031906602 76561198012345678
 ```
 
 ---
@@ -129,7 +138,8 @@ Parse a `.dem` file, aggregate all metrics, and store the results. If the demo w
 2. **Player stats** — K/A/D, K/D, HS%, ADR, KAST%, entry kills/deaths, trade kills/deaths, flash assists, effective flashes, utility damage, crosshair median angle
 3. **Duel engine** — duel wins/losses, median exposure time on wins and losses, median hits-to-kill, first-bullet HS rate, pre-shot correction angle and % under 2°
 4. **AWP death classifier** — total AWP deaths, % dry-peek, % re-peek, % isolated
-5. **Weapon breakdown** — per-weapon kills, HS%, assists, deaths, damage, hits, damage-per-hit (filtered to `--player` if specified)
+5. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample flags (OK/LOW/VERY_LOW), priority bins marked `*`
+6. **Weapon breakdown** — per-weapon kills, HS%, assists, deaths, damage, hits, damage-per-hit (filtered to `--player` if specified)
 
 **Example:**
 
@@ -237,6 +247,46 @@ Player: somePlayer  level=5  ELO=1247  region=EU
 
 Done: 10/10 matches ingested (tier="faceit-5", is_baseline=true)
 ```
+
+---
+
+### player
+
+Aggregate all stored demo data for one or more SteamID64s and print a full cross-match performance report. Each player gets a sequential report with four tables.
+
+```
+./go-cs-metrics player <steamid64> [<steamid64>...] [flags]
+```
+
+**Output tables per player:**
+
+1. **Overview** — matches played, K/A/D, K/D, HS%, ADR, KAST%, entry kills/deaths, trade kills/deaths, flash assists, effective flashes
+2. **Duel profile** — duel wins/losses, average exposure time (win and loss), average hits-to-kill, average pre-shot correction
+3. **AWP breakdown** — total AWP deaths with dry-peek %, re-peek %, and isolated %
+4. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample quality flags, priority bins marked with `*`
+
+**Example:**
+
+```sh
+./go-cs-metrics player 76561198031906602
+```
+
+```
+=== EvilMacri (76561198031906602) — 38 matches ===
+
+ PLAYER     | MATCHES | K   | A   | D   | K/D  | HS%  | ADR   | KAST% | ...
+ EvilMacri  |      38 | 692 | 213 | 531 | 1.30 | 38%  | 116.5 |  77%  | ...
+
+ PLAYER     | W   | L   | AVG_EXPO_WIN | AVG_EXPO_LOSS | AVG_HITS/K | AVG_CORR
+ EvilMacri  | 592 | 531 |       799 ms |        392 ms |        2.3 |     2.4°
+
+...
+
+ BUCKET | DIST    | N  | FHHS  | 95% CI        | FLAG
+ AK   * | 10-15m  | 79 | 14.3% | [7.7%, 25.0%] | OK
+```
+
+Integer stats (kills, duels, etc.) are **summed** across matches. Float medians (exposure, correction) are **averaged** per match. FHHS is computed from raw count totals for accuracy.
 
 ---
 
@@ -511,7 +561,8 @@ Schema migrations run automatically at startup via `ALTER TABLE ... ADD COLUMN` 
                ▼
 ┌──────────────────────────────┐
 │  report (internal/report)    │  terminal tables via
-│  cmd/{parse,show,list,fetch} │  tablewriter, focus highlighting
+│  cmd/{parse,show,list,       │  tablewriter, focus highlighting
+│      fetch,player}           │
 └──────────────────────────────┘
 
 FACEIT baseline path:
@@ -529,7 +580,8 @@ FACEIT baseline path:
 │   ├── parse.go     # parse command
 │   ├── list.go      # list command
 │   ├── show.go      # show command
-│   └── fetch.go     # fetch command (FACEIT baseline download)
+│   ├── fetch.go     # fetch command (FACEIT baseline download)
+│   └── player.go    # player command (cross-match aggregate report)
 ├── internal/
 │   ├── model/       # data model structs (RawMatch, PlayerMatchStats, ...)
 │   ├── parser/      # demo parsing, crosshair angle computation

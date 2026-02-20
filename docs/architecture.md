@@ -16,7 +16,8 @@ go-cs-metrics/
 │   ├── parse.go                     # "parse <demo.dem>" — full pipeline
 │   ├── fetch.go                     # "fetch" — ingest FACEIT demos via API
 │   ├── list.go                      # "list" — tabulate stored demos
-│   └── show.go                      # "show <hash-prefix>" — replay stored match
+│   ├── show.go                      # "show <hash-prefix>" — replay stored match
+│   └── player.go                    # "player <steamid64>..." — cross-match aggregate
 └── internal/
     ├── model/model.go               # all shared types; no external deps
     ├── parser/parser.go             # .dem → RawMatch
@@ -93,6 +94,11 @@ The demo file is hashed before parsing. This hash becomes the primary key in the
 - `[]PlayerDuelSegment` — one row per player per (weapon_bucket, distance_bin) (FHHS breakdown).
 
 Storing all levels enables drill-down queries without re-parsing demos. Round-level data supports "show me all rounds where I had an opening kill but lost". Segment-level data supports "which weapon+distance combination has my lowest first-hit headshot rate".
+
+The `player` command adds a fifth derived type, `PlayerAggregate`, built in-memory from the above stored slices:
+- Integer stats are summed directly across matches.
+- Float medians (exposure, correction, hits-to-kill) are averaged across matches (approximate cross-demo signal).
+- FHHS segments are merged by (weapon_bucket, distance_bin), summing raw counts for an accurate aggregate rate.
 
 ### 3. Pure-Go SQLite (`modernc.org/sqlite`)
 
@@ -262,6 +268,7 @@ csmetrics parse match.dem [--player <steamid64>] [--type Label] [--tier Label] [
 csmetrics list
 csmetrics show <hash-prefix> [--player <steamid64>]
 csmetrics fetch [flags]
+csmetrics player <steamid64> [<steamid64>...]
 ```
 
 **Output order** for `parse` and `show`:
@@ -271,6 +278,13 @@ csmetrics fetch [flags]
 4. AWP table — AWP deaths with dry%/repeek%/isolated%
 5. FHHS table — first-hit HS rate by (weapon, distance bin) with Wilson 95% CI and sample flags; priority bins marked with `*` and summarised below the table
 6. Weapon table — per-weapon kills, HS%, damage, hits
+
+**Output order** for `player <steamid64>...` (one block per player):
+1. Header line — name, SteamID64, match count
+2. Overview table — K/A/D, K/D, HS%, ADR, KAST%, entry kills/deaths, trade kills/deaths, flash assists, effective flashes
+3. Duel profile — wins/losses, avg exposure win/loss ms, avg hits-to-kill, avg pre-shot correction
+4. AWP breakdown — total AWP deaths, dry%/repeek%/isolated%
+5. FHHS table — same format as parse/show but built from merged cross-demo segment counts (accurate aggregation)
 
 ---
 
@@ -323,4 +337,4 @@ Tests use an in-memory SQLite database (`:memory:`). Each test opens a fresh dat
 - **FHHS for losing duels**: `PlayerDuelSegment` only accumulates data from duels the player *won* (had a sight of the victim before the kill). FHHS for duels the player lost is not yet computed.
 - **Movement state segmentation** (standing/walking/running at first shot): Not implemented. Spec'd as a future extension in `docs/iteration-2.md`.
 - **Lateral velocity tracking** (Module 3): Excluded from implementation — unreliable at GOTV 32 Hz demo rate.
-- **Per-map segment queries**: No multi-demo aggregation view. Cross-match FHHS trends require manual SQL queries against the DB.
+- ~~**Per-map segment queries**: No multi-demo aggregation view.~~ The `player` command now aggregates stats and FHHS segments across all stored demos for a given SteamID64. Per-map filtering within that aggregate is not yet implemented.

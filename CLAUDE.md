@@ -8,8 +8,6 @@ A Go tool for parsing Counter-Strike 2 match demo files (`.dem`) and computing p
 
 ## Build & Test Commands
 
-Once implemented, standard Go tooling applies:
-
 ```sh
 go build ./...
 go test ./...
@@ -22,41 +20,56 @@ go vet ./...
 The processing pipeline has four stages:
 
 1. **Ingestion** — Accept a `.dem` file, compute its hash, and store it.
-2. **Parsing** — Convert the demo into structured, tick-based events.
-3. **Aggregation** — Compute metrics from events and persist them.
-4. **Presentation** — CLI output and/or local HTML report; later a lightweight web UI.
+2. **Parsing** — Convert the demo into structured, tick-based events (`RawMatch`).
+3. **Aggregation** — 8-pass algorithm producing `[]PlayerMatchStats`, `[]PlayerRoundStats`, `[]PlayerWeaponStats`, `[]PlayerDuelSegment`.
+4. **Presentation** — CLI output via `tablewriter`; storage is SQLite.
 
-Storage: **SQLite** for MVP (portable, no server); Postgres if multi-user later.
+Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.csmetrics/metrics.db`.
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `parse <demo.dem>` | Parse + store a demo; print all tables |
+| `list` | List all stored demos |
+| `show <hash-prefix>` | Re-display a stored demo's tables |
+| `fetch` | Download and ingest FACEIT baseline demos |
+| `player <steamid64>...` | Cross-match aggregate report for one or more players |
+
+All commands share `--db` to point at an alternate database.
 
 ## Data Model
 
-Core entities:
+Core types (all in `internal/model/model.go`):
 
-- **Demo**: file hash, map, date, match type, tickrate
-- **Match**: teams, score, rounds, players
-- **Round**: economy summary, ordered event list
-- **PlayerMatchStats**: aggregated metrics per player per match
-- **PlayerRoundStats**: per-round breakdown (enables drill-down)
-- **Event**: kill, damage, flash, grenade throw, bomb plant/defuse, etc.
+- **`PlayerMatchStats`** — aggregated metrics per player per demo (35+ columns)
+- **`PlayerRoundStats`** — per-round breakdown for drill-down
+- **`PlayerWeaponStats`** — per-weapon kill/damage breakdown
+- **`PlayerDuelSegment`** — FHHS counts per (weapon_bucket, distance_bin) per demo
+- **`PlayerAggregate`** — cross-demo sums/averages used by the `player` command
 
-## Metric Definitions
+## Aggregator: 8 Passes
 
-### MVP v1 (implement first)
+1. Trade annotation (backward + forward scan within 5 s window)
+2. Opening kills (first kill after `FreezeEndTick`)
+3. Per-round per-player stats
+4. Match-level rollup
+5. Crosshair placement (from `RawFirstSight` / `m_bSpottedByMask`)
+6. Duel engine + FHHS segments (exposure time, pre-shot correction, weapon+distance bins)
+7. AWP death classifier (dry/repeek/isolated)
+8. Flash quality window (effective flashes within 1.5 s)
 
-- **General**: K/A/D, K/D ratio, HS kill %, ADR
-- **Entry**: opening kill/death (first kill or first death of the round, split by side)
-- **Trades**: trade kill success (player kills the enemy who killed a teammate within a 3–5 s window); trade death success (player dies and teammate trades the killer within the window). Implement successes before "fail" metrics—fail requires opportunity modeling and is prone to false positives.
-- **Utility**: flash assists, enemies/friends flashed, average blind duration (enemy-only), utility damage (HE/molotov/incendiary), unused utility count at round end
+## Key Implementation Notes
 
-Use "Composite Rating (beta)" as the label for any aggregate score—do not call it "HLTV Rating" until it matches closely.
-
-### Phase 2 (aim metrics — defer)
-
-TTK, TTD, crosshair placement, counter-strafe %, headshot hit %, recoil control proxies. These require careful engineering and validation; see `scope.md §5.2`.
+- **SteamID64 stored as TEXT** — avoids signed integer overflow for IDs above `2^63`.
+- **`INSERT OR REPLACE`** everywhere — full idempotency; re-parsing the same demo hash is safe.
+- **Wilson CI** used for FHHS proportions (stable for small samples unlike Wald).
+- **Distance** computed as `||attackerPos − victimPos|| * 0.01905` (Hammer units → meters).
+- **`player` command aggregation**: integers summed directly; float medians averaged across matches (approximate); FHHS rate recomputed from raw segment count totals (accurate).
+- **Schema migrations**: no versioning yet — a DB rebuild (`rm metrics.db`) is required when the schema changes.
 
 ## Key Validation Rules
 
 - Total kills must match scoreboard kills.
 - ADR should roughly align with known sources for the same match.
-- Use golden demos (known matches with manually verified counts) as regression fixtures.
-- Unit-test trade logic thoroughly—the time-window and proximity heuristics are the most error-prone part of the aggregation layer.
+- Unit-test trade logic thoroughly — the time-window heuristics are the most error-prone part.
