@@ -176,6 +176,95 @@ func PrintAWPTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uin
 	table.Render()
 }
 
+// PrintPlayerAggregateOverview prints overall performance stats aggregated across all demos.
+func PrintPlayerAggregateOverview(w io.Writer, aggs []model.PlayerAggregate) {
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header("PLAYER", "MATCHES", "K", "A", "D", "K/D", "HS%", "ADR", "KAST%",
+		"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D", "FA", "EFF_FLASH")
+
+	for _, a := range aggs {
+		table.Append(
+			a.Name,
+			strconv.Itoa(a.Matches),
+			strconv.Itoa(a.Kills),
+			strconv.Itoa(a.Assists),
+			strconv.Itoa(a.Deaths),
+			fmt.Sprintf("%.2f", a.KDRatio()),
+			fmt.Sprintf("%.0f%%", a.HSPercent()),
+			fmt.Sprintf("%.1f", a.ADR()),
+			fmt.Sprintf("%.0f%%", a.KASTPct()),
+			strconv.Itoa(a.OpeningKills),
+			strconv.Itoa(a.OpeningDeaths),
+			strconv.Itoa(a.TradeKills),
+			strconv.Itoa(a.TradeDeaths),
+			strconv.Itoa(a.FlashAssists),
+			strconv.Itoa(a.EffectiveFlashes),
+		)
+	}
+	table.Render()
+}
+
+// PrintPlayerAggregateDuelTable prints duel engine stats aggregated across all demos.
+func PrintPlayerAggregateDuelTable(w io.Writer, aggs []model.PlayerAggregate) {
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header("PLAYER", "W", "L", "AVG_EXPO_WIN", "AVG_EXPO_LOSS", "AVG_HITS/K", "AVG_CORR")
+
+	for _, a := range aggs {
+		expoWin := "—"
+		if a.AvgExpoWinMs > 0 {
+			expoWin = fmt.Sprintf("%.0fms", a.AvgExpoWinMs)
+		}
+		expoLoss := "—"
+		if a.AvgExpoLossMs > 0 {
+			expoLoss = fmt.Sprintf("%.0fms", a.AvgExpoLossMs)
+		}
+		hitsK := "—"
+		if a.AvgHitsToKill > 0 {
+			hitsK = fmt.Sprintf("%.1f", a.AvgHitsToKill)
+		}
+		corr := "—"
+		if a.AvgCorrectionDeg > 0 {
+			corr = fmt.Sprintf("%.1f°", a.AvgCorrectionDeg)
+		}
+		table.Append(
+			a.Name,
+			strconv.Itoa(a.DuelWins),
+			strconv.Itoa(a.DuelLosses),
+			expoWin,
+			expoLoss,
+			hitsK,
+			corr,
+		)
+	}
+	table.Render()
+}
+
+// PrintPlayerAggregateAWPTable prints AWP death classification aggregated across all demos.
+func PrintPlayerAggregateAWPTable(w io.Writer, aggs []model.PlayerAggregate) {
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header("PLAYER", "AWP_D", "DRY%", "REPEEK%", "ISOLATED%")
+
+	for _, a := range aggs {
+		dryPct, repeekPct, isolatedPct := "—", "—", "—"
+		if a.AWPDeaths > 0 {
+			dryPct = fmt.Sprintf("%.0f%%", float64(a.AWPDeathsDry)/float64(a.AWPDeaths)*100)
+			repeekPct = fmt.Sprintf("%.0f%%", float64(a.AWPDeathsRePeek)/float64(a.AWPDeaths)*100)
+			isolatedPct = fmt.Sprintf("%.0f%%", float64(a.AWPDeathsIsolated)/float64(a.AWPDeaths)*100)
+		}
+		table.Append(a.Name, strconv.Itoa(a.AWPDeaths), dryPct, repeekPct, isolatedPct)
+	}
+	table.Render()
+}
+
 // binOrder returns a sort key for distance bin strings (ascending distance).
 func binOrder(bin string) int {
 	switch bin {

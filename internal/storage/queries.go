@@ -271,6 +271,86 @@ func (db *DB) GetPlayerWeaponStats(demoHash string) ([]model.PlayerWeaponStats, 
 	return out, rows.Err()
 }
 
+// GetAllPlayerMatchStats returns all stored match-stats rows for a given SteamID64 across all demos.
+func (db *DB) GetAllPlayerMatchStats(steamID uint64) ([]model.PlayerMatchStats, error) {
+	steamIDStr := strconv.FormatUint(steamID, 10)
+	rows, err := db.conn.Query(`
+		SELECT demo_hash, name, team,
+		       kills, assists, deaths, headshot_kills, flash_assists,
+		       total_damage, utility_damage, rounds_played,
+		       opening_kills, opening_deaths, trade_kills, trade_deaths,
+		       kast_rounds, unused_utility,
+		       crosshair_encounters, crosshair_median_deg, crosshair_pct_under5,
+		       crosshair_median_pitch_deg, crosshair_median_yaw_deg,
+		       duel_wins, duel_losses,
+		       median_exposure_win_ms, median_exposure_loss_ms,
+		       median_hits_to_kill, first_hit_hs_rate,
+		       median_correction_deg, pct_correction_under2_deg,
+		       awp_deaths, awp_deaths_dry, awp_deaths_repeek, awp_deaths_isolated,
+		       effective_flashes
+		FROM player_match_stats WHERE steam_id = ?`, steamIDStr)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []model.PlayerMatchStats
+	for rows.Next() {
+		var s model.PlayerMatchStats
+		var teamStr string
+		if err := rows.Scan(
+			&s.DemoHash, &s.Name, &teamStr,
+			&s.Kills, &s.Assists, &s.Deaths, &s.HeadshotKills, &s.FlashAssists,
+			&s.TotalDamage, &s.UtilityDamage, &s.RoundsPlayed,
+			&s.OpeningKills, &s.OpeningDeaths, &s.TradeKills, &s.TradeDeaths,
+			&s.KASTRounds, &s.UnusedUtility,
+			&s.CrosshairEncounters, &s.CrosshairMedianDeg, &s.CrosshairPctUnder5,
+			&s.CrosshairMedianPitchDeg, &s.CrosshairMedianYawDeg,
+			&s.DuelWins, &s.DuelLosses,
+			&s.MedianExposureWinMs, &s.MedianExposureLossMs,
+			&s.MedianHitsToKill, &s.FirstHitHSRate,
+			&s.MedianCorrectionDeg, &s.PctCorrectionUnder2Deg,
+			&s.AWPDeaths, &s.AWPDeathsDry, &s.AWPDeathsRePeek, &s.AWPDeathsIsolated,
+			&s.EffectiveFlashes,
+		); err != nil {
+			return nil, err
+		}
+		s.SteamID = steamID
+		s.Team = parseTeam(teamStr)
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// GetAllPlayerDuelSegments returns all stored duel segment rows for a given SteamID64 across all demos.
+func (db *DB) GetAllPlayerDuelSegments(steamID uint64) ([]model.PlayerDuelSegment, error) {
+	steamIDStr := strconv.FormatUint(steamID, 10)
+	rows, err := db.conn.Query(`
+		SELECT demo_hash, weapon_bucket, distance_bin,
+		       duel_count, first_hit_count, first_hit_hs_count,
+		       median_corr_deg, median_sight_deg, median_expo_win_ms
+		FROM player_duel_segments WHERE steam_id = ?`, steamIDStr)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []model.PlayerDuelSegment
+	for rows.Next() {
+		var s model.PlayerDuelSegment
+		if err := rows.Scan(
+			&s.DemoHash, &s.WeaponBucket, &s.DistanceBin,
+			&s.DuelCount, &s.FirstHitCount, &s.FirstHitHSCount,
+			&s.MedianCorrDeg, &s.MedianSightDeg, &s.MedianExpoWinMs,
+		); err != nil {
+			return nil, err
+		}
+		s.SteamID = steamID
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 // InsertPlayerDuelSegments bulk-inserts FHHS segments in a transaction.
 func (db *DB) InsertPlayerDuelSegments(segs []model.PlayerDuelSegment) error {
 	if len(segs) == 0 {

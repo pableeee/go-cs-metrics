@@ -32,6 +32,7 @@ func init() {
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(showCmd)
 	rootCmd.AddCommand(fetchCmd)
+	rootCmd.AddCommand(playerCmd)
 }
 
 func mustUserHome() string {

@@ -251,6 +251,59 @@ func (s *PlayerWeaponStats) AvgDamagePerHit() float64 {
 	return float64(s.Damage) / float64(s.Hits)
 }
 
+// PlayerAggregate holds stats for a single player aggregated across all stored demos.
+type PlayerAggregate struct {
+	SteamID uint64
+	Name    string
+	Matches int
+
+	// Integer stats — summed across matches.
+	Kills, Assists, Deaths             int
+	HeadshotKills                      int
+	TotalDamage, RoundsPlayed          int
+	KASTRounds                         int
+	FlashAssists, EffectiveFlashes     int
+	OpeningKills, OpeningDeaths        int
+	TradeKills, TradeDeaths            int
+	DuelWins, DuelLosses               int
+	AWPDeaths, AWPDeathsDry            int
+	AWPDeathsRePeek, AWPDeathsIsolated int
+
+	// Float stats — average of per-match medians (approximate).
+	AvgExpoWinMs     float64
+	AvgExpoLossMs    float64
+	AvgCorrectionDeg float64
+	AvgHitsToKill    float64
+}
+
+func (a *PlayerAggregate) KDRatio() float64 {
+	if a.Deaths == 0 {
+		return float64(a.Kills)
+	}
+	return float64(a.Kills) / float64(a.Deaths)
+}
+
+func (a *PlayerAggregate) HSPercent() float64 {
+	if a.Kills == 0 {
+		return 0
+	}
+	return float64(a.HeadshotKills) / float64(a.Kills) * 100
+}
+
+func (a *PlayerAggregate) ADR() float64 {
+	if a.RoundsPlayed == 0 {
+		return 0
+	}
+	return float64(a.TotalDamage) / float64(a.RoundsPlayed)
+}
+
+func (a *PlayerAggregate) KASTPct() float64 {
+	if a.RoundsPlayed == 0 {
+		return 0
+	}
+	return float64(a.KASTRounds) / float64(a.RoundsPlayed) * 100
+}
+
 // PlayerDuelSegment holds FHHS stats for one (weapon_bucket, distance_bin) segment per player per demo.
 type PlayerDuelSegment struct {
 	DemoHash        string

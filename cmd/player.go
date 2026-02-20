@@ -1,0 +1,198 @@
+package cmd
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+
+	"github.com/spf13/cobra"
+
+	"github.com/pable/go-cs-metrics/internal/model"
+	"github.com/pable/go-cs-metrics/internal/report"
+	"github.com/pable/go-cs-metrics/internal/storage"
+)
+
+var playerCmd = &cobra.Command{
+	Use:   "player <steamid64> [<steamid64>...]",
+	Short: "Cross-match analysis for one or more players",
+	Args:  cobra.MinimumNArgs(1),
+	RunE:  runPlayer,
+}
+
+func runPlayer(cmd *cobra.Command, args []string) error {
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("open storage: %w", err)
+	}
+	defer db.Close()
+
+	for _, arg := range args {
+		id, err := strconv.ParseUint(arg, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid SteamID64 %q: %w", arg, err)
+		}
+
+		stats, err := db.GetAllPlayerMatchStats(id)
+		if err != nil {
+			return fmt.Errorf("query stats for %d: %w", id, err)
+		}
+		if len(stats) == 0 {
+			fmt.Fprintf(os.Stderr, "No data found for SteamID64 %d\n", id)
+			continue
+		}
+
+		segs, err := db.GetAllPlayerDuelSegments(id)
+		if err != nil {
+			return fmt.Errorf("query segments for %d: %w", id, err)
+		}
+
+		agg := buildAggregate(stats)
+		merged := mergeSegments(id, segs)
+
+		// Compute true aggregate FHHS from merged segment counts.
+		var totalHits, totalHSHits int
+		for _, s := range merged {
+			totalHits += s.FirstHitCount
+			totalHSHits += s.FirstHitHSCount
+		}
+		overallFHHS := 0.0
+		if totalHits > 0 {
+			overallFHHS = float64(totalHSHits) / float64(totalHits) * 100
+		}
+
+		// Synthetic PlayerMatchStats for PrintFHHSTable's priority-bin detection.
+		syntheticPlayers := []model.PlayerMatchStats{{
+			SteamID:        id,
+			Name:           agg.Name,
+			FirstHitHSRate: overallFHHS,
+		}}
+
+		fmt.Fprintf(os.Stdout, "\n=== %s (%d) — %d matches ===\n\n", agg.Name, id, agg.Matches)
+		report.PrintPlayerAggregateOverview(os.Stdout, []model.PlayerAggregate{agg})
+		report.PrintPlayerAggregateDuelTable(os.Stdout, []model.PlayerAggregate{agg})
+		report.PrintPlayerAggregateAWPTable(os.Stdout, []model.PlayerAggregate{agg})
+		report.PrintFHHSTable(os.Stdout, merged, syntheticPlayers, 0)
+	}
+	return nil
+}
+
+// buildAggregate sums integer stats and averages float medians across all matches.
+func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
+	agg := model.PlayerAggregate{
+		SteamID: stats[0].SteamID,
+		Name:    stats[0].Name,
+		Matches: len(stats),
+	}
+	var expoWinSum, expoLossSum, corrSum, hitsSum float64
+	var expoWinN, expoLossN, corrN, hitsN int
+
+	for _, s := range stats {
+		agg.Kills += s.Kills
+		agg.Assists += s.Assists
+		agg.Deaths += s.Deaths
+		agg.HeadshotKills += s.HeadshotKills
+		agg.TotalDamage += s.TotalDamage
+		agg.RoundsPlayed += s.RoundsPlayed
+		agg.KASTRounds += s.KASTRounds
+		agg.FlashAssists += s.FlashAssists
+		agg.EffectiveFlashes += s.EffectiveFlashes
+		agg.OpeningKills += s.OpeningKills
+		agg.OpeningDeaths += s.OpeningDeaths
+		agg.TradeKills += s.TradeKills
+		agg.TradeDeaths += s.TradeDeaths
+		agg.DuelWins += s.DuelWins
+		agg.DuelLosses += s.DuelLosses
+		agg.AWPDeaths += s.AWPDeaths
+		agg.AWPDeathsDry += s.AWPDeathsDry
+		agg.AWPDeathsRePeek += s.AWPDeathsRePeek
+		agg.AWPDeathsIsolated += s.AWPDeathsIsolated
+
+		if s.MedianExposureWinMs > 0 {
+			expoWinSum += s.MedianExposureWinMs
+			expoWinN++
+		}
+		if s.MedianExposureLossMs > 0 {
+			expoLossSum += s.MedianExposureLossMs
+			expoLossN++
+		}
+		if s.MedianCorrectionDeg > 0 {
+			corrSum += s.MedianCorrectionDeg
+			corrN++
+		}
+		if s.MedianHitsToKill > 0 {
+			hitsSum += s.MedianHitsToKill
+			hitsN++
+		}
+	}
+
+	if expoWinN > 0 {
+		agg.AvgExpoWinMs = expoWinSum / float64(expoWinN)
+	}
+	if expoLossN > 0 {
+		agg.AvgExpoLossMs = expoLossSum / float64(expoLossN)
+	}
+	if corrN > 0 {
+		agg.AvgCorrectionDeg = corrSum / float64(corrN)
+	}
+	if hitsN > 0 {
+		agg.AvgHitsToKill = hitsSum / float64(hitsN)
+	}
+	return agg
+}
+
+// mergeSegments groups segment rows by (WeaponBucket, DistanceBin), summing counts
+// and averaging float medians across demos. Returns a single merged slice.
+func mergeSegments(steamID uint64, segs []model.PlayerDuelSegment) []model.PlayerDuelSegment {
+	type key struct{ bucket, bin string }
+	type accum struct {
+		duelCount, firstHitCount, firstHitHSCount int
+		corrSum, sightSum, expoSum                float64
+		corrN, sightN, expoN                      int
+	}
+	m := make(map[key]*accum)
+	for _, s := range segs {
+		k := key{s.WeaponBucket, s.DistanceBin}
+		if m[k] == nil {
+			m[k] = &accum{}
+		}
+		a := m[k]
+		a.duelCount += s.DuelCount
+		a.firstHitCount += s.FirstHitCount
+		a.firstHitHSCount += s.FirstHitHSCount
+		if s.MedianCorrDeg > 0 {
+			a.corrSum += s.MedianCorrDeg
+			a.corrN++
+		}
+		if s.MedianSightDeg > 0 {
+			a.sightSum += s.MedianSightDeg
+			a.sightN++
+		}
+		if s.MedianExpoWinMs > 0 {
+			a.expoSum += s.MedianExpoWinMs
+			a.expoN++
+		}
+	}
+
+	out := make([]model.PlayerDuelSegment, 0, len(m))
+	for k, a := range m {
+		seg := model.PlayerDuelSegment{
+			SteamID:         steamID,
+			WeaponBucket:    k.bucket,
+			DistanceBin:     k.bin,
+			DuelCount:       a.duelCount,
+			FirstHitCount:   a.firstHitCount,
+			FirstHitHSCount: a.firstHitHSCount,
+		}
+		if a.corrN > 0 {
+			seg.MedianCorrDeg = a.corrSum / float64(a.corrN)
+		}
+		if a.sightN > 0 {
+			seg.MedianSightDeg = a.sightSum / float64(a.sightN)
+		}
+		if a.expoN > 0 {
+			seg.MedianExpoWinMs = a.expoSum / float64(a.expoN)
+		}
+		out = append(out, seg)
+	}
+	return out
+}
