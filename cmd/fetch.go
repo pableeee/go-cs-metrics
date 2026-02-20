@@ -113,7 +113,7 @@ func runFetch(cmd *cobra.Command, args []string) error {
 		if ingested >= fetchCount {
 			break
 		}
-		if item.Status != "FINISHED" {
+		if !strings.EqualFold(item.Status, "FINISHED") {
 			continue
 		}
 

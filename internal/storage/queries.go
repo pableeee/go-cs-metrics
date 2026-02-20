@@ -271,24 +271,27 @@ func (db *DB) GetPlayerWeaponStats(demoHash string) ([]model.PlayerWeaponStats, 
 	return out, rows.Err()
 }
 
-// GetAllPlayerMatchStats returns all stored match-stats rows for a given SteamID64 across all demos.
+// GetAllPlayerMatchStats returns all stored match-stats rows for a given SteamID64 across all demos,
+// joined with the demos table to include map_name.
 func (db *DB) GetAllPlayerMatchStats(steamID uint64) ([]model.PlayerMatchStats, error) {
 	steamIDStr := strconv.FormatUint(steamID, 10)
 	rows, err := db.conn.Query(`
-		SELECT demo_hash, name, team,
-		       kills, assists, deaths, headshot_kills, flash_assists,
-		       total_damage, utility_damage, rounds_played,
-		       opening_kills, opening_deaths, trade_kills, trade_deaths,
-		       kast_rounds, unused_utility,
-		       crosshair_encounters, crosshair_median_deg, crosshair_pct_under5,
-		       crosshair_median_pitch_deg, crosshair_median_yaw_deg,
-		       duel_wins, duel_losses,
-		       median_exposure_win_ms, median_exposure_loss_ms,
-		       median_hits_to_kill, first_hit_hs_rate,
-		       median_correction_deg, pct_correction_under2_deg,
-		       awp_deaths, awp_deaths_dry, awp_deaths_repeek, awp_deaths_isolated,
-		       effective_flashes
-		FROM player_match_stats WHERE steam_id = ?`, steamIDStr)
+		SELECT p.demo_hash, d.map_name, p.name, p.team,
+		       p.kills, p.assists, p.deaths, p.headshot_kills, p.flash_assists,
+		       p.total_damage, p.utility_damage, p.rounds_played,
+		       p.opening_kills, p.opening_deaths, p.trade_kills, p.trade_deaths,
+		       p.kast_rounds, p.unused_utility,
+		       p.crosshair_encounters, p.crosshair_median_deg, p.crosshair_pct_under5,
+		       p.crosshair_median_pitch_deg, p.crosshair_median_yaw_deg,
+		       p.duel_wins, p.duel_losses,
+		       p.median_exposure_win_ms, p.median_exposure_loss_ms,
+		       p.median_hits_to_kill, p.first_hit_hs_rate,
+		       p.median_correction_deg, p.pct_correction_under2_deg,
+		       p.awp_deaths, p.awp_deaths_dry, p.awp_deaths_repeek, p.awp_deaths_isolated,
+		       p.effective_flashes
+		FROM player_match_stats p
+		JOIN demos d ON d.hash = p.demo_hash
+		WHERE p.steam_id = ?`, steamIDStr)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +302,7 @@ func (db *DB) GetAllPlayerMatchStats(steamID uint64) ([]model.PlayerMatchStats, 
 		var s model.PlayerMatchStats
 		var teamStr string
 		if err := rows.Scan(
-			&s.DemoHash, &s.Name, &teamStr,
+			&s.DemoHash, &s.MapName, &s.Name, &teamStr,
 			&s.Kills, &s.Assists, &s.Deaths, &s.HeadshotKills, &s.FlashAssists,
 			&s.TotalDamage, &s.UtilityDamage, &s.RoundsPlayed,
 			&s.OpeningKills, &s.OpeningDeaths, &s.TradeKills, &s.TradeDeaths,

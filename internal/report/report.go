@@ -265,6 +265,38 @@ func PrintPlayerAggregateAWPTable(w io.Writer, aggs []model.PlayerAggregate) {
 	table.Render()
 }
 
+// PrintPlayerMapSideTable prints per-map CT/T split stats aggregated across all demos.
+func PrintPlayerMapSideTable(w io.Writer, aggs []model.PlayerMapSideAggregate) {
+	if len(aggs) == 0 {
+		return
+	}
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header("MAP", "SIDE", "M", "K", "D", "K/D", "HS%", "ADR", "KAST%",
+		"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D")
+
+	for _, a := range aggs {
+		table.Append(
+			a.MapName,
+			a.Side,
+			strconv.Itoa(a.Matches),
+			strconv.Itoa(a.Kills),
+			strconv.Itoa(a.Deaths),
+			fmt.Sprintf("%.2f", a.KDRatio()),
+			fmt.Sprintf("%.0f%%", a.HSPercent()),
+			fmt.Sprintf("%.1f", a.ADR()),
+			fmt.Sprintf("%.0f%%", a.KASTPct()),
+			strconv.Itoa(a.OpeningKills),
+			strconv.Itoa(a.OpeningDeaths),
+			strconv.Itoa(a.TradeKills),
+			strconv.Itoa(a.TradeDeaths),
+		)
+	}
+	table.Render()
+}
+
 // binOrder returns a sort key for distance bin strings (ascending distance).
 func binOrder(bin string) int {
 	switch bin {

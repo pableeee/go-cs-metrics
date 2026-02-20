@@ -9,7 +9,8 @@ A Go tool for parsing Counter-Strike 2 match demo files (`.dem`) and computing p
 ## Build & Test Commands
 
 ```sh
-go build ./...
+go build -o go-cs-metrics .    # build the main binary
+go build ./...                  # build all packages (does NOT relink the binary)
 go test ./...
 go test ./... -run TestName     # single test
 go vet ./...

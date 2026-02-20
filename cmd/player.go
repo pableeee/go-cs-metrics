@@ -3,7 +3,9 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -67,10 +69,13 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 			FirstHitHSRate: overallFHHS,
 		}}
 
+		mapSide := buildMapSideAggregates(stats)
+
 		fmt.Fprintf(os.Stdout, "\n=== %s (%d) — %d matches ===\n\n", agg.Name, id, agg.Matches)
 		report.PrintPlayerAggregateOverview(os.Stdout, []model.PlayerAggregate{agg})
 		report.PrintPlayerAggregateDuelTable(os.Stdout, []model.PlayerAggregate{agg})
 		report.PrintPlayerAggregateAWPTable(os.Stdout, []model.PlayerAggregate{agg})
+		report.PrintPlayerMapSideTable(os.Stdout, mapSide)
 		report.PrintFHHSTable(os.Stdout, merged, syntheticPlayers, 0)
 	}
 	return nil
@@ -194,5 +199,54 @@ func mergeSegments(steamID uint64, segs []model.PlayerDuelSegment) []model.Playe
 		}
 		out = append(out, seg)
 	}
+	return out
+}
+
+// buildMapSideAggregates groups match stats by (map, side) and sums integer stats.
+func buildMapSideAggregates(stats []model.PlayerMatchStats) []model.PlayerMapSideAggregate {
+	type key struct{ mapName, side string }
+	m := make(map[key]*model.PlayerMapSideAggregate)
+
+	for _, s := range stats {
+		side := s.Team.String()
+		if side != "CT" && side != "T" {
+			continue
+		}
+		mapName := strings.TrimPrefix(s.MapName, "de_")
+		k := key{mapName, side}
+		if m[k] == nil {
+			m[k] = &model.PlayerMapSideAggregate{
+				SteamID: s.SteamID,
+				Name:    s.Name,
+				MapName: mapName,
+				Side:    side,
+			}
+		}
+		a := m[k]
+		a.Matches++
+		a.Kills += s.Kills
+		a.Assists += s.Assists
+		a.Deaths += s.Deaths
+		a.HeadshotKills += s.HeadshotKills
+		a.TotalDamage += s.TotalDamage
+		a.RoundsPlayed += s.RoundsPlayed
+		a.KASTRounds += s.KASTRounds
+		a.OpeningKills += s.OpeningKills
+		a.OpeningDeaths += s.OpeningDeaths
+		a.TradeKills += s.TradeKills
+		a.TradeDeaths += s.TradeDeaths
+	}
+
+	out := make([]model.PlayerMapSideAggregate, 0, len(m))
+	for _, v := range m {
+		out = append(out, *v)
+	}
+	// Sort by map name ascending, CT before T within each map.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].MapName != out[j].MapName {
+			return out[i].MapName < out[j].MapName
+		}
+		return out[i].Side < out[j].Side // "CT" < "T"
+	})
 	return out
 }

@@ -115,10 +115,11 @@ type RawMatch struct {
 // ---- Aggregated metrics ----
 
 type PlayerMatchStats struct {
-	DemoHash   string
-	SteamID    uint64
-	Name       string
-	Team       Team
+	DemoHash string
+	MapName  string // populated when queried across demos (JOIN with demos table)
+	SteamID  uint64
+	Name     string
+	Team     Team
 
 	Kills          int
 	Assists        int
@@ -298,6 +299,51 @@ func (a *PlayerAggregate) ADR() float64 {
 }
 
 func (a *PlayerAggregate) KASTPct() float64 {
+	if a.RoundsPlayed == 0 {
+		return 0
+	}
+	return float64(a.KASTRounds) / float64(a.RoundsPlayed) * 100
+}
+
+// PlayerMapSideAggregate holds stats for a single player on one map and one side (CT or T),
+// aggregated across all stored demos.
+type PlayerMapSideAggregate struct {
+	SteamID uint64
+	Name    string
+	MapName string
+	Side    string // "CT" or "T"
+	Matches int
+
+	Kills, Assists, Deaths int
+	HeadshotKills          int
+	TotalDamage, RoundsPlayed int
+	KASTRounds             int
+	OpeningKills, OpeningDeaths int
+	TradeKills, TradeDeaths int
+}
+
+func (a *PlayerMapSideAggregate) KDRatio() float64 {
+	if a.Deaths == 0 {
+		return float64(a.Kills)
+	}
+	return float64(a.Kills) / float64(a.Deaths)
+}
+
+func (a *PlayerMapSideAggregate) HSPercent() float64 {
+	if a.Kills == 0 {
+		return 0
+	}
+	return float64(a.HeadshotKills) / float64(a.Kills) * 100
+}
+
+func (a *PlayerMapSideAggregate) ADR() float64 {
+	if a.RoundsPlayed == 0 {
+		return 0
+	}
+	return float64(a.TotalDamage) / float64(a.RoundsPlayed)
+}
+
+func (a *PlayerMapSideAggregate) KASTPct() float64 {
 	if a.RoundsPlayed == 0 {
 		return 0
 	}
