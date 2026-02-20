@@ -447,7 +447,7 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 	// Extract header metadata.
 	header := p.Header()
 	raw.MapName = header.MapName
-	raw.MatchDate = time.Now().Format("2006-01-02") // demos rarely embed wall-clock time
+	raw.MatchDate = demoFileDate(path)
 	raw.Tickrate = p.TickRate()
 	raw.TicksPerSecond = p.TickRate()
 
@@ -469,4 +469,14 @@ func teamFromCommon(t common.Team) model.Team {
 
 func isUtilityWeapon(t common.EquipmentType) bool {
 	return t == common.EqHE || t == common.EqMolotov || t == common.EqIncendiary
+}
+
+// demoFileDate returns the file's modification time as "YYYY-MM-DD".
+// CS2 writes the demo to disk when the match ends, so mtime is a reliable
+// proxy for the match date. Falls back to today if stat fails.
+func demoFileDate(path string) string {
+	if info, err := os.Stat(path); err == nil {
+		return info.ModTime().UTC().Format("2006-01-02")
+	}
+	return time.Now().UTC().Format("2006-01-02")
 }

@@ -648,7 +648,7 @@ go test ./internal/aggregator/... -run TestTradeKill -v
 
 ### Current limitations
 
-- **Match date**: CS2 demos rarely embed a wall-clock timestamp; the parse date (today's date) is used instead. FACEIT-fetched demos use the match's `started_at` Unix timestamp, which is accurate.
+- **Match date**: Uses the demo file's modification time (`os.Stat` mtime), which reflects when CS2 wrote the demo to disk (end of match). FACEIT-fetched demos use the match's `started_at` API timestamp.
 - **Crosshair placement**: Uses server-side `m_bSpottedByMask` as a proxy for first-sight. This may fire slightly before the player's client renders the enemy. Values should be treated as directional, not absolute.
 - **No role detection**: AWPer vs rifler vs support are not automatically classified. Metric interpretation (especially ADR) should account for role when doing manual analysis.
 - **Demo availability**: FACEIT demo URLs are time-limited and may expire. Download soon after a match is played.

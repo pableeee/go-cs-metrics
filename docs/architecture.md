@@ -326,7 +326,7 @@ Tests use an in-memory SQLite database (`:memory:`). Each test opens a fresh dat
 
 ## Known Limitations and Future Work
 
-- **Match date**: Stored as `time.Now()` at parse time. Should parse from demo filename or header.
+- ~~**Match date**: Stored as `time.Now()` at parse time.~~ Now uses `os.Stat(path).ModTime()` — CS2 writes the demo file when the match ends, so mtime is a reliable proxy. Falls back to today if stat fails. FACEIT-fetched demos still use the `started_at` API timestamp (more authoritative).
 - ~~**Demo file read**: Two sequential passes (hash, then parse). Could be made single-pass with `io.TeeReader`.~~ (still open — acceptable for current use)
 - ~~**Flash tracking**: Only partially used.~~ Effective flashes (blinded enemy killed by team within 1.5 s) are now tracked. Average blind duration and per-enemy flash counts remain unimplemented.
 - **No composite rating**: `PlayerMatchStats` has all the ingredients for a composite score but none is computed yet. The label should be "Composite Rating (beta)" when added, not "HLTV Rating", until validation against known matches is complete.
