@@ -17,6 +17,8 @@ import (
 var (
 	playerSteamID uint64
 	matchType     string
+	parseTier     string
+	parseBaseline bool
 )
 
 var parseCmd = &cobra.Command{
@@ -29,6 +31,8 @@ var parseCmd = &cobra.Command{
 func init() {
 	parseCmd.Flags().Uint64Var(&playerSteamID, "player", 0, "focus player SteamID64")
 	parseCmd.Flags().StringVar(&matchType, "type", "Competitive", "match type label")
+	parseCmd.Flags().StringVar(&parseTier, "tier", "", "tier label for baseline comparisons (e.g. faceit-5)")
+	parseCmd.Flags().BoolVar(&parseBaseline, "baseline", false, "mark this demo as a baseline reference match")
 }
 
 func runParse(cmd *cobra.Command, args []string) error {
@@ -67,13 +71,15 @@ func runParse(cmd *cobra.Command, args []string) error {
 	// Compute CT/T scores from rounds.
 	ctScore, tScore := computeScore(raw.Rounds)
 	summary := model.MatchSummary{
-		DemoHash:  raw.DemoHash,
-		MapName:   raw.MapName,
-		MatchDate: raw.MatchDate,
-		MatchType: raw.MatchType,
-		Tickrate:  raw.Tickrate,
-		CTScore:   ctScore,
-		TScore:    tScore,
+		DemoHash:   raw.DemoHash,
+		MapName:    raw.MapName,
+		MatchDate:  raw.MatchDate,
+		MatchType:  raw.MatchType,
+		Tickrate:   raw.Tickrate,
+		CTScore:    ctScore,
+		TScore:     tScore,
+		Tier:       parseTier,
+		IsBaseline: parseBaseline,
 	}
 
 	if err := db.InsertDemo(summary); err != nil {
@@ -91,6 +97,8 @@ func runParse(cmd *cobra.Command, args []string) error {
 
 	report.PrintMatchSummary(os.Stdout, summary)
 	report.PrintPlayerTable(matchStats, playerSteamID)
+	report.PrintDuelTable(os.Stdout, matchStats, playerSteamID)
+	report.PrintAWPTable(os.Stdout, matchStats, playerSteamID)
 	report.PrintWeaponTable(os.Stdout, weaponStats, matchStats, playerSteamID)
 	return nil
 }
@@ -122,6 +130,8 @@ func showByHash(db *storage.DB, hash string) error {
 	}
 	report.PrintMatchSummary(os.Stdout, *demo)
 	report.PrintPlayerTable(stats, playerSteamID)
+	report.PrintDuelTable(os.Stdout, stats, playerSteamID)
+	report.PrintAWPTable(os.Stdout, stats, playerSteamID)
 	report.PrintWeaponTable(os.Stdout, weaponStats, stats, playerSteamID)
 	return nil
 }

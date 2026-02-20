@@ -31,6 +31,7 @@ func init() {
 	rootCmd.AddCommand(parseCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(showCmd)
+	rootCmd.AddCommand(fetchCmd)
 }
 
 func mustUserHome() string {

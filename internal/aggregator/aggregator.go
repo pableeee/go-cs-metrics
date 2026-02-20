@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/pable/go-cs-metrics/internal/model"
@@ -417,6 +418,45 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		return matchStats[i].Kills > matchStats[j].Kills
 	})
 
+	// ---- Pass 5: crosshair placement aggregation (total + pitch/yaw split). ----
+	type xhairAccum struct {
+		angles []float64
+		pitches []float64
+		yaws    []float64
+	}
+	xhairByPlayer := make(map[uint64]*xhairAccum)
+	for _, fs := range raw.FirstSights {
+		acc := xhairByPlayer[fs.ObserverID]
+		if acc == nil {
+			acc = &xhairAccum{}
+			xhairByPlayer[fs.ObserverID] = acc
+		}
+		acc.angles = append(acc.angles, fs.AngleDeg)
+		acc.pitches = append(acc.pitches, fs.PitchDeg)
+		acc.yaws = append(acc.yaws, fs.YawDeg)
+	}
+	for i := range matchStats {
+		acc := xhairByPlayer[matchStats[i].SteamID]
+		if acc == nil || len(acc.angles) == 0 {
+			continue
+		}
+		sort.Float64s(acc.angles)
+		sort.Float64s(acc.pitches)
+		sort.Float64s(acc.yaws)
+		n := len(acc.angles)
+		matchStats[i].CrosshairEncounters = n
+		matchStats[i].CrosshairMedianDeg = median(acc.angles)
+		matchStats[i].CrosshairMedianPitchDeg = median(acc.pitches)
+		matchStats[i].CrosshairMedianYawDeg = median(acc.yaws)
+		under5 := 0
+		for _, a := range acc.angles {
+			if a < 5.0 {
+				under5++
+			}
+		}
+		matchStats[i].CrosshairPctUnder5 = float64(under5) / float64(n) * 100
+	}
+
 	// Build weapon stats from accumulated maps.
 	// Collect all unique weapon keys.
 	allWeaponKeys := make(map[weaponKey]struct{})
@@ -454,5 +494,320 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		return weaponStats[i].Damage > weaponStats[j].Damage
 	})
 
+	// ---- Pass 6: Duel Engine ----
+
+	// Build first-sight index: (observerID, enemyID, roundN) → first-sight tick.
+	type sightKey struct{ obsID, enemyID uint64; roundN int }
+	firstSightIdx := make(map[sightKey]model.RawFirstSight)
+	for _, fs := range raw.FirstSights {
+		k := sightKey{fs.ObserverID, fs.EnemyID, fs.RoundNumber}
+		if _, exists := firstSightIdx[k]; !exists {
+			firstSightIdx[k] = fs
+		}
+	}
+
+	// Build damage index: (roundN, atkID, vicID) → sorted slice of RawDamage (non-utility only).
+	type duelDmgKey struct{ roundN int; atkID, vicID uint64 }
+	duelDmgIdx := make(map[duelDmgKey][]model.RawDamage)
+	for _, d := range raw.Damages {
+		if d.IsUtility {
+			continue
+		}
+		k := duelDmgKey{d.RoundNumber, d.AttackerSteamID, d.VictimSteamID}
+		duelDmgIdx[k] = append(duelDmgIdx[k], d)
+	}
+	// Sort each slice by tick ascending.
+	for k := range duelDmgIdx {
+		sort.Slice(duelDmgIdx[k], func(i, j int) bool {
+			return duelDmgIdx[k][i].Tick < duelDmgIdx[k][j].Tick
+		})
+	}
+
+	// Build weapon-fire index: (shooterID, roundN) → sorted slice of RawWeaponFire.
+	type wfKey struct{ shooterID uint64; roundN int }
+	wfIdx := make(map[wfKey][]model.RawWeaponFire)
+	for _, wf := range raw.WeaponFires {
+		k := wfKey{wf.ShooterID, wf.RoundNumber}
+		wfIdx[k] = append(wfIdx[k], wf)
+	}
+	for k := range wfIdx {
+		sort.Slice(wfIdx[k], func(i, j int) bool {
+			return wfIdx[k][i].Tick < wfIdx[k][j].Tick
+		})
+	}
+
+	// Duel accumulators per player.
+	type duelAccum struct {
+		winMs          []float64
+		lossMs         []float64
+		hitsToKill     []float64
+		firstHitHSCount int
+		firstHitTotal   int
+		correctionDegs  []float64
+	}
+	duelAccums := make(map[uint64]*duelAccum)
+	getDuelAccum := func(id uint64) *duelAccum {
+		if duelAccums[id] == nil {
+			duelAccums[id] = &duelAccum{}
+		}
+		return duelAccums[id]
+	}
+
+	tps := raw.TicksPerSecond
+	if tps == 0 {
+		tps = 64.0
+	}
+
+	for _, kill := range raw.Kills {
+		rn := kill.RoundNumber
+		killerID := kill.KillerSteamID
+		victimID := kill.VictimSteamID
+		killTick := kill.Tick
+
+		// Win accounting for killer.
+		sk := sightKey{killerID, victimID, rn}
+		if fs, ok := firstSightIdx[sk]; ok && fs.Tick <= killTick {
+			sightTick := fs.Tick
+			winMs := float64(killTick-sightTick) / tps * 1000
+
+			// Count hits from killer→victim in [sightTick, killTick].
+			dmgKey := duelDmgKey{rn, killerID, victimID}
+			damages := duelDmgIdx[dmgKey]
+			hits := 0
+			firstHitHS := false
+			firstHitCounted := false
+			for _, d := range damages {
+				if d.Tick < sightTick || d.Tick > killTick {
+					continue
+				}
+				if !firstHitCounted {
+					firstHitHS = d.HitGroup == "head"
+					firstHitCounted = true
+				}
+				hits++
+			}
+
+			acc := getDuelAccum(killerID)
+			acc.winMs = append(acc.winMs, winMs)
+			if hits > 0 {
+				acc.hitsToKill = append(acc.hitsToKill, float64(hits))
+				acc.firstHitTotal++
+				if firstHitHS {
+					acc.firstHitHSCount++
+				}
+			}
+
+			// Pre-shot correction: angle between observer's view at first-sight and at first shot.
+			wfList := wfIdx[wfKey{killerID, rn}]
+			for _, wf := range wfList {
+				if wf.Tick < sightTick || wf.Tick > killTick {
+					continue
+				}
+				corrDeg := angularDeltaDeg(fs.ObserverPitchDeg, fs.ObserverYawDeg, wf.PitchDeg, wf.YawDeg)
+				acc.correctionDegs = append(acc.correctionDegs, corrDeg)
+				break
+			}
+		}
+
+		// Loss accounting for victim.
+		// The sight key from killer's perspective: killer spotted victim → killer had sight of victim.
+		// But we want: victim had sight of killer (victim was the "observer" of killer).
+		// Use the victim's sight of the killer if available; otherwise just count the loss tick.
+		sk2 := sightKey{victimID, killerID, rn}
+		if fs2, ok := firstSightIdx[sk2]; ok && fs2.Tick <= killTick {
+			sightTick2 := fs2.Tick
+			lossMs := float64(killTick-sightTick2) / tps * 1000
+			getDuelAccum(victimID).lossMs = append(getDuelAccum(victimID).lossMs, lossMs)
+		} else {
+			// Victim didn't spot killer; still count as a duel loss with 0ms exposure.
+			getDuelAccum(victimID).lossMs = append(getDuelAccum(victimID).lossMs, 0)
+		}
+
+		// Increment win/loss counts.
+		getDuelAccum(killerID).winMs = getDuelAccum(killerID).winMs // already appended above if sight found
+		// Note: we count a win as "had sight of victim before the kill".
+		// We count a loss as "victim died" regardless.
+	}
+
+	// Write duel stats into matchStats.
+	// First build duel win/loss counts properly.
+	// Reset and recompute from duelAccums (win = len(winMs), loss = len(lossMs)).
+	for i := range matchStats {
+		id := matchStats[i].SteamID
+		acc := duelAccums[id]
+		if acc == nil {
+			continue
+		}
+		matchStats[i].DuelWins = len(acc.winMs)
+		matchStats[i].DuelLosses = len(acc.lossMs)
+
+		sort.Float64s(acc.winMs)
+		sort.Float64s(acc.lossMs)
+		sort.Float64s(acc.hitsToKill)
+		sort.Float64s(acc.correctionDegs)
+
+		matchStats[i].MedianExposureWinMs = median(acc.winMs)
+		matchStats[i].MedianExposureLossMs = median(acc.lossMs)
+		matchStats[i].MedianHitsToKill = median(acc.hitsToKill)
+		if acc.firstHitTotal > 0 {
+			matchStats[i].FirstHitHSRate = float64(acc.firstHitHSCount) / float64(acc.firstHitTotal) * 100
+		}
+		matchStats[i].MedianCorrectionDeg = median(acc.correctionDegs)
+		if len(acc.correctionDegs) > 0 {
+			under2 := 0
+			for _, c := range acc.correctionDegs {
+				if c < 2.0 {
+					under2++
+				}
+			}
+			matchStats[i].PctCorrectionUnder2Deg = float64(under2) / float64(len(acc.correctionDegs)) * 100
+		}
+	}
+
+	// ---- Pass 7: AWP Death Classifier ----
+
+	// Build flash index: victimID → []tick for flashes with FlashDuration > 0 per round.
+	type flashVictimKey struct{ victimID uint64; roundN int }
+	flashTicksByVictim := make(map[flashVictimKey][]int)
+	for _, fl := range raw.Flashes {
+		if fl.FlashDuration <= 0 {
+			continue
+		}
+		k := flashVictimKey{fl.VictimSteamID, fl.RoundNumber}
+		flashTicksByVictim[k] = append(flashTicksByVictim[k], fl.Tick)
+	}
+
+	// Build prior-kill index: roundN → kills sorted by tick (reuse killsByRound).
+	// (Already built above as killsByRound.)
+
+	awpWindowTicks := int(3.0 * tps)
+
+	for _, kill := range raw.Kills {
+		if kill.Weapon != "AWP" {
+			continue
+		}
+		victimID := kill.VictimSteamID
+		rn := kill.RoundNumber
+		killTick := kill.Tick
+
+		// Find victim's matchStats index.
+		victimIdx := -1
+		for i := range matchStats {
+			if matchStats[i].SteamID == victimID {
+				victimIdx = i
+				break
+			}
+		}
+		if victimIdx < 0 {
+			continue
+		}
+
+		matchStats[victimIdx].AWPDeaths++
+
+		// DryPeek: no flash on victim in last 3s.
+		isDry := true
+		fKey := flashVictimKey{victimID, rn}
+		for _, ft := range flashTicksByVictim[fKey] {
+			if killTick-ft <= awpWindowTicks && ft <= killTick {
+				isDry = false
+				break
+			}
+		}
+		if isDry {
+			matchStats[victimIdx].AWPDeathsDry++
+		}
+
+		// RePeek: victim had a kill earlier this round.
+		isRePeek := false
+		for _, k := range killsByRound[rn] {
+			if k.KillerSteamID == victimID && k.Tick < killTick {
+				isRePeek = true
+				break
+			}
+		}
+		if isRePeek {
+			matchStats[victimIdx].AWPDeathsRePeek++
+		}
+
+		// Isolated: NearbyVictimTeammates == 0.
+		if kill.NearbyVictimTeammates == 0 {
+			matchStats[victimIdx].AWPDeathsIsolated++
+		}
+	}
+
+	// ---- Pass 8: Flash Quality Window ----
+
+	// Build kill lookup: sorted by tick within round.
+	// (killsByRound already built.)
+
+	flashWindowTicks := int(1.5 * tps)
+
+	effectiveFlashAccum := make(map[uint64]int)
+	for _, fl := range raw.Flashes {
+		if fl.AttackerTeam == fl.VictimTeam {
+			continue // team flash — skip
+		}
+		if fl.FlashDuration <= 0 {
+			continue
+		}
+		windowEnd := fl.Tick + flashWindowTicks
+		rn := fl.RoundNumber
+		// Check if any kill: victim == fl.VictimSteamID, killerTeam == fl.AttackerTeam, tick in window.
+		for _, k := range killsByRound[rn] {
+			if k.Tick < fl.Tick {
+				continue
+			}
+			if k.Tick > windowEnd {
+				break
+			}
+			if k.VictimSteamID == fl.VictimSteamID && k.KillerTeam == fl.AttackerTeam {
+				effectiveFlashAccum[fl.AttackerSteamID]++
+				break
+			}
+		}
+	}
+	for i := range matchStats {
+		matchStats[i].EffectiveFlashes = effectiveFlashAccum[matchStats[i].SteamID]
+	}
+
 	return matchStats, allRoundStats, weaponStats, nil
+}
+
+// median returns the median of a pre-sorted (ascending) slice of float64.
+func median(sorted []float64) float64 {
+	n := len(sorted)
+	if n == 0 {
+		return 0
+	}
+	if n%2 == 1 {
+		return sorted[n/2]
+	}
+	return (sorted[n/2-1] + sorted[n/2]) / 2
+}
+
+// angularDeltaDeg computes the angle in degrees between two view directions
+// given as (pitch, yaw) pairs in degrees. Reconstructs forward vectors and uses acos(dot).
+func angularDeltaDeg(pitch1, yaw1, pitch2, yaw2 float64) float64 {
+	toRad := math.Pi / 180
+	p1R := pitch1 * toRad
+	y1R := yaw1 * toRad
+	p2R := pitch2 * toRad
+	y2R := yaw2 * toRad
+
+	// Forward vector from pitch/yaw (Source2: positive pitch = looking down → negate for Z).
+	fx1 := math.Cos(p1R) * math.Cos(y1R)
+	fy1 := math.Cos(p1R) * math.Sin(y1R)
+	fz1 := -math.Sin(p1R)
+
+	fx2 := math.Cos(p2R) * math.Cos(y2R)
+	fy2 := math.Cos(p2R) * math.Sin(y2R)
+	fz2 := -math.Sin(p2R)
+
+	dot := fx1*fx2 + fy1*fy2 + fz1*fz2
+	if dot > 1 {
+		dot = 1
+	} else if dot < -1 {
+		dot = -1
+	}
+	return math.Acos(dot) * 180 / math.Pi
 }

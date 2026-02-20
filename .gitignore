@@ -1,0 +1,20 @@
+# Build output
+go-cs-metrics
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# Demo files
+*.dem
+*.dem.gz
+
+# Environment / secrets
+.env
+*.env
+faceit_api_key
+
+# OS
+.DS_Store
+Thumbs.db

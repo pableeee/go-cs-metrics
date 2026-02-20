@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -26,6 +27,21 @@ func Open(path string) (*DB, error) {
 	if _, err := conn.Exec(schemaSQL); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
+	}
+	// Migrations: add columns introduced after initial schema creation.
+	// ALTER TABLE returns "duplicate column name" for already-existing columns; that is safe to ignore.
+	altMigrations := []string{
+		`ALTER TABLE player_match_stats ADD COLUMN crosshair_encounters INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_match_stats ADD COLUMN crosshair_median_deg REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_match_stats ADD COLUMN crosshair_pct_under5 REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE demos ADD COLUMN tier TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE demos ADD COLUMN is_baseline INTEGER NOT NULL DEFAULT 0`,
+	}
+	for _, stmt := range altMigrations {
+		if _, err := conn.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			conn.Close()
+			return nil, fmt.Errorf("migration: %w", err)
+		}
 	}
 	return &DB{conn: conn}, nil
 }

@@ -1,8 +1,8 @@
 # Playstyle Analysis — bennett (76561198031906602)
 
-**Dataset:** 38 matchmaking demos · 769 rounds played
+**Dataset:** 38 matchmaking demos · 769 rounds played · 1,222 first-sight encounters
 **Pro reference:** 10 demos (Falcons vs NAVI on Ancient/Inferno; mouz vs Vitality on Nuke/Train/Inferno ×3)
-**Generated:** 2026-02-20
+**Generated:** 2026-02-20 (crosshair placement added: 2026-02-20; duel engine + AWP classifier + flash quality added: 2026-02-20)
 
 ---
 
@@ -59,8 +59,8 @@ This is solid. You are using HE grenades and Molotovs effectively on CT — whet
 
 ### 2.2 Weaknesses
 
-**Low flash assists (3 total in 412 rounds).**
-This is the sharpest red flag. You are almost never flashing for teammates. On CT, coordinated flashes are how you catch peeking attackers and enable retakes. Three flash assists across an entire season means utility usage is almost entirely selfish (damage and area denial) rather than team-enabling.
+**Low flash assists (3 total in 412 rounds) and near-zero effective flashes.**
+This is the sharpest red flag. You are almost never flashing for teammates. On CT, coordinated flashes are how you catch peeking attackers and enable retakes. Three flash assists across an entire season means utility usage is almost entirely selfish (damage and area denial) rather than team-enabling. The new effective-flash metric (flashes where the blinded enemy was killed by your team within 1.5 s) confirms this: only ~7 effective flashes across all 38 matches, fewer than one every five games.
 
 **Unused utility 0.24/round on CT.**
 More than one in five rounds you end with a grenade you never threw. On CT, buying utility and banking it is acceptable in some situations (eco baiting) but 0.24 average suggests a habit of not committing grenades when they would matter most — late-round retake moments especially.
@@ -91,8 +91,8 @@ This is the inverse of CT. On T, you are being traded more than you are trading.
 **Survival rate 26.2% (95/362) — 9 points lower than CT.**
 Expected on T but worth tracking. Very few rounds where you hold enough to be alive at round-end.
 
-**Flash assists 3 (same as CT) — again, nearly zero.**
-Pop-flashing for your own peek is fine, but you should be generating flash assists on site executes. Flashing through smoke for the second player in is one of the highest-impact things a first-entry player can do.
+**Flash assists 3 (same as CT) and ~5 effective flashes on T — again, nearly zero.**
+Pop-flashing for your own peek is fine, but you should be generating flash assists on site executes. Flashing through smoke for the second player in is one of the highest-impact things a first-entry player can do. The 1.5-second effective-flash window shows your flashes almost never lead to a team kill even when the enemy is blinded.
 
 ---
 
@@ -134,7 +134,19 @@ This is an excellent pistol profile. The Desert Eagle at 57.5% HS and 62 DPH mea
 | AWP deaths | 31 | — | — | — |
 | AWP DPH | 110 | 154.7 | 165.4 | 108.9 |
 
-**You have 31 AWP deaths and only 4 AWP kills.** This ratio reveals a pattern: you are repeatedly losing AWP duels, either by peeking wide and getting picked, or by holding an angle and getting one-tapped. The 31 deaths specifically means opponents are regularly winning AWP duels against you across 38 games. This is a training priority — either learn to avoid AWP angles (utility, off-angles, wide peeks) or develop consistent counterpeeking technique.
+**You have 31 AWP deaths and only 4 AWP kills.** The new AWP death classifier breaks these 31 deaths into three non-exclusive categories:
+
+| Category | Count | Rate | Meaning |
+|----------|-------|------|---------|
+| **Dry peek** (no flash on you in last 3 s) | 30 / 31 | **97%** | Almost every AWP death happens without a flash to cover you |
+| **Re-peek** (you had a kill same round) | 13 / 31 | **42%** | Nearly half occur right after you got a kill — momentum peeks into a held AWP |
+| **Isolated** (no teammate within 512 units) | 22 / 31 | **71%** | You are alone in most of these duels; no trade pressure on the AWP |
+
+**97% dry-peeking is the defining finding.** In 30 of 31 AWP deaths there was no flash in the 3 seconds before you peeked. You are walking into sightlines a professional AWP is covering with no utility support. One flash before the peek would either force the AWP to reposition or give you a partial-blind duel — either outcome is better than a clean one-tap.
+
+**42% re-peek pattern is correctable immediately.** After you get a kill, you feel momentum and immediately return to the same angle — the AWP is still there. The fix is a single habit: after any kill, step back out of the sightline before deciding whether to re-peek.
+
+**71% isolated** means there is almost never a teammate close enough to trade if you die. Combined with zero flashes, you are giving the AWP a free, uncontested shot every time.
 
 ### 4.4 Utility usage
 
@@ -240,7 +252,107 @@ CT trade net of +10 is excellent. T trade net of -4 is marginal. The pattern mat
 
 ---
 
-## 7. Role Fit Analysis
+## 7. Crosshair Placement
+
+> **Method:** At the tick when the server first flags an enemy as spotted (`m_bSpottedByMask` 0→1), the angular deviation between the crosshair direction and the enemy's head center is recorded. Results are aggregated per match into a median and a "% under 5°" rate. This is an approximation — the spotted flag is server-side and may lead true line-of-sight by 1–2 ticks. Values should be read as directional rather than exact.
+
+### 7.1 Overall
+
+| Metric | Value |
+|--------|-------|
+| First-sight encounters | **1,222** |
+| Median crosshair angle | **3.8°** |
+| % of encounters under 5° | **63.1%** |
+
+A median of **3.8°** means that on the typical first look at an enemy, the crosshair is within roughly four degrees of the head. That is a small angular cone — at 10 metres, 4° represents about 70 cm of deviation; at 20 metres, ~140 cm. The 63.1% under-5° rate means almost two in three first-looks are already within tight threshold range.
+
+### 7.2 Per-map breakdown
+
+| Map | Encounters | Median | % < 5° | Notes |
+|-----|-----------|--------|---------|-------|
+| Nuke | 392 | **4.2°** | 60.7% | Worst median; multi-level angles vary eye height |
+| Inferno | 315 | **3.8°** | 59.7% | Consistent; long-range banana angles skew distribution |
+| Mirage | 206 | **3.8°** | 65.5% | Solid, better under-5 than Inferno despite same median |
+| Overpass | 146 | **3.5°** | 67.8% | Best large-sample map; aggressive mid peeks pay off |
+| Ancient | 77 | **3.8°** | 71.4% | Small sample but strong under-5 rate |
+| Dust2 | 39 | **3.0°** | 69.2% | One match; best median overall |
+| Anubis | 32 | **3.1°** | 75.0% | One match; best under-5 rate with meaningful sample |
+| Vertigo | 15 | **6.2°** | 33.3% | One match, 15 encounters — treat as unreliable |
+
+**Nuke stands out as the weakest map** for crosshair placement (4.2° median, 60.7%). This correlates with the architectural complexity of the map: multi-level angles, cramped corridors, and roof interactions force frequent vertical crosshair adjustments. Overpass shows the best placement (3.5° median, 67.8%) — which reinforces the earlier finding that it is your strongest map overall. The wide, readable angles on Overpass reward pre-aiming.
+
+**Two outlier matches** pull the Nuke average up:
+- One Nuke match: 7.1° median, 36.7% under-5 — the worst single-match performance in the dataset.
+- One Inferno match: 6.1° median, 43.8% under-5.
+
+These two matches represent out-of-character games and should not be over-weighted.
+
+### 7.3 Pro comparison
+
+| Player | Map | Encounters | Median | % < 5° |
+|--------|-----|-----------|--------|---------|
+| m0NESY | Ancient | 24 | **1.6°** | 83.3% |
+| NiKo | Ancient | 15 | **2.0°** | 80.0% |
+| NiKo | Inferno | 11 | **4.2°** | 54.5% |
+| m0NESY | Inferno | 26 | **3.0°** | 73.1% |
+| Pro field range | — | — | 1.6–7.0° | 31–83% |
+| **bennett** | **all maps** | **1,222** | **3.8°** | **63.1%** |
+
+The pro sample is two tournaments (small N per player: 11–26 encounters each), so these numbers are indicative rather than definitive. With that caveat:
+
+- **bennett's median of 3.8° sits between NiKo's Ancient (2.0°) and NiKo's Inferno (4.2°)**, on a dataset 40–80× larger. NiKo on Inferno and bennett overall are essentially the same distribution.
+- **m0NESY's 1.6° on Ancient** is exceptional — that is the baseline for an elite AWP player who pre-aims every angle. The gap to reach that level is meaningful.
+- **% under 5°**: bennett at 63.1% is within the pro field range (31–83%). The pro average across this sample is approximately 62%, placing bennett squarely in the middle.
+
+**Interpretation:** Crosshair placement at this level is not the bottleneck. The raw numbers place you comfortably within pro field range, and the earlier AK headshot gap (37% vs 60–75% at pro level) is a more meaningful mechanical deficit than crosshair placement deviation.
+
+---
+
+## 8. Duel Intelligence Engine
+
+> **Method:** A duel win is recorded when the killer had an active first-sight of the victim (from the spotted-flag transition) before the kill. Exposure time = ticks from first-sight to kill tick, converted to ms. Hits-to-kill = non-utility damage events from killer→victim in that window. First-hit HS rate = % of winning duels where the first bullet hit the head. Pre-shot correction = angle between the observer's view direction at first-sight and at first weapon fire (small = stable crosshair, large = significant adjustment before pulling the trigger).
+
+### 8.1 Aggregate duel stats (38 matches)
+
+| Metric | Value |
+|--------|-------|
+| Total duel wins | **592** |
+| Total duel losses | **531** |
+| **Duel win rate** | **52.7%** |
+| Median exposure time (wins) | **719 ms** |
+| Median exposure time (losses) | **359 ms** |
+| Average hits to kill | **2.33** (median 2.0) |
+| First-hit headshot rate | **21%** |
+| Median pre-shot correction | **1.7°** |
+| Shots fired within 2° of first-sight | **51%** |
+
+### 8.2 Key findings
+
+**Exposure asymmetry (719 ms wins vs 359 ms losses).** The duels you win take roughly twice as long as the duels you lose. This means when you are winning, you are often grinding through a slower exchange — multiple bullets, body shots first, then finish. When you lose, you are dying fast: opponents with a first-hit headshot or a clean two-tap are ending the duel before you can respond. Closing that gap requires raising your first-hit headshot rate (see below).
+
+**First-hit headshot rate of 21% is the core mechanical gap.** Only one in five winning duels opens with a head hit. The remaining 79% open body-first, which forces a follow-up bullet and extends your exposure. Pro riflers are opening with headshots 60–75% of the time, which explains why their time-to-kill is dramatically shorter. This is the same conclusion as the AK HS% finding (Section 6.3) but now confirmed from a duel-by-duel perspective: it is not a spray pattern issue, it is a first-bullet placement issue.
+
+**2.3 hits per kill on average.** At 37 DPH average, two body shots is ~74 damage — enough to kill with a follow-up. But two body shots means you are absorbing return fire for two tick intervals. Reducing to 1.5 hits-per-kill (one head + one confirmation, or one chest + one head finish) would measurably raise survival in winning duels.
+
+**Pre-shot correction of 1.7° — a positive signal.** You are not over-adjusting after first sight. The crosshair barely moves between the moment you see an enemy and the moment you fire. 51% of shots are within 2° of the first-sight direction. This means the angle problem is entirely about where the crosshair *lands at first sight* (initial placement), not what happens to it afterward. Aim training should focus on pre-aiming correct head height, not micro-adjustment during the duel.
+
+### 8.3 Per-match duel extremes
+
+**Best duel performances** (high win rate + short exposure wins):
+- `0646adbcdc4a` (Inferno, 18W/16L, 656ms win, 17% first-HS, 1.6° corr)
+- `1eb13489fe39` (Inferno, 18W/17L, 422ms win — shortest median among high-volume matches)
+- `7dd8ed67f61f` (Nuke, 22W/14L, 617ms win, 68% shots <2°)
+
+**Worst duel performances** (high loss count, slow wins):
+- `9bf563d2d7b5` (Mirage, 7W/5L, **2281ms** median win — took 2+ seconds per winning duel)
+- `8d6db7c7eb67` (Inferno, 11W/16L, **2141ms** median win — similar outlier)
+- `ac5ae3f09ca4` (Nuke, 17W/17L, 1047ms win, 12% first-HS — worst HS rate)
+
+The two 2000ms+ outliers on Mirage and Inferno explain the T-side weakness on those maps: every winning duel is slow and grinding, meaning you are getting hit while finishing kills.
+
+---
+
+## 9. Role Fit Analysis
 
 Based on all data, there are three plausible roles:
 
@@ -296,19 +408,23 @@ This role does not fit your current data.
 
 You are naturally an aggressive anchor on CT and entry fragger on T. The data supports this strongly. The upgrades needed are:
 
-1. **AK-47 headshot rate → 50%+.** Practice single-tap and burst at head height. Use aim training maps. Every AK kill should ideally be a two-tap or one-tap. This is the single highest-leverage mechanical improvement available.
+1. **First-bullet head placement → target 40%+ first-hit HS rate.** The duel engine shows 21% first-hit headshots; pro riflers open with heads 60–75% of the time. This single change shortens your time-to-kill, reduces exposure per duel, and explains the 719ms vs 359ms asymmetry. Deathmatch practice specifically at head height. Every duel should begin with a crosshair already at the enemy's eye level.
 
-2. **Add 2–3 flash assists per match.** Learn the pop-flash for your most-played positions (A short Nuke, B-site Inferno, mid Overpass). One well-timed flash that opens a kill for a teammate has higher team impact than an extra solo kill on a won round.
+2. **Flash before every AWP peek — eliminate dry-peeks.** 97% of 31 AWP deaths had no flash in the preceding 3 seconds. One pop-flash before contesting an AWP angle would flip several of these to your favor per match. Learn the specific peek-flash for the three AWP angles you die to most (A ramp Nuke, CT Inferno, A-main Overpass).
 
-3. **AWP evasion.** 31 AWP deaths across 38 games is systematic. Map-specific: learn which angles AWPers hold on your most-played maps and route around them with utility or wide peek timing.
+3. **Re-peek discipline after kills.** 42% of AWP deaths occur immediately after you got a kill same round. Build the habit: kill → step back → decide → peek (with flash). Costs nothing; eliminates ~5 free AWP deaths per 10 matches.
 
-4. **T-side Mirage structure.** Your Mirage T results are the clearest weak spot. This is not a mechanics issue (your mechanics are good) — it is map-specific execution. Learn two or three complete Mirage T-side round setups (smokes + flashes for A-main, B-short, mid connector) and run them deliberately.
+4. **Add 2–3 flash assists per match.** Only ~7 effective flashes across 38 matches — fewer than one every five games. On T executes, the pop-flash for the second player through is one of the highest-impact team contributions you can make.
 
-5. **Convert unused utility.** 0.22 grenades banked per round. When you survive a round, ask: was there a position I should have molotov'd or smoked? Building this habit converts the 0.22 unused into both damage and flash assists.
+5. **T-side Mirage structure.** The duel engine confirms it: Mirage T duels take 2000ms+ to resolve (your two worst matches). This is not mechanics — it is position/timing. Learn two complete Mirage T-side setups (smokes + flashes for A-main, B-short, mid connector) to avoid grinding every duel from a disadvantaged spot.
+
+6. **Convert unused utility.** 0.22 grenades banked per round. After any survival round, ask: was there a molotov or smoke I should have thrown? This habit directly feeds both utility damage and flash assist counts.
+
+7. **Crosshair placement on Nuke.** At 4.2° median (vs 3.5° on Overpass), Nuke is the weakest placement map. The correction data shows the pre-shot adjustment is fine — the issue is initial placement. Pre-aim head height on upper-B, hut peek, and ramp door before enemies appear.
 
 ---
 
-## 8. Summary
+## 10. Summary
 
 | Category | Rating | Comment |
 |----------|--------|---------|
@@ -317,9 +433,12 @@ You are naturally an aggressive anchor on CT and entry fragger on T. The data su
 | CT anchor | Strong | 1.39 KD, 35.6% survival, +10 trade net |
 | T entry | Solid | 57.8% entry rate, high trade deaths (team converts) |
 | Pistol game | Strong | Deagle/Glock/USP all above 57% HS |
-| AK mechanics | Average | 36.9% HS vs 60–75% at pro level |
-| Utility for team | Weak | 6 flash assists in 769 rounds |
-| AWP resistance | Weak | 31 deaths vs 4 kills, clear systematic loss |
+| AK mechanics | Average | 36.9% HS vs 60–75% at pro level; 21% first-hit HS in duels |
+| Duel efficiency | Average | 52.7% win rate; 719ms wins vs 359ms losses; 2.3 hits/kill |
+| Pre-shot correction | Good | 1.7° median; 51% shots within 2° of first-sight — crosshair is stable |
+| Utility for team | Weak | 6 flash assists, ~7 effective flashes in 769 rounds |
+| AWP resistance | Weak | 31 deaths, 97% dry-peek, 42% re-peek, 71% isolated |
 | Map pool | Solid | Strong on Nuke/Inferno/Overpass; T-Mirage needs work |
+| Crosshair placement | Good | 3.8° median, 63.1% under 5° — within pro field range; Nuke weakest |
 
 The profile is consistent: a high-damage aggressive rifler who wins individual duels at an above-average rate, provides genuine entry value both when winning and when dying, but needs to develop team utility usage and close the AK headshot gap to reach the ceiling that the ADR numbers suggest is achievable.

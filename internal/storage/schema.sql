@@ -5,7 +5,9 @@ CREATE TABLE IF NOT EXISTS demos (
     match_type  TEXT NOT NULL,
     tickrate    REAL NOT NULL,
     ct_score    INTEGER NOT NULL DEFAULT 0,
-    t_score     INTEGER NOT NULL DEFAULT 0
+    t_score     INTEGER NOT NULL DEFAULT 0,
+    tier        TEXT NOT NULL DEFAULT '',
+    is_baseline INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS player_match_stats (
@@ -25,8 +27,26 @@ CREATE TABLE IF NOT EXISTS player_match_stats (
     opening_deaths  INTEGER NOT NULL DEFAULT 0,
     trade_kills     INTEGER NOT NULL DEFAULT 0,
     trade_deaths    INTEGER NOT NULL DEFAULT 0,
-    kast_rounds     INTEGER NOT NULL DEFAULT 0,
-    unused_utility  INTEGER NOT NULL DEFAULT 0,
+    kast_rounds           INTEGER NOT NULL DEFAULT 0,
+    unused_utility        INTEGER NOT NULL DEFAULT 0,
+    crosshair_encounters  INTEGER NOT NULL DEFAULT 0,
+    crosshair_median_deg  REAL    NOT NULL DEFAULT 0,
+    crosshair_pct_under5  REAL    NOT NULL DEFAULT 0,
+    crosshair_median_pitch_deg REAL NOT NULL DEFAULT 0,
+    crosshair_median_yaw_deg   REAL NOT NULL DEFAULT 0,
+    duel_wins               INTEGER NOT NULL DEFAULT 0,
+    duel_losses             INTEGER NOT NULL DEFAULT 0,
+    median_exposure_win_ms  REAL    NOT NULL DEFAULT 0,
+    median_exposure_loss_ms REAL    NOT NULL DEFAULT 0,
+    median_hits_to_kill     REAL    NOT NULL DEFAULT 0,
+    first_hit_hs_rate       REAL    NOT NULL DEFAULT 0,
+    median_correction_deg      REAL NOT NULL DEFAULT 0,
+    pct_correction_under2_deg  REAL NOT NULL DEFAULT 0,
+    awp_deaths          INTEGER NOT NULL DEFAULT 0,
+    awp_deaths_dry      INTEGER NOT NULL DEFAULT 0,
+    awp_deaths_repeek   INTEGER NOT NULL DEFAULT 0,
+    awp_deaths_isolated INTEGER NOT NULL DEFAULT 0,
+    effective_flashes INTEGER NOT NULL DEFAULT 0,
     UNIQUE(demo_hash, steam_id)
 );
 

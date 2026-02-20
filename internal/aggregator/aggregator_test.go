@@ -290,6 +290,123 @@ func TestOpeningKill(t *testing.T) {
 	}
 }
 
+// ---- Crosshair placement tests ----
+
+// TestCrosshairAggregation: first-sight events are aggregated into median and pct-under-5.
+func TestCrosshairAggregation(t *testing.T) {
+	round := makeRound(1, 500, []uint64{playerA, playerB}, map[uint64]bool{playerA: true})
+	raw := makeRaw(nil, []model.RawRound{round})
+	// Two first-sight events for playerA: 3° and 7° → median = 5.0, 50% under 5°.
+	raw.FirstSights = []model.RawFirstSight{
+		{Tick: 600, RoundNumber: 1, ObserverID: playerA, EnemyID: playerB, AngleDeg: 3.0},
+		{Tick: 700, RoundNumber: 1, ObserverID: playerA, EnemyID: playerB, AngleDeg: 7.0},
+	}
+	raw.PlayerNames[playerA] = "A"
+	raw.PlayerNames[playerB] = "B"
+
+	matchStats, _, _, err := Aggregate(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var found *model.PlayerMatchStats
+	for i := range matchStats {
+		if matchStats[i].SteamID == playerA {
+			found = &matchStats[i]
+		}
+	}
+	if found == nil {
+		t.Fatal("playerA not found in matchStats")
+	}
+	if found.CrosshairEncounters != 2 {
+		t.Errorf("CrosshairEncounters: want 2, got %d", found.CrosshairEncounters)
+	}
+	if found.CrosshairMedianDeg != 5.0 {
+		t.Errorf("CrosshairMedianDeg: want 5.0, got %f", found.CrosshairMedianDeg)
+	}
+	if found.CrosshairPctUnder5 != 50.0 {
+		t.Errorf("CrosshairPctUnder5: want 50.0, got %f", found.CrosshairPctUnder5)
+	}
+}
+
+// TestCrosshairAggregation_NoData: player with no first-sight events has zero crosshair fields.
+func TestCrosshairAggregation_NoData(t *testing.T) {
+	round := makeRound(1, 500, []uint64{playerA, playerB}, map[uint64]bool{playerA: true})
+	raw := makeRaw(nil, []model.RawRound{round})
+	raw.PlayerNames[playerA] = "A"
+	raw.PlayerNames[playerB] = "B"
+	// No FirstSights.
+
+	matchStats, _, _, err := Aggregate(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, ms := range matchStats {
+		if ms.CrosshairEncounters != 0 || ms.CrosshairMedianDeg != 0 || ms.CrosshairPctUnder5 != 0 {
+			t.Errorf("player %d: expected all crosshair fields zero, got enc=%d med=%f pct=%f",
+				ms.SteamID, ms.CrosshairEncounters, ms.CrosshairMedianDeg, ms.CrosshairPctUnder5)
+		}
+	}
+}
+
+// ---- Duel engine tests ----
+
+// TestDuelEngine_BasicWin: one kill with matching first-sight and one head-hit damage.
+// Asserts DuelWins==1, MedianHitsToKill==1, FirstHitHSRate==100.
+func TestDuelEngine_BasicWin(t *testing.T) {
+	// Setup: playerA kills playerB with a head-shot damage event and matching first-sight.
+	sightTick := 1000
+	killTick := 1100
+	k1 := model.RawKill{
+		Tick: killTick, RoundNumber: 1,
+		KillerSteamID: playerA, VictimSteamID: playerB,
+		KillerTeam: model.TeamT, VictimTeam: model.TeamCT,
+		IsHeadshot: true,
+	}
+	round := makeRound(1, 500, []uint64{playerA, playerB}, map[uint64]bool{playerA: true})
+	raw := makeRaw([]model.RawKill{k1}, []model.RawRound{round})
+
+	// Add head-hit damage in the sight→kill window.
+	raw.Damages = []model.RawDamage{
+		{
+			Tick: 1050, RoundNumber: 1,
+			AttackerSteamID: playerA, VictimSteamID: playerB,
+			AttackerTeam: model.TeamT,
+			HealthDamage: 100, Weapon: "ak47", HitGroup: "head",
+		},
+	}
+
+	// Add first-sight event: playerA spots playerB at sightTick.
+	raw.FirstSights = []model.RawFirstSight{
+		{Tick: sightTick, RoundNumber: 1, ObserverID: playerA, EnemyID: playerB, AngleDeg: 2.0},
+	}
+
+	matchStats, _, _, err := Aggregate(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var found *model.PlayerMatchStats
+	for i := range matchStats {
+		if matchStats[i].SteamID == playerA {
+			found = &matchStats[i]
+		}
+	}
+	if found == nil {
+		t.Fatal("playerA not found in matchStats")
+	}
+	if found.DuelWins != 1 {
+		t.Errorf("DuelWins: want 1, got %d", found.DuelWins)
+	}
+	if found.MedianHitsToKill != 1.0 {
+		t.Errorf("MedianHitsToKill: want 1.0, got %f", found.MedianHitsToKill)
+	}
+	if found.FirstHitHSRate != 100.0 {
+		t.Errorf("FirstHitHSRate: want 100.0, got %f", found.FirstHitHSRate)
+	}
+}
+
 // TestADR_Basic: damage is correctly rolled into ADR.
 func TestADR_Basic(t *testing.T) {
 	k1 := model.RawKill{

@@ -32,6 +32,7 @@ type RawKill struct {
 	KillerTeam, VictimTeam          Team
 	Weapon                          string
 	IsHeadshot, AssistedFlash       bool
+	NearbyVictimTeammates           int // alive teammates of victim within 512 units at kill tick (0 = isolated)
 }
 
 type RawDamage struct {
@@ -40,7 +41,8 @@ type RawDamage struct {
 	AttackerTeam                        Team
 	HealthDamage                        int
 	Weapon                              string
-	IsUtility                           bool // HE/molotov/incendiary
+	IsUtility                           bool   // HE/molotov/incendiary
+	HitGroup                            string // "head", "chest", "stomach", "left_arm", "right_arm", "left_leg", "right_leg", "other"
 }
 
 type RawFlash struct {
@@ -63,6 +65,31 @@ type RawRound struct {
 	PlayerEndState                            map[uint64]PlayerRoundEndState
 }
 
+// RawFirstSight is emitted by the parser each time a player first spots an enemy
+// in a given round (server-side m_bSpottedByMask transition 0→1).
+type RawFirstSight struct {
+	Tick        int
+	RoundNumber int
+	ObserverID  uint64
+	EnemyID     uint64
+	AngleDeg    float64 // angular deviation: crosshair → enemy head, in degrees (total)
+	PitchDeg    float64 // |pitch_to_enemy − observer_pitch| (deviation, for crosshair split)
+	YawDeg      float64 // |yaw_to_enemy − observer_yaw| (deviation, wrapped to [0,180])
+	// Absolute observer view angles at first-sight tick (used for pre-shot correction).
+	ObserverPitchDeg float64
+	ObserverYawDeg   float64
+}
+
+// RawWeaponFire is emitted by the parser each time a player fires a weapon.
+type RawWeaponFire struct {
+	Tick        int
+	RoundNumber int
+	ShooterID   uint64
+	Weapon      string
+	PitchDeg    float64 // normalized view pitch at fire tick
+	YawDeg      float64 // view yaw at fire tick
+}
+
 type RawMatch struct {
 	DemoHash    string
 	MapName     string
@@ -74,6 +101,8 @@ type RawMatch struct {
 	Kills       []RawKill
 	Damages     []RawDamage
 	Flashes     []RawFlash
+	FirstSights []RawFirstSight
+	WeaponFires []RawWeaponFire
 	PlayerNames map[uint64]string
 	PlayerTeams map[uint64]Team
 }
@@ -109,6 +138,34 @@ type PlayerMatchStats struct {
 
 	// Unused utility at round end
 	UnusedUtility int
+
+	// Crosshair placement (Option A — spotted flag approximation)
+	CrosshairEncounters    int
+	CrosshairMedianDeg     float64
+	CrosshairPctUnder5     float64
+	CrosshairMedianPitchDeg float64
+	CrosshairMedianYawDeg   float64
+
+	// Duel engine (Module 1)
+	DuelWins             int
+	DuelLosses           int
+	MedianExposureWinMs  float64
+	MedianExposureLossMs float64
+	MedianHitsToKill     float64
+	FirstHitHSRate       float64 // % of kill-duels where first bullet hit was to head
+
+	// Pre-shot correction (Module 1 completion)
+	MedianCorrectionDeg    float64
+	PctCorrectionUnder2Deg float64
+
+	// AWP death classifier (Module 4)
+	AWPDeaths         int
+	AWPDeathsDry      int // no flash on victim in last 3s
+	AWPDeathsRePeek   int // victim had a kill earlier same round
+	AWPDeathsIsolated int // NearbyVictimTeammates == 0
+
+	// Flash quality (Module 5)
+	EffectiveFlashes int // your flashes where blinded enemy died to your team within 1.5s
 }
 
 func (s *PlayerMatchStats) KDRatio() float64 {
@@ -191,11 +248,13 @@ func (s *PlayerWeaponStats) AvgDamagePerHit() float64 {
 
 // MatchSummary is a lightweight record for list/show commands.
 type MatchSummary struct {
-	DemoHash  string
-	MapName   string
-	MatchDate string
-	MatchType string
-	Tickrate  float64
-	CTScore   int
-	TScore    int
+	DemoHash   string
+	MapName    string
+	MatchDate  string
+	MatchType  string
+	Tickrate   float64
+	CTScore    int
+	TScore     int
+	Tier       string // e.g. "faceit-5", "faceit-8"; empty for personal matches
+	IsBaseline bool   // true for reference corpus demos
 }

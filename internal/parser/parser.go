@@ -4,15 +4,146 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"time"
 
-	common "github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/common"
 	demoinfocs "github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs"
+	common "github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/common"
 	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/events"
 
 	"github.com/pable/go-cs-metrics/internal/model"
 )
+
+// pairKey identifies a (observer, enemy) pair for spotted-state deduplication.
+type pairKey struct{ obs, enemy uint64 }
+
+const (
+	standingEyeHeight = 64.0625
+	crouchEyeHeight   = 46.0469
+	headAboveEye      = 8.0
+)
+
+// headZ returns the world-space Z coordinate of an enemy's head center.
+// PositionEyes() panics on Source 2 demos, so eye height is computed manually.
+func headZ(p *common.Player) float64 {
+	eyeOffset := standingEyeHeight
+	if p.IsDucking() {
+		eyeOffset = crouchEyeHeight
+	}
+	return p.Position().Z + eyeOffset + headAboveEye
+}
+
+// crosshairAngles returns total angular deviation, pitch deviation, and yaw deviation
+// between the observer's crosshair direction and the direction to the enemy's head.
+//
+// Coordinate convention (Source 2 / CS2):
+//   - ViewDirectionX() = yaw,   0–360°, 0=East (+X), 90=North (+Y)
+//   - ViewDirectionY() = pitch, 270–90°, where 270 ≡ −90 (looking down);
+//     normalize by subtracting 360 when > 180
+//   - Forward vector: fwdX = cos(pitch)*cos(yaw), fwdY = cos(pitch)*sin(yaw),
+//     fwdZ = -sin(pitch)  (positive pitch → looking down → Z component negative)
+//
+// NOTE: This formula should be validated against a known demo with independently
+// verifiable crosshair data before treating the absolute values as ground truth.
+func crosshairAngles(observer, enemy *common.Player) (total, pitch, yaw float64) {
+	// Observer eye position (PositionEyes() panics on Source 2 — compute manually).
+	eyePos := observer.Position()
+	if observer.IsDucking() {
+		eyePos.Z += crouchEyeHeight
+	} else {
+		eyePos.Z += standingEyeHeight
+	}
+
+	// Enemy head position.
+	headPos := enemy.Position()
+	headPos.Z = headZ(enemy)
+
+	// Raw direction from eye to head (not yet normalized — we need raw for atan2).
+	dxRaw := headPos.X - eyePos.X
+	dyRaw := headPos.Y - eyePos.Y
+	dzRaw := headPos.Z - eyePos.Z
+	distXY := math.Sqrt(dxRaw*dxRaw + dyRaw*dyRaw)
+	dist := math.Sqrt(dxRaw*dxRaw + dyRaw*dyRaw + dzRaw*dzRaw)
+	if dist < 1e-6 {
+		return 0, 0, 0
+	}
+
+	// Yaw and pitch to enemy (world-space angles).
+	yawToEnemy := math.Atan2(dyRaw, dxRaw) * 180 / math.Pi
+	if yawToEnemy < 0 {
+		yawToEnemy += 360
+	}
+	pitchToEnemy := math.Atan2(dzRaw, distXY) * 180 / math.Pi // positive = upward
+
+	// Observer angles.
+	observerYaw := float64(observer.ViewDirectionX())
+	observerPitch := float64(observer.ViewDirectionY())
+	if observerPitch > 180 {
+		observerPitch -= 360 // normalize: 270 → −90 (looking down)
+	}
+	// Source2 convention: positive pitch = looking down → negate for math
+	observerPitch = -observerPitch
+
+	// Yaw deviation wrapped to [0, 180].
+	yawDev := math.Abs(yawToEnemy - observerYaw)
+	if yawDev > 180 {
+		yawDev = 360 - yawDev
+	}
+
+	// Pitch deviation (absolute).
+	pitchDev := math.Abs(pitchToEnemy - observerPitch)
+
+	// Total angular deviation via dot product of unit forward vectors.
+	dx := dxRaw / dist
+	dy := dyRaw / dist
+	dz := dzRaw / dist
+
+	yawR := observerYaw * math.Pi / 180
+	pitchR := (-observerPitch) * math.Pi / 180 // undo our negation for vector math
+	fwdX := math.Cos(pitchR) * math.Cos(yawR)
+	fwdY := math.Cos(pitchR) * math.Sin(yawR)
+	fwdZ := -math.Sin(pitchR)
+
+	dot := fwdX*dx + fwdY*dy + fwdZ*dz
+	if dot > 1 {
+		dot = 1
+	} else if dot < -1 {
+		dot = -1
+	}
+	total = math.Acos(dot) * 180 / math.Pi
+
+	return total, pitchDev, yawDev
+}
+
+// hitGroupName maps a demoinfocs HitGroup to a string label.
+func hitGroupName(hg events.HitGroup) string {
+	switch hg {
+	case events.HitGroupHead:
+		return "head"
+	case events.HitGroupChest:
+		return "chest"
+	case events.HitGroupStomach:
+		return "stomach"
+	case events.HitGroupLeftArm:
+		return "left_arm"
+	case events.HitGroupRightArm:
+		return "right_arm"
+	case events.HitGroupLeftLeg:
+		return "left_leg"
+	case events.HitGroupRightLeg:
+		return "right_leg"
+	default:
+		return "other"
+	}
+}
+
+// isUtilityOrKnifeWeapon returns true for weapons that should be skipped in WeaponFire handling.
+func isUtilityOrKnifeWeapon(t common.EquipmentType) bool {
+	return t == common.EqHE || t == common.EqMolotov || t == common.EqIncendiary ||
+		t == common.EqFlash || t == common.EqSmoke || t == common.EqDecoy ||
+		t == common.EqKnife
+}
 
 // ParseDemo parses the demo at path and returns a RawMatch.
 func ParseDemo(path, matchType string) (*model.RawMatch, error) {
@@ -50,7 +181,11 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 		freezeEndTick  int
 	)
 
-	// RoundStart: record start tick, bump round counter.
+	// seenThisRound tracks (observer, enemy) pairs already recorded in the current round
+	// so each pair only generates one RawFirstSight event per round.
+	seenThisRound := make(map[pairKey]bool)
+
+	// RoundStart: record start tick, bump round counter, reset spotted tracking.
 	p.RegisterEventHandler(func(e events.RoundStart) {
 		if p.GameState().IsWarmupPeriod() {
 			return
@@ -58,6 +193,7 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 		roundNumber++
 		roundStartTick = p.GameState().IngameTick()
 		freezeEndTick = roundStartTick // will be updated by RoundFreezetimeEnd
+		seenThisRound = make(map[pairKey]bool)
 	})
 
 	// RoundFreezetimeEnd: record the tick after freeze ends.
@@ -126,7 +262,7 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 			weapName = e.Weapon.Type.String()
 		}
 
-		raw.Kills = append(raw.Kills, model.RawKill{
+		kill := model.RawKill{
 			Tick:            p.GameState().IngameTick(),
 			RoundNumber:     roundNumber,
 			KillerSteamID:   e.Killer.SteamID64,
@@ -137,7 +273,25 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 			Weapon:          weapName,
 			IsHeadshot:      e.IsHeadshot,
 			AssistedFlash:   e.AssistedFlash,
-		})
+		}
+
+		// Count alive teammates of victim within 512 units for AWP death classifier.
+		if e.Weapon != nil && e.Weapon.Type == common.EqAWP {
+			victimPos := e.Victim.Position()
+			count := 0
+			for _, pl := range p.GameState().Participants().Playing() {
+				if pl == nil || !pl.IsAlive() || pl.Team != e.Victim.Team || pl.SteamID64 == e.Victim.SteamID64 {
+					continue
+				}
+				d := pl.Position().Sub(victimPos)
+				if math.Sqrt(float64(d.X*d.X+d.Y*d.Y+d.Z*d.Z)) <= 512 {
+					count++
+				}
+			}
+			kill.NearbyVictimTeammates = count
+		}
+
+		raw.Kills = append(raw.Kills, kill)
 
 		// Update player name/team.
 		raw.PlayerNames[e.Killer.SteamID64] = e.Killer.Name
@@ -173,6 +327,7 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 			HealthDamage:    e.HealthDamage,
 			Weapon:          weapName,
 			IsUtility:       isUtil,
+			HitGroup:        hitGroupName(e.HitGroup),
 		})
 	})
 
@@ -200,8 +355,89 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 		})
 	})
 
-	if err := p.ParseToEnd(); err != nil {
-		return nil, fmt.Errorf("parse demo: %w", err)
+	// WeaponFire events (for pre-shot correction).
+	p.RegisterEventHandler(func(e events.WeaponFire) {
+		if roundNumber == 0 {
+			return
+		}
+		if p.GameState().IsWarmupPeriod() {
+			return
+		}
+		if e.Shooter == nil || e.Shooter.SteamID64 == 0 {
+			return
+		}
+		if e.Weapon == nil || isUtilityOrKnifeWeapon(e.Weapon.Type) {
+			return
+		}
+
+		yaw := float64(e.Shooter.ViewDirectionX())
+		pitch := float64(e.Shooter.ViewDirectionY())
+		if pitch > 180 {
+			pitch -= 360 // normalize
+		}
+
+		raw.WeaponFires = append(raw.WeaponFires, model.RawWeaponFire{
+			Tick:        p.GameState().IngameTick(),
+			RoundNumber: roundNumber,
+			ShooterID:   e.Shooter.SteamID64,
+			Weapon:      e.Weapon.Type.String(),
+			PitchDeg:    pitch,
+			YawDeg:      yaw,
+		})
+	})
+
+	// Frame-walk loop: fires registered event handlers each frame AND lets us
+	// inspect live game state for spotted-flag transitions every tick.
+	for {
+		ok, err := p.ParseNextFrame()
+		if err != nil {
+			return nil, fmt.Errorf("parse demo: %w", err)
+		}
+
+		if roundNumber > 0 {
+			tick := p.GameState().IngameTick()
+			players := p.GameState().Participants().Playing()
+			for _, observer := range players {
+				if observer == nil || observer.SteamID64 == 0 || !observer.IsAlive() {
+					continue
+				}
+				for _, enemy := range players {
+					if enemy == nil || enemy.SteamID64 == 0 || !enemy.IsAlive() {
+						continue
+					}
+					if enemy.Team == observer.Team {
+						continue
+					}
+					key := pairKey{observer.SteamID64, enemy.SteamID64}
+					if seenThisRound[key] {
+						continue
+					}
+					if enemy.IsSpottedBy(observer) {
+						totalDeg, pitchDeg, yawDeg := crosshairAngles(observer, enemy)
+						obsPitch := float64(observer.ViewDirectionY())
+						if obsPitch > 180 {
+							obsPitch -= 360
+						}
+						raw.FirstSights = append(raw.FirstSights, model.RawFirstSight{
+							Tick:             tick,
+							RoundNumber:      roundNumber,
+							ObserverID:       observer.SteamID64,
+							EnemyID:          enemy.SteamID64,
+							AngleDeg:         totalDeg,
+							PitchDeg:         pitchDeg,
+							YawDeg:           yawDeg,
+							ObserverPitchDeg: obsPitch,
+							ObserverYawDeg:   float64(observer.ViewDirectionX()),
+						})
+						seenThisRound[key] = true
+					}
+				}
+			}
+		}
+
+		if !ok {
+			break
+		}
 	}
 
 	// Extract header metadata.

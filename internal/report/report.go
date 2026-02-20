@@ -36,13 +36,17 @@ func PrintPlayerTableTo(w io.Writer, stats []model.PlayerMatchStats, focusSteamI
 
 	table.Header(
 		" ", "NAME", "TEAM", "K", "A", "D", "K/D", "HS%", "ADR", "KAST%",
-		"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D", "FA", "UTIL_DMG",
+		"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D", "FA", "EFF_FLASH", "UTIL_DMG", "XHAIR_MED",
 	)
 
 	for _, s := range stats {
 		marker := " "
 		if focusSteamID != 0 && s.SteamID == focusSteamID {
 			marker = ">"
+		}
+		xhairStr := "—"
+		if s.CrosshairEncounters > 0 {
+			xhairStr = fmt.Sprintf("%.1f°", s.CrosshairMedianDeg)
 		}
 		table.Append(
 			marker,
@@ -60,7 +64,111 @@ func PrintPlayerTableTo(w io.Writer, stats []model.PlayerMatchStats, focusSteamI
 			strconv.Itoa(s.TradeKills),
 			strconv.Itoa(s.TradeDeaths),
 			strconv.Itoa(s.FlashAssists),
+			strconv.Itoa(s.EffectiveFlashes),
 			strconv.Itoa(s.UtilityDamage),
+			xhairStr,
+		)
+	}
+	table.Render()
+}
+
+// PrintDuelTable prints the duel intelligence table.
+// Columns: PLAYER | W | L | EXPO_WIN | EXPO_LOSS | HITS/K | 1ST_HS% | CORRECTION | <2°%
+func PrintDuelTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uint64) {
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row: tw.CellConfig{
+			Alignment: tw.CellAlignment{Global: tw.AlignRight},
+		},
+		Header: tw.CellConfig{
+			Alignment: tw.CellAlignment{Global: tw.AlignCenter},
+		},
+	}))
+
+	table.Header(" ", "PLAYER", "W", "L", "EXPO_WIN", "EXPO_LOSS", "HITS/K", "1ST_HS%", "CORRECTION", "<2°%")
+
+	for _, s := range stats {
+		marker := " "
+		if focusSteamID != 0 && s.SteamID == focusSteamID {
+			marker = ">"
+		}
+
+		expoWin := "—"
+		if s.DuelWins > 0 {
+			expoWin = fmt.Sprintf("%.0fms", s.MedianExposureWinMs)
+		}
+		expoLoss := "—"
+		if s.DuelLosses > 0 {
+			expoLoss = fmt.Sprintf("%.0fms", s.MedianExposureLossMs)
+		}
+		hitsK := "—"
+		if s.MedianHitsToKill > 0 {
+			hitsK = fmt.Sprintf("%.1f", s.MedianHitsToKill)
+		}
+		firstHS := "—"
+		if s.DuelWins > 0 {
+			firstHS = fmt.Sprintf("%.0f%%", s.FirstHitHSRate)
+		}
+		corr := "—"
+		if s.MedianCorrectionDeg > 0 {
+			corr = fmt.Sprintf("%.1f°", s.MedianCorrectionDeg)
+		}
+		under2 := "—"
+		if s.PctCorrectionUnder2Deg > 0 || s.MedianCorrectionDeg >= 0 && s.DuelWins > 0 {
+			under2 = fmt.Sprintf("%.0f%%", s.PctCorrectionUnder2Deg)
+		}
+
+		table.Append(
+			marker,
+			s.Name,
+			strconv.Itoa(s.DuelWins),
+			strconv.Itoa(s.DuelLosses),
+			expoWin,
+			expoLoss,
+			hitsK,
+			firstHS,
+			corr,
+			under2,
+		)
+	}
+	table.Render()
+}
+
+// PrintAWPTable prints the AWP death classification table.
+// Columns: PLAYER | AWP_D | DRY% | REPEEK% | ISOLATED%
+func PrintAWPTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uint64) {
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row: tw.CellConfig{
+			Alignment: tw.CellAlignment{Global: tw.AlignRight},
+		},
+		Header: tw.CellConfig{
+			Alignment: tw.CellAlignment{Global: tw.AlignCenter},
+		},
+	}))
+
+	table.Header(" ", "PLAYER", "AWP_D", "DRY%", "REPEEK%", "ISOLATED%")
+
+	for _, s := range stats {
+		marker := " "
+		if focusSteamID != 0 && s.SteamID == focusSteamID {
+			marker = ">"
+		}
+
+		dryPct := "—"
+		repeekPct := "—"
+		isolatedPct := "—"
+		if s.AWPDeaths > 0 {
+			dryPct = fmt.Sprintf("%.0f%%", float64(s.AWPDeathsDry)/float64(s.AWPDeaths)*100)
+			repeekPct = fmt.Sprintf("%.0f%%", float64(s.AWPDeathsRePeek)/float64(s.AWPDeaths)*100)
+			isolatedPct = fmt.Sprintf("%.0f%%", float64(s.AWPDeathsIsolated)/float64(s.AWPDeaths)*100)
+		}
+
+		table.Append(
+			marker,
+			s.Name,
+			strconv.Itoa(s.AWPDeaths),
+			dryPct,
+			repeekPct,
+			isolatedPct,
 		)
 	}
 	table.Render()
