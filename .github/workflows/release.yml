@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Compute version tag
+        id: version
+        run: echo "tag=v$(date +%Y%m%d)-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          GOOS=linux   GOARCH=amd64 go build -ldflags="-s -w" -o dist/go-cs-metrics-linux-amd64   .
+          GOOS=linux   GOARCH=arm64 go build -ldflags="-s -w" -o dist/go-cs-metrics-linux-arm64   .
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/go-cs-metrics-windows-amd64.exe .
+          GOOS=darwin  GOARCH=amd64 go build -ldflags="-s -w" -o dist/go-cs-metrics-darwin-amd64  .
+          GOOS=darwin  GOARCH=arm64 go build -ldflags="-s -w" -o dist/go-cs-metrics-darwin-arm64  .
+
+      - name: Create GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" dist/* \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes
