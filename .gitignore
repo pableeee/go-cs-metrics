@@ -5,6 +5,9 @@ go-cs-metrics.exe
 # Private / local analysis notes
 .mine/
 
+# Local Claude Code settings (may contain personal paths/IDs)
+.claude/
+
 # SQLite databases
 *.db
 *.db-shm

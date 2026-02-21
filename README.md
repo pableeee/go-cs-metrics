@@ -84,23 +84,23 @@ The binary is named `go-cs-metrics` (or `csmetrics` if you install via `go insta
 ./go-cs-metrics parse /path/to/match.dem
 
 # 2. Highlight your stats (replace with your Steam ID64)
-./go-cs-metrics parse /path/to/match.dem --player 76561198031906602
+./go-cs-metrics parse /path/to/match.dem --player 76561198XXXXXXXXX
 
 # 3. List all stored demos
 ./go-cs-metrics list
 
 # 4. Re-inspect a stored match by its hash prefix
-./go-cs-metrics show a3f9c2 --player 76561198031906602
+./go-cs-metrics show a3f9c2 --player 76561198XXXXXXXXX
 
 # 5. Fetch FACEIT baselines
-./go-cs-metrics fetch --player EvilMacri --count 10 --tier faceit-2
+./go-cs-metrics fetch --player <your-nickname> --count 10 --tier faceit-2
 ./go-cs-metrics fetch --player <level5-nickname> --level 5 --map de_mirage --count 20 --tier faceit-5
 
 # 6. Cross-match analysis for a player (all stored demos)
-./go-cs-metrics player 76561198031906602
+./go-cs-metrics player 76561198XXXXXXXXX
 
 # 7. Compare two players side-by-side
-./go-cs-metrics player 76561198031906602 76561198012345678
+./go-cs-metrics player 76561198XXXXXXXXX 76561198012345678
 ```
 
 ---
@@ -116,7 +116,7 @@ All commands share two global flags:
 
 ```sh
 ./go-cs-metrics --db /custom/path/metrics.db <command>
-./go-cs-metrics -v player 76561198031906602
+./go-cs-metrics -v player 76561198XXXXXXXXX
 ```
 
 ---
@@ -148,7 +148,7 @@ Parse a `.dem` file, aggregate all metrics, and store the results. If the demo w
 **Example:**
 
 ```sh
-./go-cs-metrics parse match.dem --player 76561198031906602 --type Competitive
+./go-cs-metrics parse match.dem --player 76561198XXXXXXXXX --type Competitive
 ```
 
 ```
@@ -159,7 +159,7 @@ Map: de_mirage  |  Date: 2026-02-20  |  Type: Competitive  |  Score: CT 13 – T
  ├────┬────────────┬──────┬───┬───┬───┬──────┬─────┬───────┬───────┬─────────┬─────────┬─────────┬───┤
  │    │ NAME       │ TEAM │ K │ A │ D │  K/D │ HS% │   ADR │ KAST% │ ENTRY_K │ ENTRY_D │ TRADE_K │...│
  ├────┼────────────┼──────┼───┼───┼───┼──────┼─────┼───────┼───────┼─────────┼─────────┼─────────┼───┤
- │ > │ EvilMacri  │ CT   │ 18│  4│ 12│ 1.50 │ 44% │ 87.3  │  73%  │       3 │       2 │       4 │...│
+ │ > │ YourName   │ CT   │ 18│  4│ 12│ 1.50 │ 44% │ 87.3  │  73%  │       3 │       2 │       4 │...│
  ...
 ```
 
@@ -200,7 +200,7 @@ Display the full stats for a previously stored match by its hash prefix (at leas
 **Example:**
 
 ```sh
-./go-cs-metrics show a3f9c2 --player 76561198031906602
+./go-cs-metrics show a3f9c2 --player 76561198XXXXXXXXX
 ```
 
 Outputs the same four tables as `parse`.
@@ -229,7 +229,7 @@ The command fetches up to 5× `--count` matches from the player's history to all
 
 ```sh
 # Your own recent matches
-./go-cs-metrics fetch --player EvilMacri --count 15 --tier faceit-2
+./go-cs-metrics fetch --player <your-nickname> --count 15 --tier faceit-2
 
 # Level 5 baseline on Mirage (point at any level-5 seed player)
 ./go-cs-metrics fetch --player <nickname> --level 5 --map de_mirage --count 20
@@ -273,17 +273,17 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 **Example:**
 
 ```sh
-./go-cs-metrics player 76561198031906602
+./go-cs-metrics player 76561198XXXXXXXXX
 ```
 
 ```
-=== EvilMacri (76561198031906602) — 38 matches ===
+=== YourName (76561198XXXXXXXXX) — 38 matches ===
 
  PLAYER     | MATCHES | K   | A   | D   | K/D  | HS%  | ADR   | KAST% | ...
- EvilMacri  |      38 | 692 | 213 | 531 | 1.30 | 38%  | 116.5 |  77%  | ...
+ YourName   |      38 | 760 | 220 | 580 | 1.31 | 40%  | 110.0 |  75%  | ...
 
  PLAYER     | W   | L   | AVG_EXPO_WIN | AVG_EXPO_LOSS | AVG_HITS/K | AVG_CORR
- EvilMacri  | 592 | 531 |       799 ms |        392 ms |        2.3 |     2.4°
+ YourName   | 620 | 550 |       800 ms |        400 ms |        2.4 |     2.5°
 
 ...
 
@@ -459,7 +459,7 @@ A recommended baseline corpus (per map you care about):
 
 ```sh
 # Your own tier
-./go-cs-metrics fetch --player EvilMacri --count 20 --tier faceit-2
+./go-cs-metrics fetch --player <your-nickname> --count 20 --tier faceit-2
 
 # One step above
 ./go-cs-metrics fetch --player <level4-seed> --level 4 --map de_mirage --count 20
@@ -491,7 +491,7 @@ Demos without a `--baseline` flag have `is_baseline=0` and represent your own pe
 SELECT * FROM player_match_stats
 JOIN demos ON demos.hash = player_match_stats.demo_hash
 WHERE demos.is_baseline = 0 AND demos.map_name = 'de_mirage'
-AND player_match_stats.steam_id = '76561198031906602';
+AND player_match_stats.steam_id = '76561198XXXXXXXXX';
 
 -- Level-5 player pool on Mirage for comparison
 SELECT AVG(kills), AVG(total_damage / rounds_played) AS avg_adr

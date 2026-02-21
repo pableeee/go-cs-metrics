@@ -39,7 +39,7 @@ parses them, and stores them with a tier tag for baseline comparisons.
 
 Examples:
   # Your own recent matches tagged as your tier
-  csmetrics fetch --player EvilMacri --count 10 --tier faceit-2
+  csmetrics fetch --player <your-nickname> --count 10 --tier faceit-2
 
   # Level-5 matches on Mirage from a known level-5 player
   csmetrics fetch --player <nickname> --level 5 --map de_mirage --count 10`,
