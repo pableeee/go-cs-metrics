@@ -271,6 +271,8 @@ csmetrics fetch [flags]
 csmetrics player <steamid64> [<steamid64>...]
 ```
 
+All commands also accept `-v` / `--verbose` (persistent flag on root). When set, a one-line column legend is printed before each table. Section titles (`--- Name ---`) are always printed regardless of `-v`.
+
 **Output order** for `parse` and `show`:
 1. Match summary (map, date, score, hash)
 2. Player table — K/A/D, ADR, KAST%, entries, trades, flash assists, effective flashes, xhair median
@@ -284,7 +286,8 @@ csmetrics player <steamid64> [<steamid64>...]
 2. Overview table — K/A/D, K/D, HS%, ADR, KAST%, entry kills/deaths, trade kills/deaths, flash assists, effective flashes
 3. Duel profile — wins/losses, avg exposure win/loss ms, avg hits-to-kill, avg pre-shot correction
 4. AWP breakdown — total AWP deaths, dry%/repeek%/isolated%
-5. FHHS table — same format as parse/show but built from merged cross-demo segment counts (accurate aggregation)
+5. Map & side split — K/D, HS%, ADR, KAST%, entry/trade counts broken down by map and CT/T side
+6. FHHS table — same format as parse/show but built from merged cross-demo segment counts (accurate aggregation)
 
 ---
 

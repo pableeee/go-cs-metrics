@@ -8,10 +8,24 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/fatih/color"
 	"github.com/olekukonko/tablewriter"
 	"github.com/olekukonko/tablewriter/tw"
 	"github.com/pable/go-cs-metrics/internal/model"
 )
+
+// Verbose controls whether metric explanations are printed before each table.
+// Set this to true when the -v flag is passed.
+var Verbose bool
+
+// printSection prints a bold section title and, when Verbose is true, a one-line
+// explanation of the columns that follow.
+func printSection(w io.Writer, title, desc string) {
+	fmt.Fprintf(w, "\n--- %s ---\n", title)
+	if Verbose {
+		fmt.Fprintf(w, "%s\n", desc)
+	}
+}
 
 // PrintMatchSummary prints a one-line summary header for the match.
 func PrintMatchSummary(w io.Writer, s model.MatchSummary) {
@@ -27,6 +41,11 @@ func PrintPlayerTable(stats []model.PlayerMatchStats, focusSteamID uint64) {
 
 // PrintPlayerTableTo writes the table to the provided writer.
 func PrintPlayerTableTo(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uint64) {
+	printSection(w, "Performance Overview",
+		"K=Kills  A=Assists  D=Deaths  K/D=kill-death ratio  HS%=headshot kill %  ADR=avg damage per round\n"+
+			"KAST%=rounds with a Kill/Assist/Survival/Trade  ENTRY_K/D=first kill/death of the round\n"+
+			"TRADE_K/D=kill traded within 5s  FA=flash assists  EFF_FLASH=blinded enemy died to your team within 1.5s\n"+
+			"UTIL_DMG=HE/molotov damage  XHAIR_MED=median crosshair deviation at first sight (lower = better pre-aim)")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row: tw.CellConfig{
 			Alignment: tw.CellAlignment{Global: tw.AlignRight},
@@ -44,7 +63,7 @@ func PrintPlayerTableTo(w io.Writer, stats []model.PlayerMatchStats, focusSteamI
 	for _, s := range stats {
 		marker := " "
 		if focusSteamID != 0 && s.SteamID == focusSteamID {
-			marker = ">"
+			marker = color.CyanString(">")
 		}
 		xhairStr := "—"
 		if s.CrosshairEncounters > 0 {
@@ -77,6 +96,10 @@ func PrintPlayerTableTo(w io.Writer, stats []model.PlayerMatchStats, focusSteamI
 // PrintDuelTable prints the duel intelligence table.
 // Columns: PLAYER | W | L | EXPO_WIN | EXPO_LOSS | HITS/K | 1ST_HS% | CORRECTION | <2°%
 func PrintDuelTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uint64) {
+	printSection(w, "Duel Intelligence",
+		"W/L=duel wins and losses  EXPO_WIN=median ms from enemy visible to your kill (lower = faster)\n"+
+			"EXPO_LOSS=same for duels lost  HITS/K=median bullets to kill  1ST_HS%=% of won duels where first shot hit the head\n"+
+			"CORRECTION=degrees of crosshair adjustment before first shot (<2° ≈ pre-aimed)  <2°%=share of duels with correction under 2°")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row: tw.CellConfig{
 			Alignment: tw.CellAlignment{Global: tw.AlignRight},
@@ -91,7 +114,7 @@ func PrintDuelTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID ui
 	for _, s := range stats {
 		marker := " "
 		if focusSteamID != 0 && s.SteamID == focusSteamID {
-			marker = ">"
+			marker = color.CyanString(">")
 		}
 
 		expoWin := "—"
@@ -138,6 +161,10 @@ func PrintDuelTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID ui
 // PrintAWPTable prints the AWP death classification table.
 // Columns: PLAYER | AWP_D | DRY% | REPEEK% | ISOLATED%
 func PrintAWPTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uint64) {
+	printSection(w, "AWP Deaths",
+		"AWP_D=total deaths to AWP  DRY%=victim had no flash in last 3s (fully avoidable peek)\n"+
+			"REPEEK%=victim had a kill earlier that round (punished for aggressive re-peek)\n"+
+			"ISOLATED%=no teammates within 512 units at kill tick (taken without support)")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row: tw.CellConfig{
 			Alignment: tw.CellAlignment{Global: tw.AlignRight},
@@ -152,7 +179,7 @@ func PrintAWPTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uin
 	for _, s := range stats {
 		marker := " "
 		if focusSteamID != 0 && s.SteamID == focusSteamID {
-			marker = ">"
+			marker = color.CyanString(">")
 		}
 
 		dryPct := "—"
@@ -178,6 +205,10 @@ func PrintAWPTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uin
 
 // PrintPlayerAggregateOverview prints overall performance stats aggregated across all demos.
 func PrintPlayerAggregateOverview(w io.Writer, aggs []model.PlayerAggregate) {
+	printSection(w, "Performance Overview",
+		"K=Kills  A=Assists  D=Deaths  K/D=kill-death ratio  HS%=headshot kill %  ADR=avg damage per round\n"+
+			"KAST%=rounds with a Kill/Assist/Survival/Trade  ENTRY_K/D=first kill/death of the round\n"+
+			"TRADE_K/D=kill traded within 5s  FA=flash assists  EFF_FLASH=blinded enemy died to your team within 1.5s")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
@@ -209,6 +240,10 @@ func PrintPlayerAggregateOverview(w io.Writer, aggs []model.PlayerAggregate) {
 
 // PrintPlayerAggregateDuelTable prints duel engine stats aggregated across all demos.
 func PrintPlayerAggregateDuelTable(w io.Writer, aggs []model.PlayerAggregate) {
+	printSection(w, "Duel Intelligence",
+		"W/L=duel wins and losses (summed)  AVG_EXPO_WIN=avg of per-match median ms from enemy visible to your kill\n"+
+			"AVG_EXPO_LOSS=same for duels lost  AVG_HITS/K=avg of per-match median bullets to kill\n"+
+			"AVG_CORR=avg of per-match median pre-shot crosshair correction in degrees")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
@@ -247,6 +282,10 @@ func PrintPlayerAggregateDuelTable(w io.Writer, aggs []model.PlayerAggregate) {
 
 // PrintPlayerAggregateAWPTable prints AWP death classification aggregated across all demos.
 func PrintPlayerAggregateAWPTable(w io.Writer, aggs []model.PlayerAggregate) {
+	printSection(w, "AWP Deaths",
+		"AWP_D=total deaths to AWP  DRY%=victim had no flash in last 3s (fully avoidable peek)\n"+
+			"REPEEK%=victim had a kill earlier that round (punished for aggressive re-peek)\n"+
+			"ISOLATED%=no teammates within 512 units at kill tick (taken without support)")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
@@ -270,6 +309,9 @@ func PrintPlayerMapSideTable(w io.Writer, aggs []model.PlayerMapSideAggregate) {
 	if len(aggs) == 0 {
 		return
 	}
+	printSection(w, "Performance by Map & Side",
+		"Stats split by map and side (CT/T). M=matches on that combination.\n"+
+			"All other columns match the Performance Overview definitions.")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
@@ -354,6 +396,17 @@ func sampleFlag(n int) string {
 	}
 }
 
+func colorFlag(flag string) string {
+	switch flag {
+	case "OK":
+		return color.CyanString(flag)
+	case "LOW":
+		return color.YellowString(flag)
+	default:
+		return color.New(color.FgRed, color.Faint).Sprint(flag)
+	}
+}
+
 func isRifleBucket(b string) bool {
 	return b == "AK" || b == "M4" || b == "Galil" || b == "FAMAS" || b == "ScopedRifle"
 }
@@ -366,6 +419,10 @@ func isMidRangeBin(b string) bool {
 // Priority bins (high sample, low FHHS relative to overall, mid-range rifle) are marked with "*".
 // If focusSteamID is non-zero, only rows for that player are shown.
 func PrintFHHSTable(w io.Writer, segs []model.PlayerDuelSegment, players []model.PlayerMatchStats, focusSteamID uint64) {
+	printSection(w, "First-Hit Headshot Rate (FHHS)",
+		"FHHS%=% of won duels where first shot hit the head (higher = better aim transfer on first contact)\n"+
+			"N(hits)=sample count  FLAG=OK(≥50)/LOW(≥20)/VERY_LOW(<20) reliability  95% CI=Wilson confidence interval\n"+
+			"MED_CORR=median pre-shot crosshair correction in degrees  *=weakest stable high-sample bin")
 	// Build name and overall-FHHS lookup.
 	nameByID := make(map[uint64]string, len(players))
 	overallFHHS := make(map[uint64]float64, len(players))
@@ -439,7 +496,7 @@ func PrintFHHSTable(w io.Writer, segs []model.PlayerDuelSegment, players []model
 
 		marker := " "
 		if isPriority {
-			marker = "*"
+			marker = color.YellowString("*")
 			name := nameByID[s.SteamID]
 			priorityLines = append(priorityLines,
 				fmt.Sprintf("%s %s@%s is your weakest stable bin: %.0f%% FHHS (N=%d).",
@@ -460,7 +517,7 @@ func PrintFHHSTable(w io.Writer, segs []model.PlayerDuelSegment, players []model
 			fhhsStr,
 			ciStr,
 			corrStr,
-			flag,
+			colorFlag(flag),
 		)
 	}
 	table.Render()
@@ -468,7 +525,7 @@ func PrintFHHSTable(w io.Writer, segs []model.PlayerDuelSegment, players []model
 	if len(priorityLines) > 0 {
 		fmt.Fprintln(w, "\nPriority bins:")
 		for _, line := range priorityLines {
-			fmt.Fprintf(w, "  * %s\n", line)
+			fmt.Fprintf(w, "  %s %s\n", color.YellowString("*"), line)
 		}
 		fmt.Fprintln(w)
 	}
@@ -492,6 +549,9 @@ func wilsonCI(hits, n int) (lo, hi float64) {
 // PrintWeaponTable prints a per-weapon breakdown table.
 // If focusSteamID is non-zero, only rows for that player are shown.
 func PrintWeaponTable(w io.Writer, stats []model.PlayerWeaponStats, players []model.PlayerMatchStats, focusSteamID uint64) {
+	printSection(w, "Weapon Breakdown",
+		"K=kills with this weapon  HS%=headshot kill %  A=assists  D=deaths  DAMAGE=total damage dealt\n"+
+			"HITS=total hits landed  DMG/HIT=average damage per hit")
 	// Build name lookup.
 	nameByID := make(map[uint64]string, len(players))
 	for _, p := range players {

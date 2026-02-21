@@ -69,6 +69,10 @@ Core types (all in `internal/model/model.go`):
 - **`player` command aggregation**: integers summed directly; float medians averaged across matches (approximate); FHHS rate recomputed from raw segment count totals (accurate).
 - **Schema migrations**: no versioning yet — a DB rebuild (`rm metrics.db`) is required when the schema changes.
 
+## Documentation Rule
+
+Every new feature must be reflected in the relevant docs files (`README.md`, `docs/architecture.md`). When adding a command, flag, metric, or output table, update those files as part of the same change.
+
 ## Key Validation Rules
 
 - Total kills must match scoreboard kills.

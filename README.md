@@ -107,13 +107,17 @@ The binary is named `go-cs-metrics` (or `csmetrics` if you install via `go insta
 
 ## Commands
 
-All commands share a global `--db` flag to point at an alternate database file:
+All commands share two global flags:
+
+| Flag | Description |
+|------|-------------|
+| `--db <path>` | Path to SQLite database (default: `~/.csmetrics/metrics.db`) |
+| `-v` / `--verbose` | Print a one-line explanation of each table's columns before rendering it |
 
 ```sh
 ./go-cs-metrics --db /custom/path/metrics.db <command>
+./go-cs-metrics -v player 76561198031906602
 ```
-
-Default database: `~/.csmetrics/metrics.db`
 
 ---
 
@@ -263,7 +267,8 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 1. **Overview** — matches played, K/A/D, K/D, HS%, ADR, KAST%, entry kills/deaths, trade kills/deaths, flash assists, effective flashes
 2. **Duel profile** — duel wins/losses, average exposure time (win and loss), average hits-to-kill, average pre-shot correction
 3. **AWP breakdown** — total AWP deaths with dry-peek %, re-peek %, and isolated %
-4. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample quality flags, priority bins marked with `*`
+4. **Map & side split** — K/D, HS%, ADR, KAST%, entry/trade counts broken down by map and side (CT/T)
+5. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample quality flags, priority bins marked with `*`
 
 **Example:**
 

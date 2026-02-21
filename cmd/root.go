@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+
+	"github.com/pable/go-cs-metrics/internal/report"
 )
 
 var dbPath string
@@ -27,12 +29,14 @@ func Execute() {
 func init() {
 	defaultDB := filepath.Join(mustUserHome(), ".csmetrics", "metrics.db")
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db", defaultDB, "path to SQLite database")
+	rootCmd.PersistentFlags().BoolVarP(&report.Verbose, "verbose", "v", false, "print metric explanations before each table")
 
 	rootCmd.AddCommand(parseCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(showCmd)
 	rootCmd.AddCommand(fetchCmd)
 	rootCmd.AddCommand(playerCmd)
+	rootCmd.AddCommand(shellCmd)
 }
 
 func mustUserHome() string {
