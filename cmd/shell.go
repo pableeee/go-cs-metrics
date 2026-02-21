@@ -352,6 +352,7 @@ func shellParse(db *storage.DB, args []string) {
 	}
 
 	report.PrintMatchSummary(os.Stdout, summary)
+	report.PrintPlayerRosterTable(os.Stdout, matchStats)
 	report.PrintPlayerTable(matchStats, playerID)
 	report.PrintDuelTable(os.Stdout, matchStats, playerID)
 	report.PrintAWPTable(os.Stdout, matchStats, playerID)
@@ -444,6 +445,7 @@ func shellShow(db *storage.DB, prefix string, playerID uint64) {
 		return
 	}
 	report.PrintMatchSummary(os.Stdout, *demo)
+	report.PrintPlayerRosterTable(os.Stdout, stats)
 	report.PrintPlayerTable(stats, playerID)
 	report.PrintPlayerSideTable(os.Stdout, sideStats, playerID)
 	report.PrintDuelTable(os.Stdout, stats, playerID)

@@ -36,6 +36,26 @@ func PrintMatchSummary(w io.Writer, s model.MatchSummary) {
 		s.MapName, s.MatchDate, s.MatchType, s.CTScore, s.TScore, s.DemoHash[:12])
 }
 
+// PrintPlayerRosterTable prints a compact name → SteamID64 listing so the user
+// can identify which ID to pass to commands like "rounds <hash> <steamid>".
+func PrintPlayerRosterTable(w io.Writer, stats []model.PlayerMatchStats) {
+	fmt.Fprintf(w, "Players (use SteamID with: rounds <hash-prefix> <steamid>)\n")
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row: tw.CellConfig{
+			Alignment: tw.CellAlignment{Global: tw.AlignLeft},
+		},
+		Header: tw.CellConfig{
+			Alignment: tw.CellAlignment{Global: tw.AlignLeft},
+		},
+	}))
+	table.Header("TEAM", "NAME", "STEAM_ID")
+	for _, s := range stats {
+		table.Append(s.Team.String(), s.Name, strconv.FormatUint(s.SteamID, 10))
+	}
+	table.Render()
+	fmt.Fprintln(w)
+}
+
 // PrintPlayerTable prints the player stats table to stdout.
 // If focusSteamID is non-zero, that player's row is marked with ">".
 func PrintPlayerTable(stats []model.PlayerMatchStats, focusSteamID uint64) {

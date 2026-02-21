@@ -62,6 +62,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 	}
 
 	report.PrintMatchSummary(os.Stdout, *demo)
+	report.PrintPlayerRosterTable(os.Stdout, stats)
 	report.PrintPlayerTable(stats, showPlayerID)
 	report.PrintPlayerSideTable(os.Stdout, sideStats, showPlayerID)
 	report.PrintDuelTable(os.Stdout, stats, showPlayerID)

@@ -107,6 +107,7 @@ func runParse(cmd *cobra.Command, args []string) error {
 	}
 
 	report.PrintMatchSummary(os.Stdout, summary)
+	report.PrintPlayerRosterTable(os.Stdout, matchStats)
 	report.PrintPlayerTable(matchStats, playerSteamID)
 	report.PrintDuelTable(os.Stdout, matchStats, playerSteamID)
 	report.PrintAWPTable(os.Stdout, matchStats, playerSteamID)
@@ -153,6 +154,7 @@ func showByHash(db *storage.DB, hash string) error {
 		return err
 	}
 	report.PrintMatchSummary(os.Stdout, *demo)
+	report.PrintPlayerRosterTable(os.Stdout, stats)
 	report.PrintPlayerTable(stats, playerSteamID)
 	report.PrintPlayerSideTable(os.Stdout, sideStats, playerSteamID)
 	report.PrintDuelTable(os.Stdout, stats, playerSteamID)
