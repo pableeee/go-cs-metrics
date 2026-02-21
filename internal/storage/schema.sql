@@ -47,6 +47,10 @@ CREATE TABLE IF NOT EXISTS player_match_stats (
     awp_deaths_repeek   INTEGER NOT NULL DEFAULT 0,
     awp_deaths_isolated INTEGER NOT NULL DEFAULT 0,
     effective_flashes INTEGER NOT NULL DEFAULT 0,
+    role                  TEXT    NOT NULL DEFAULT 'Rifler',
+    median_ttk_ms         REAL    NOT NULL DEFAULT 0,
+    median_ttd_ms         REAL    NOT NULL DEFAULT 0,
+    counter_strafe_pct    REAL    NOT NULL DEFAULT 0,
     UNIQUE(demo_hash, steam_id)
 );
 
@@ -68,6 +72,7 @@ CREATE TABLE IF NOT EXISTS player_round_stats (
     assists         INTEGER NOT NULL DEFAULT 0,
     damage          INTEGER NOT NULL DEFAULT 0,
     unused_utility  INTEGER NOT NULL DEFAULT 0,
+    buy_type        TEXT    NOT NULL DEFAULT 'eco',
     UNIQUE(demo_hash, steam_id, round_number)
 );
 

@@ -14,6 +14,7 @@ import (
 	"github.com/pable/go-cs-metrics/internal/storage"
 )
 
+// playerCmd is the cobra command for cross-match aggregate analysis of one or more players.
 var playerCmd = &cobra.Command{
 	Use:   "player <steamid64> [<steamid64>...]",
 	Short: "Cross-match analysis for one or more players",
@@ -21,6 +22,8 @@ var playerCmd = &cobra.Command{
 	RunE:  runPlayer,
 }
 
+// runPlayer loads all match data for each given SteamID64, builds cross-match
+// aggregates, and prints overview, duel, AWP, map/side, and FHHS tables.
 func runPlayer(cmd *cobra.Command, args []string) error {
 	db, err := storage.Open(dbPath)
 	if err != nil {
@@ -96,6 +99,7 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 	report.PrintPlayerAggregateDuelTable(os.Stdout, allAggs)
 	report.PrintPlayerAggregateAWPTable(os.Stdout, allAggs)
 	report.PrintPlayerMapSideTable(os.Stdout, allMapSide)
+	report.PrintPlayerAggregateAimTable(os.Stdout, allAggs)
 	for _, f := range fhhsList {
 		fmt.Fprintln(os.Stdout)
 		report.PrintFHHSTable(os.Stdout, f.segs, f.synth, 0)
@@ -112,6 +116,9 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 	}
 	var expoWinSum, expoLossSum, corrSum, hitsSum float64
 	var expoWinN, expoLossN, corrN, hitsN int
+	var ttkSum, ttdSum, csSum float64
+	var ttkN, ttdN, csN int
+	roleCounts := make(map[string]int)
 
 	for _, s := range stats {
 		agg.Kills += s.Kills
@@ -150,6 +157,23 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 			hitsSum += s.MedianHitsToKill
 			hitsN++
 		}
+		if s.MedianTTKMs > 0 {
+			ttkSum += s.MedianTTKMs
+			ttkN++
+		}
+		if s.MedianTTDMs > 0 {
+			ttdSum += s.MedianTTDMs
+			ttdN++
+		}
+		if s.CounterStrafePercent > 0 {
+			csSum += s.CounterStrafePercent
+			csN++
+		}
+		role := s.Role
+		if role == "" {
+			role = "Rifler"
+		}
+		roleCounts[role]++
 	}
 
 	if expoWinN > 0 {
@@ -164,6 +188,24 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 	if hitsN > 0 {
 		agg.AvgHitsToKill = hitsSum / float64(hitsN)
 	}
+	if ttkN > 0 {
+		agg.AvgTTKMs = ttkSum / float64(ttkN)
+	}
+	if ttdN > 0 {
+		agg.AvgTTDMs = ttdSum / float64(ttdN)
+	}
+	if csN > 0 {
+		agg.AvgCounterStrafePercent = csSum / float64(csN)
+	}
+	// Most common role across matches.
+	bestRole, bestCount := "Rifler", 0
+	for role, count := range roleCounts {
+		if count > bestCount {
+			bestRole, bestCount = role, count
+		}
+	}
+	agg.Role = bestRole
+
 	return agg
 }
 

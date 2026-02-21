@@ -10,8 +10,10 @@ import (
 	"github.com/pable/go-cs-metrics/internal/storage"
 )
 
+// showPlayerID is the optional SteamID64 used to highlight a player in the show output.
 var showPlayerID uint64
 
+// showCmd is the cobra command that re-displays stored match stats by hash prefix.
 var showCmd = &cobra.Command{
 	Use:   "show <hash-prefix>",
 	Short: "Show stored match stats by hash prefix",
@@ -23,6 +25,7 @@ func init() {
 	showCmd.Flags().Uint64Var(&showPlayerID, "player", 0, "highlight player SteamID64")
 }
 
+// runShow looks up a demo by hash prefix and prints all its report tables.
 func runShow(cmd *cobra.Command, args []string) error {
 	prefix := args[0]
 
@@ -65,5 +68,6 @@ func runShow(cmd *cobra.Command, args []string) error {
 	report.PrintAWPTable(os.Stdout, stats, showPlayerID)
 	report.PrintFHHSTable(os.Stdout, duelSegs, stats, showPlayerID)
 	report.PrintWeaponTable(os.Stdout, weaponStats, stats, showPlayerID)
+	report.PrintAimTimingTable(os.Stdout, stats, showPlayerID)
 	return nil
 }

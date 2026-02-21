@@ -52,8 +52,9 @@ func (db *DB) InsertPlayerMatchStats(stats []model.PlayerMatchStats) error {
 			median_hits_to_kill, first_hit_hs_rate,
 			median_correction_deg, pct_correction_under2_deg,
 			awp_deaths, awp_deaths_dry, awp_deaths_repeek, awp_deaths_isolated,
-			effective_flashes
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+			effective_flashes,
+			role, median_ttk_ms, median_ttd_ms, counter_strafe_pct
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -74,6 +75,7 @@ func (db *DB) InsertPlayerMatchStats(stats []model.PlayerMatchStats) error {
 			s.MedianCorrectionDeg, s.PctCorrectionUnder2Deg,
 			s.AWPDeaths, s.AWPDeathsDry, s.AWPDeathsRePeek, s.AWPDeathsIsolated,
 			s.EffectiveFlashes,
+			s.Role, s.MedianTTKMs, s.MedianTTDMs, s.CounterStrafePercent,
 		)
 		if err != nil {
 			return fmt.Errorf("insert player_match_stats for %d: %w", s.SteamID, err)
@@ -95,8 +97,8 @@ func (db *DB) InsertPlayerRoundStats(stats []model.PlayerRoundStats) error {
 			demo_hash, steam_id, round_number, team,
 			got_kill, got_assist, survived, was_traded, kast_earned,
 			is_opening_kill, is_opening_death, is_trade_kill, is_trade_death,
-			kills, assists, damage, unused_utility
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+			kills, assists, damage, unused_utility, buy_type
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -109,7 +111,7 @@ func (db *DB) InsertPlayerRoundStats(stats []model.PlayerRoundStats) error {
 			boolInt(s.WasTraded), boolInt(s.KASTEarned),
 			boolInt(s.IsOpeningKill), boolInt(s.IsOpeningDeath),
 			boolInt(s.IsTradeKill), boolInt(s.IsTradeDeath),
-			s.Kills, s.Assists, s.Damage, s.UnusedUtility,
+			s.Kills, s.Assists, s.Damage, s.UnusedUtility, s.BuyType,
 		)
 		if err != nil {
 			return fmt.Errorf("insert player_round_stats: %w", err)
@@ -176,7 +178,8 @@ func (db *DB) GetPlayerMatchStats(demoHash string) ([]model.PlayerMatchStats, er
 		       median_hits_to_kill, first_hit_hs_rate,
 		       median_correction_deg, pct_correction_under2_deg,
 		       awp_deaths, awp_deaths_dry, awp_deaths_repeek, awp_deaths_isolated,
-		       effective_flashes
+		       effective_flashes,
+		       role, median_ttk_ms, median_ttd_ms, counter_strafe_pct
 		FROM player_match_stats WHERE demo_hash = ?
 		ORDER BY kills DESC`, demoHash)
 	if err != nil {
@@ -202,6 +205,7 @@ func (db *DB) GetPlayerMatchStats(demoHash string) ([]model.PlayerMatchStats, er
 			&s.MedianCorrectionDeg, &s.PctCorrectionUnder2Deg,
 			&s.AWPDeaths, &s.AWPDeathsDry, &s.AWPDeathsRePeek, &s.AWPDeathsIsolated,
 			&s.EffectiveFlashes,
+			&s.Role, &s.MedianTTKMs, &s.MedianTTDMs, &s.CounterStrafePercent,
 		); err != nil {
 			return nil, err
 		}
@@ -250,6 +254,55 @@ func (db *DB) GetPlayerSideStats(demoHash string) ([]model.PlayerSideStats, erro
 		}
 		s.SteamID, _ = strconv.ParseUint(steamIDStr, 10, 64)
 		s.Team = parseTeam(teamStr)
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// GetPlayerRoundStats returns per-round stats for a single player in a single demo,
+// ordered by round number ascending.
+func (db *DB) GetPlayerRoundStats(demoHash string, steamID uint64) ([]model.PlayerRoundStats, error) {
+	steamIDStr := strconv.FormatUint(steamID, 10)
+	rows, err := db.conn.Query(`
+		SELECT round_number, team,
+		       got_kill, got_assist, survived, was_traded, kast_earned,
+		       is_opening_kill, is_opening_death, is_trade_kill, is_trade_death,
+		       kills, assists, damage, unused_utility, buy_type
+		FROM player_round_stats
+		WHERE demo_hash = ? AND steam_id = ?
+		ORDER BY round_number ASC`,
+		demoHash, steamIDStr)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []model.PlayerRoundStats
+	for rows.Next() {
+		var s model.PlayerRoundStats
+		var teamStr string
+		var gotKill, gotAssist, survived, wasTraded, kastEarned int
+		var isOpeningKill, isOpeningDeath, isTradeKill, isTradeDeath int
+		if err := rows.Scan(
+			&s.RoundNumber, &teamStr,
+			&gotKill, &gotAssist, &survived, &wasTraded, &kastEarned,
+			&isOpeningKill, &isOpeningDeath, &isTradeKill, &isTradeDeath,
+			&s.Kills, &s.Assists, &s.Damage, &s.UnusedUtility, &s.BuyType,
+		); err != nil {
+			return nil, err
+		}
+		s.DemoHash = demoHash
+		s.SteamID = steamID
+		s.Team = parseTeam(teamStr)
+		s.GotKill = gotKill != 0
+		s.GotAssist = gotAssist != 0
+		s.Survived = survived != 0
+		s.WasTraded = wasTraded != 0
+		s.KASTEarned = kastEarned != 0
+		s.IsOpeningKill = isOpeningKill != 0
+		s.IsOpeningDeath = isOpeningDeath != 0
+		s.IsTradeKill = isTradeKill != 0
+		s.IsTradeDeath = isTradeDeath != 0
 		out = append(out, s)
 	}
 	return out, rows.Err()
@@ -330,7 +383,8 @@ func (db *DB) GetAllPlayerMatchStats(steamID uint64) ([]model.PlayerMatchStats, 
 		       p.median_hits_to_kill, p.first_hit_hs_rate,
 		       p.median_correction_deg, p.pct_correction_under2_deg,
 		       p.awp_deaths, p.awp_deaths_dry, p.awp_deaths_repeek, p.awp_deaths_isolated,
-		       p.effective_flashes
+		       p.effective_flashes,
+		       p.role, p.median_ttk_ms, p.median_ttd_ms, p.counter_strafe_pct
 		FROM player_match_stats p
 		JOIN demos d ON d.hash = p.demo_hash
 		WHERE p.steam_id = ?`, steamIDStr)
@@ -357,6 +411,7 @@ func (db *DB) GetAllPlayerMatchStats(steamID uint64) ([]model.PlayerMatchStats, 
 			&s.MedianCorrectionDeg, &s.PctCorrectionUnder2Deg,
 			&s.AWPDeaths, &s.AWPDeathsDry, &s.AWPDeathsRePeek, &s.AWPDeathsIsolated,
 			&s.EffectiveFlashes,
+			&s.Role, &s.MedianTTKMs, &s.MedianTTDMs, &s.CounterStrafePercent,
 		); err != nil {
 			return nil, err
 		}
@@ -461,6 +516,7 @@ func (db *DB) GetPlayerDuelSegments(demoHash string) ([]model.PlayerDuelSegment,
 	return out, rows.Err()
 }
 
+// boolInt converts a bool to an int (0 or 1) for SQLite storage.
 func boolInt(b bool) int {
 	if b {
 		return 1
@@ -468,6 +524,7 @@ func boolInt(b bool) int {
 	return 0
 }
 
+// parseTeam converts a team string ("T", "CT") back to a model.Team value.
 func parseTeam(s string) model.Team {
 	switch s {
 	case "T":

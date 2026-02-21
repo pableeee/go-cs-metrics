@@ -21,18 +21,21 @@ import (
 	"github.com/pable/go-cs-metrics/internal/storage"
 )
 
+// errInterrupt is returned by readLine when the user presses Ctrl+C.
 var errInterrupt = errors.New("interrupt")
 
+// Shell color styles.
 var (
-	cPrompt  = color.New(color.FgCyan, color.Bold)
-	cMuted   = color.New(color.Faint)
-	cError   = color.New(color.FgRed, color.Bold)
-	cWarn    = color.New(color.FgYellow)
-	cHeader  = color.New(color.FgCyan, color.Bold)
-	cCmd     = color.New(color.FgYellow, color.Bold)
-	cGreeting = color.New(color.Bold)
+	cPrompt   = color.New(color.FgCyan, color.Bold)   // prompt text
+	cMuted    = color.New(color.Faint)                 // secondary/dim text
+	cError    = color.New(color.FgRed, color.Bold)     // error messages
+	cWarn     = color.New(color.FgYellow)              // warning messages
+	cHeader   = color.New(color.FgCyan, color.Bold)    // table headers
+	cCmd      = color.New(color.FgYellow, color.Bold)  // command names in help
+	cGreeting = color.New(color.Bold)                  // startup greeting
 )
 
+// shellCmd is the cobra command that starts an interactive REPL session.
 var shellCmd = &cobra.Command{
 	Use:   "shell",
 	Short: "Start an interactive REPL session",
@@ -41,6 +44,8 @@ var shellCmd = &cobra.Command{
 	RunE:  runShell,
 }
 
+// runShell opens the database, enters a read-eval-print loop, and dispatches
+// user input to the appropriate sub-handler until the user exits.
 func runShell(_ *cobra.Command, _ []string) error {
 	db, err := storage.Open(dbPath)
 	if err != nil {
@@ -122,6 +127,12 @@ func runShell(_ *cobra.Command, _ []string) error {
 				continue
 			}
 			shellPlayer(db, args)
+		case "rounds":
+			if len(args) < 2 {
+				cError.Fprintln(os.Stderr, "usage: rounds <hash-prefix> <steamid64>")
+				continue
+			}
+			shellRounds(db, args)
 		default:
 			cWarn.Fprintf(os.Stderr, "unknown command %q — type 'help'\n", cmd)
 		}
@@ -215,6 +226,7 @@ func readLine(hist []string) (string, error) {
 	}
 }
 
+// shellHelp prints the list of available shell commands and their descriptions.
 func shellHelp() {
 	fmt.Println()
 	type entry struct{ cmd, desc string }
@@ -224,6 +236,7 @@ func shellHelp() {
 		{"show <hash-prefix> [--player <id>]", "re-display a stored match"},
 		{"fetch --player <name|id> [--map <m>] [--level <n>] [--count <n>] [--tier <t>]", "download FACEIT demos"},
 		{"player <steamid64> [...]", "cross-match aggregate report"},
+		{"rounds <hash-prefix> <steamid64>", "per-round drill-down for one player"},
 		{"help", "show this message"},
 		{"exit / quit", "close the session"},
 	}
@@ -260,6 +273,7 @@ func shellFlags(args []string, boolFlags ...string) (positional []string, flags 
 	return
 }
 
+// shellParse handles the "parse" command inside the interactive shell.
 func shellParse(db *storage.DB, args []string) {
 	pos, flags := shellFlags(args, "baseline")
 	if len(pos) == 0 {
@@ -343,8 +357,10 @@ func shellParse(db *storage.DB, args []string) {
 	report.PrintAWPTable(os.Stdout, matchStats, playerID)
 	report.PrintFHHSTable(os.Stdout, duelSegs, matchStats, playerID)
 	report.PrintWeaponTable(os.Stdout, weaponStats, matchStats, playerID)
+	report.PrintAimTimingTable(os.Stdout, matchStats, playerID)
 }
 
+// shellFetch handles the "fetch" command inside the interactive shell.
 func shellFetch(db *storage.DB, args []string) {
 	_, flags := shellFlags(args)
 	playerQuery := flags["player"]
@@ -374,6 +390,7 @@ func shellFetch(db *storage.DB, args []string) {
 	}
 }
 
+// shellList handles the "list" command inside the interactive shell.
 func shellList(db *storage.DB) {
 	demos, err := db.ListDemos()
 	if err != nil {
@@ -395,6 +412,7 @@ func shellList(db *storage.DB) {
 	}
 }
 
+// shellShow handles the "show" command inside the interactive shell.
 func shellShow(db *storage.DB, prefix string, playerID uint64) {
 	demo, err := db.GetDemoByPrefix(prefix)
 	if err != nil {
@@ -432,8 +450,59 @@ func shellShow(db *storage.DB, prefix string, playerID uint64) {
 	report.PrintAWPTable(os.Stdout, stats, playerID)
 	report.PrintFHHSTable(os.Stdout, duelSegs, stats, playerID)
 	report.PrintWeaponTable(os.Stdout, weaponStats, stats, playerID)
+	report.PrintAimTimingTable(os.Stdout, stats, playerID)
 }
 
+// shellRounds handles the "rounds" command inside the interactive shell.
+func shellRounds(db *storage.DB, args []string) {
+	if len(args) < 2 {
+		cError.Fprintln(os.Stderr, "usage: rounds <hash-prefix> <steamid64>")
+		return
+	}
+	prefix := args[0]
+	steamID, err := strconv.ParseUint(args[1], 10, 64)
+	if err != nil {
+		cError.Fprintf(os.Stderr, "invalid SteamID64 %q: %v\n", args[1], err)
+		return
+	}
+
+	demo, err := db.GetDemoByPrefix(prefix)
+	if err != nil {
+		cError.Fprintf(os.Stderr, "error: %v\n", err)
+		return
+	}
+	if demo == nil {
+		cWarn.Fprintf(os.Stderr, "no demo found with prefix %q\n", prefix)
+		return
+	}
+
+	roundStats, err := db.GetPlayerRoundStats(demo.DemoHash, steamID)
+	if err != nil {
+		cError.Fprintf(os.Stderr, "error: %v\n", err)
+		return
+	}
+	if len(roundStats) == 0 {
+		cWarn.Fprintf(os.Stderr, "no round data for player %d in demo %s\n", steamID, prefix)
+		return
+	}
+
+	matchStats, err := db.GetPlayerMatchStats(demo.DemoHash)
+	if err != nil {
+		cError.Fprintf(os.Stderr, "error: %v\n", err)
+		return
+	}
+	playerName := strconv.FormatUint(steamID, 10)
+	for _, ms := range matchStats {
+		if ms.SteamID == steamID {
+			playerName = ms.Name
+			break
+		}
+	}
+
+	report.PrintRoundDetailTable(os.Stdout, roundStats, playerName, demo.MapName)
+}
+
+// shellPlayer handles the "player" command inside the interactive shell.
 func shellPlayer(db *storage.DB, args []string) {
 	type fhhsEntry struct {
 		name  string
@@ -503,6 +572,7 @@ func shellPlayer(db *storage.DB, args []string) {
 	report.PrintPlayerAggregateDuelTable(os.Stdout, allAggs)
 	report.PrintPlayerAggregateAWPTable(os.Stdout, allAggs)
 	report.PrintPlayerMapSideTable(os.Stdout, allMapSide)
+	report.PrintPlayerAggregateAimTable(os.Stdout, allAggs)
 	for _, f := range fhhsList {
 		fmt.Fprintf(os.Stdout, "\n")
 		cHeader.Fprintf(os.Stdout, "--- FHHS: %s ---\n", f.name)

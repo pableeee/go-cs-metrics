@@ -1,3 +1,6 @@
+// Package model defines the core data types used throughout the pipeline:
+// raw events emitted by the parser, aggregated per-player/per-round/per-weapon
+// statistics, and summary records used for storage and display.
 package model
 
 import "time"
@@ -12,6 +15,7 @@ const (
 	TeamCT         Team = 3
 )
 
+// String returns "T", "CT", or "?" for the team value.
 func (t Team) String() string {
 	switch t {
 	case TeamT:
@@ -25,6 +29,7 @@ func (t Team) String() string {
 
 // ---- Raw events emitted by the parser ----
 
+// RawKill represents a single kill event extracted from a demo tick stream.
 type RawKill struct {
 	Tick, RoundNumber               int
 	KillerSteamID, VictimSteamID   uint64
@@ -35,6 +40,7 @@ type RawKill struct {
 	NearbyVictimTeammates           int // alive teammates of victim within 512 units at kill tick (0 = isolated)
 }
 
+// RawDamage represents a single damage event (PlayerHurt) from the demo.
 type RawDamage struct {
 	Tick, RoundNumber                   int
 	AttackerSteamID, VictimSteamID     uint64
@@ -46,6 +52,7 @@ type RawDamage struct {
 	VictimPos                           Vec3   // victim world position at hurt tick
 }
 
+// RawFlash represents a flashbang blind event from the demo.
 type RawFlash struct {
 	Tick, RoundNumber               int
 	AttackerSteamID, VictimSteamID uint64
@@ -53,6 +60,8 @@ type RawFlash struct {
 	FlashDuration                  time.Duration
 }
 
+// PlayerRoundEndState captures a player's state at the end of a round,
+// including alive status, team side, and remaining grenade count.
 type PlayerRoundEndState struct {
 	SteamID64    uint64
 	IsAlive      bool
@@ -60,10 +69,13 @@ type PlayerRoundEndState struct {
 	GrenadeCount int
 }
 
+// RawRound holds metadata for a single round, including tick boundaries,
+// the winning team, and the end-of-round state for every participant.
 type RawRound struct {
 	Number, StartTick, FreezeEndTick, EndTick int
 	WinnerTeam                                Team
 	PlayerEndState                            map[uint64]PlayerRoundEndState
+	PlayerEquipValues                         map[uint64]int // USD equipment value per player at freeze-end
 }
 
 // RawFirstSight is emitted by the parser each time a player first spots an enemy
@@ -93,8 +105,11 @@ type RawWeaponFire struct {
 	PitchDeg    float64 // normalized view pitch at fire tick
 	YawDeg      float64 // view yaw at fire tick
 	AttackerPos Vec3    // shooter world position at fire tick
+	ShooterVelocity float64 // horizontal speed sqrt(vx²+vy²) at fire tick, Hammer units/s
 }
 
+// RawMatch is the fully parsed representation of a single demo file.
+// It contains all tick-level events and metadata needed by the aggregator.
 type RawMatch struct {
 	DemoHash    string
 	MapName     string
@@ -114,6 +129,9 @@ type RawMatch struct {
 
 // ---- Aggregated metrics ----
 
+// PlayerMatchStats holds all aggregated performance metrics for a single
+// player within a single demo. This is the primary output of the aggregator
+// and the main table stored in SQLite.
 type PlayerMatchStats struct {
 	DemoHash string
 	MapName  string // populated when queried across demos (JOIN with demos table)
@@ -172,8 +190,15 @@ type PlayerMatchStats struct {
 
 	// Flash quality (Module 5)
 	EffectiveFlashes int // your flashes where blinded enemy died to your team within 1.5s
+
+	// Role and aim timing metrics
+	Role                 string  // "AWPer" | "Entry" | "Support" | "Rifler"
+	MedianTTKMs          float64 // median ms from first hit → kill (attacker POV)
+	MedianTTDMs          float64 // median ms from first hit received → death (victim POV)
+	CounterStrafePercent float64 // % of shots at horizontal velocity ≤ 34 u/s
 }
 
+// KDRatio returns the kill-to-death ratio. If deaths is 0, kills is returned.
 func (s *PlayerMatchStats) KDRatio() float64 {
 	if s.Deaths == 0 {
 		return float64(s.Kills)
@@ -181,6 +206,7 @@ func (s *PlayerMatchStats) KDRatio() float64 {
 	return float64(s.Kills) / float64(s.Deaths)
 }
 
+// HSPercent returns the headshot kill percentage (0-100).
 func (s *PlayerMatchStats) HSPercent() float64 {
 	if s.Kills == 0 {
 		return 0
@@ -188,6 +214,7 @@ func (s *PlayerMatchStats) HSPercent() float64 {
 	return float64(s.HeadshotKills) / float64(s.Kills) * 100
 }
 
+// ADR returns the average damage per round.
 func (s *PlayerMatchStats) ADR() float64 {
 	if s.RoundsPlayed == 0 {
 		return 0
@@ -195,6 +222,8 @@ func (s *PlayerMatchStats) ADR() float64 {
 	return float64(s.TotalDamage) / float64(s.RoundsPlayed)
 }
 
+// KASTPct returns the KAST percentage (0-100): fraction of rounds where
+// the player recorded a Kill, Assist, Survived, or was Traded.
 func (s *PlayerMatchStats) KASTPct() float64 {
 	if s.RoundsPlayed == 0 {
 		return 0
@@ -202,6 +231,8 @@ func (s *PlayerMatchStats) KASTPct() float64 {
 	return float64(s.KASTRounds) / float64(s.RoundsPlayed) * 100
 }
 
+// PlayerRoundStats holds per-round breakdown stats for a single player,
+// tracking kills, assists, damage, and KAST-qualifying events within one round.
 type PlayerRoundStats struct {
 	DemoHash    string
 	SteamID     uint64
@@ -224,8 +255,11 @@ type PlayerRoundStats struct {
 	Damage  int
 
 	UnusedUtility int
+	BuyType       string // "full" ≥$4500 | "force" ≥$2000 | "half" ≥$1000 | "eco" <$1000
 }
 
+// PlayerWeaponStats holds per-weapon kill/damage/hit breakdown for a single
+// player within a single demo.
 type PlayerWeaponStats struct {
 	DemoHash      string
 	SteamID       uint64
@@ -238,6 +272,7 @@ type PlayerWeaponStats struct {
 	Hits          int
 }
 
+// HSPercent returns the headshot kill percentage (0-100) for this weapon.
 func (s *PlayerWeaponStats) HSPercent() float64 {
 	if s.Kills == 0 {
 		return 0
@@ -245,6 +280,7 @@ func (s *PlayerWeaponStats) HSPercent() float64 {
 	return float64(s.HeadshotKills) / float64(s.Kills) * 100
 }
 
+// AvgDamagePerHit returns the average health damage dealt per hit for this weapon.
 func (s *PlayerWeaponStats) AvgDamagePerHit() float64 {
 	if s.Hits == 0 {
 		return 0
@@ -275,8 +311,15 @@ type PlayerAggregate struct {
 	AvgExpoLossMs    float64
 	AvgCorrectionDeg float64
 	AvgHitsToKill    float64
+
+	// Role and aim timing
+	Role                    string
+	AvgTTKMs               float64
+	AvgTTDMs               float64
+	AvgCounterStrafePercent float64
 }
 
+// KDRatio returns the aggregate kill-to-death ratio across all matches.
 func (a *PlayerAggregate) KDRatio() float64 {
 	if a.Deaths == 0 {
 		return float64(a.Kills)
@@ -284,6 +327,7 @@ func (a *PlayerAggregate) KDRatio() float64 {
 	return float64(a.Kills) / float64(a.Deaths)
 }
 
+// HSPercent returns the aggregate headshot kill percentage (0-100).
 func (a *PlayerAggregate) HSPercent() float64 {
 	if a.Kills == 0 {
 		return 0
@@ -291,6 +335,7 @@ func (a *PlayerAggregate) HSPercent() float64 {
 	return float64(a.HeadshotKills) / float64(a.Kills) * 100
 }
 
+// ADR returns the aggregate average damage per round.
 func (a *PlayerAggregate) ADR() float64 {
 	if a.RoundsPlayed == 0 {
 		return 0
@@ -298,6 +343,7 @@ func (a *PlayerAggregate) ADR() float64 {
 	return float64(a.TotalDamage) / float64(a.RoundsPlayed)
 }
 
+// KASTPct returns the aggregate KAST percentage (0-100).
 func (a *PlayerAggregate) KASTPct() float64 {
 	if a.RoundsPlayed == 0 {
 		return 0
@@ -322,6 +368,7 @@ type PlayerMapSideAggregate struct {
 	TradeKills, TradeDeaths int
 }
 
+// KDRatio returns the kill-to-death ratio for this map/side combination.
 func (a *PlayerMapSideAggregate) KDRatio() float64 {
 	if a.Deaths == 0 {
 		return float64(a.Kills)
@@ -329,6 +376,7 @@ func (a *PlayerMapSideAggregate) KDRatio() float64 {
 	return float64(a.Kills) / float64(a.Deaths)
 }
 
+// HSPercent returns the headshot kill percentage (0-100) for this map/side.
 func (a *PlayerMapSideAggregate) HSPercent() float64 {
 	if a.Kills == 0 {
 		return 0
@@ -336,6 +384,7 @@ func (a *PlayerMapSideAggregate) HSPercent() float64 {
 	return float64(a.HeadshotKills) / float64(a.Kills) * 100
 }
 
+// ADR returns the average damage per round for this map/side combination.
 func (a *PlayerMapSideAggregate) ADR() float64 {
 	if a.RoundsPlayed == 0 {
 		return 0
@@ -343,6 +392,7 @@ func (a *PlayerMapSideAggregate) ADR() float64 {
 	return float64(a.TotalDamage) / float64(a.RoundsPlayed)
 }
 
+// KASTPct returns the KAST percentage (0-100) for this map/side combination.
 func (a *PlayerMapSideAggregate) KASTPct() float64 {
 	if a.RoundsPlayed == 0 {
 		return 0
@@ -364,6 +414,7 @@ type PlayerSideStats struct {
 	TradeKills, TradeDeaths   int
 }
 
+// KDRatio returns the kill-to-death ratio for this side.
 func (s *PlayerSideStats) KDRatio() float64 {
 	if s.Deaths == 0 {
 		return float64(s.Kills)
@@ -371,6 +422,7 @@ func (s *PlayerSideStats) KDRatio() float64 {
 	return float64(s.Kills) / float64(s.Deaths)
 }
 
+// ADR returns the average damage per round for this side.
 func (s *PlayerSideStats) ADR() float64 {
 	if s.RoundsPlayed == 0 {
 		return 0
@@ -378,6 +430,7 @@ func (s *PlayerSideStats) ADR() float64 {
 	return float64(s.TotalDamage) / float64(s.RoundsPlayed)
 }
 
+// KASTPct returns the KAST percentage (0-100) for this side.
 func (s *PlayerSideStats) KASTPct() float64 {
 	if s.RoundsPlayed == 0 {
 		return 0

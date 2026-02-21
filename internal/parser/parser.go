@@ -1,3 +1,6 @@
+// Package parser converts Counter-Strike 2 demo (.dem) files into structured
+// RawMatch data by walking each frame, extracting kills, damage, flashes,
+// weapon fires, and first-sight crosshair angles.
 package parser
 
 import (
@@ -18,10 +21,12 @@ import (
 // pairKey identifies a (observer, enemy) pair for spotted-state deduplication.
 type pairKey struct{ obs, enemy uint64 }
 
+// Source 2 player model eye-height and head-hitbox offsets (in Hammer units).
+// Used to reconstruct eye and head positions when PositionEyes() is unavailable.
 const (
-	standingEyeHeight = 64.0625
-	crouchEyeHeight   = 46.0469
-	headAboveEye      = 8.0
+	standingEyeHeight = 64.0625 // eye height above origin when standing
+	crouchEyeHeight   = 46.0469 // eye height above origin when crouching
+	headAboveEye      = 8.0     // vertical offset from eye level to head-hitbox center
 )
 
 // headZ returns the world-space Z coordinate of an enemy's head center.
@@ -176,9 +181,10 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 	}
 
 	var (
-		roundNumber    int
-		roundStartTick int
-		freezeEndTick  int
+		roundNumber       int
+		roundStartTick    int
+		freezeEndTick     int
+		currentEquipVals  map[uint64]int
 	)
 
 	// seenThisRound tracks (observer, enemy) pairs already recorded in the current round
@@ -194,14 +200,23 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 		roundStartTick = p.GameState().IngameTick()
 		freezeEndTick = roundStartTick // will be updated by RoundFreezetimeEnd
 		seenThisRound = make(map[pairKey]bool)
+		currentEquipVals = nil
 	})
 
-	// RoundFreezetimeEnd: record the tick after freeze ends.
+	// RoundFreezetimeEnd: record the tick after freeze ends and snapshot equipment values.
 	p.RegisterEventHandler(func(e events.RoundFreezetimeEnd) {
 		if roundNumber == 0 {
 			return
 		}
 		freezeEndTick = p.GameState().IngameTick()
+		equipVals := make(map[uint64]int)
+		for _, pl := range p.GameState().Participants().Playing() {
+			if pl == nil || pl.SteamID64 == 0 {
+				continue
+			}
+			equipVals[pl.SteamID64] = pl.EquipmentValueFreezeTimeEnd()
+		}
+		currentEquipVals = equipVals
 	})
 
 	// RoundEnd: snapshot state, record round metadata.
@@ -236,12 +251,13 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 		}
 
 		raw.Rounds = append(raw.Rounds, model.RawRound{
-			Number:        roundNumber,
-			StartTick:     roundStartTick,
-			FreezeEndTick: freezeEndTick,
-			EndTick:       endTick,
-			WinnerTeam:    winnerTeam,
-			PlayerEndState: endState,
+			Number:            roundNumber,
+			StartTick:         roundStartTick,
+			FreezeEndTick:     freezeEndTick,
+			EndTick:           endTick,
+			WinnerTeam:        winnerTeam,
+			PlayerEndState:    endState,
+			PlayerEquipValues: currentEquipVals,
 		})
 	})
 
@@ -379,14 +395,17 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 		}
 
 		sp := e.Shooter.Position()
+		vel := e.Shooter.Velocity()
+		shooterVelocity := math.Sqrt(vel.X*vel.X + vel.Y*vel.Y)
 		raw.WeaponFires = append(raw.WeaponFires, model.RawWeaponFire{
-			Tick:        p.GameState().IngameTick(),
-			RoundNumber: roundNumber,
-			ShooterID:   e.Shooter.SteamID64,
-			Weapon:      e.Weapon.Type.String(),
-			PitchDeg:    pitch,
-			YawDeg:      yaw,
-			AttackerPos: model.Vec3{X: sp.X, Y: sp.Y, Z: sp.Z},
+			Tick:            p.GameState().IngameTick(),
+			RoundNumber:     roundNumber,
+			ShooterID:       e.Shooter.SteamID64,
+			Weapon:          e.Weapon.Type.String(),
+			PitchDeg:        pitch,
+			YawDeg:          yaw,
+			AttackerPos:     model.Vec3{X: sp.X, Y: sp.Y, Z: sp.Z},
+			ShooterVelocity: shooterVelocity,
 		})
 	})
 
@@ -454,6 +473,7 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 	return raw, nil
 }
 
+// teamFromCommon converts a demoinfocs common.Team value to the internal model.Team enum.
 func teamFromCommon(t common.Team) model.Team {
 	switch t {
 	case common.TeamTerrorists:
@@ -467,6 +487,8 @@ func teamFromCommon(t common.Team) model.Team {
 	}
 }
 
+// isUtilityWeapon returns true for grenade-type equipment (HE, molotov, incendiary)
+// that should be flagged as utility damage in PlayerHurt events.
 func isUtilityWeapon(t common.EquipmentType) bool {
 	return t == common.EqHE || t == common.EqMolotov || t == common.EqIncendiary
 }

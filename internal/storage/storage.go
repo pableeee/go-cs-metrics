@@ -1,3 +1,4 @@
+// Package storage provides SQLite-backed persistence for parsed demo data and player metrics.
 package storage
 
 import (
@@ -36,6 +37,11 @@ func Open(path string) (*DB, error) {
 		`ALTER TABLE player_match_stats ADD COLUMN crosshair_pct_under5 REAL NOT NULL DEFAULT 0`,
 		`ALTER TABLE demos ADD COLUMN tier TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE demos ADD COLUMN is_baseline INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_match_stats ADD COLUMN role TEXT NOT NULL DEFAULT 'Rifler'`,
+		`ALTER TABLE player_match_stats ADD COLUMN median_ttk_ms REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_match_stats ADD COLUMN median_ttd_ms REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_match_stats ADD COLUMN counter_strafe_pct REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_round_stats ADD COLUMN buy_type TEXT NOT NULL DEFAULT 'eco'`,
 	}
 	for _, stmt := range altMigrations {
 		if _, err := conn.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {

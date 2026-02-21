@@ -1,3 +1,9 @@
+// Package aggregator implements the 11-pass pipeline that transforms a parsed
+// RawMatch into per-player, per-round, per-weapon, and per-duel-segment
+// statistics. The passes run in order: trade annotation, opening kills,
+// per-round stats (with buy-type classification), match rollup, crosshair
+// placement, duel engine + FHHS segments, AWP death classification, flash
+// quality window, role classification, TTK/TTD, and counter-strafe %.
 package aggregator
 
 import (
@@ -8,9 +14,13 @@ import (
 	"github.com/pable/go-cs-metrics/internal/model"
 )
 
+// unitsToMeters is the conversion factor from Source 2 Hammer units to meters.
 const unitsToMeters = 0.01905
 
-// weaponBucket maps a weapon name (as returned by demoinfocs .String()) to a broad bucket.
+// weaponBucket maps a weapon name (as returned by demoinfocs .String()) to a
+// broad category bucket used for FHHS segment grouping. For example, "M4A1-S"
+// and "M4A4" both map to "M4". Weapons that do not match any known category
+// are placed in the "Other" bucket.
 func weaponBucket(weapon string) string {
 	switch weapon {
 	case "AK-47":
@@ -36,8 +46,9 @@ func weaponBucket(weapon string) string {
 	}
 }
 
-// distanceBin converts a distance in meters to a named bin string.
-// A negative value (unknown distance) returns "unknown".
+// distanceBin converts a distance in meters to a named bin string used for
+// FHHS segment grouping. Bins are: "0-5m", "5-10m", "10-15m", "15-20m",
+// "20-30m", "30m+". A negative value (unknown distance) returns "unknown".
 func distanceBin(meters float64) string {
 	if meters < 0 {
 		return "unknown"
@@ -58,8 +69,10 @@ func distanceBin(meters float64) string {
 	}
 }
 
-// wilsonCI computes the 95% Wilson score confidence interval for a proportion.
-// Returns (lo, hi) as fractions in [0, 1].
+// wilsonCI computes the 95% Wilson score confidence interval for a proportion
+// p = hits/n. This is preferred over the Wald interval because it remains
+// stable for small sample sizes. Returns (lo, hi) as fractions in [0, 1].
+// When n is 0, the full interval [0, 1] is returned.
 func wilsonCI(hits, n int) (lo, hi float64) {
 	if n == 0 {
 		return 0, 1
@@ -73,7 +86,20 @@ func wilsonCI(hits, n int) (lo, hi float64) {
 	return math.Max(0, center-half), math.Min(1, center+half)
 }
 
-// Aggregate computes PlayerMatchStats, PlayerRoundStats, PlayerWeaponStats, and PlayerDuelSegments from a RawMatch.
+// Aggregate runs the full 11-pass pipeline on a parsed RawMatch and returns
+// four result slices: per-player match stats, per-round stats, per-weapon
+// stats, and per-duel-segment (FHHS) stats. The passes are:
+//  1. Trade annotation (backward + forward scan within 5 s window)
+//  2. Opening kills (first kill after FreezeEndTick)
+//  3. Per-round per-player stats (with buy-type classification)
+//  4. Match-level rollup into PlayerMatchStats
+//  5. Crosshair placement aggregation (median angle, pitch/yaw split)
+//  6. Duel engine + FHHS segments (exposure time, pre-shot correction)
+//  7. AWP death classifier (dry/repeek/isolated)
+//  8. Flash quality window (effective flashes within 1.5 s)
+//  9. Role classification (AWPer/Entry/Support/Rifler)
+// 10. TTK and TTD (median ms from first hit to kill/death)
+// 11. Counter-strafe % (shots fired at horizontal velocity ≤ 34 u/s)
 func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRoundStats, []model.PlayerWeaponStats, []model.PlayerDuelSegment, error) {
 	if raw == nil {
 		return nil, nil, nil, nil, fmt.Errorf("nil RawMatch")
@@ -380,6 +406,20 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			if opening.victimID == playerID {
 				rs.IsOpeningDeath = true
 			}
+
+			// Buy type classification from equipment value at freeze-end.
+			buyType := "eco"
+			if equip, ok := round.PlayerEquipValues[playerID]; ok {
+				switch {
+				case equip >= 4500:
+					buyType = "full"
+				case equip >= 2000:
+					buyType = "force"
+				case equip >= 1000:
+					buyType = "half"
+				}
+			}
+			rs.BuyType = buyType
 
 			// Damage.
 			pk := playerRoundKey{playerID, rn}
@@ -911,10 +951,91 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		matchStats[i].EffectiveFlashes = effectiveFlashAccum[matchStats[i].SteamID]
 	}
 
+	// ---- Pass 9: Role classification ----
+	for i := range matchStats {
+		id := matchStats[i].SteamID
+		totalKills := matchStats[i].Kills
+		rounds := matchStats[i].RoundsPlayed
+		awpKills := weaponKills[weaponKey{id, "AWP"}]
+
+		switch {
+		case totalKills > 0 && float64(awpKills)/float64(totalKills) > 0.30:
+			matchStats[i].Role = "AWPer"
+		case rounds > 0 && float64(matchStats[i].OpeningKills)/float64(rounds) > 0.12:
+			matchStats[i].Role = "Entry"
+		case rounds > 0 && (float64(matchStats[i].FlashAssists)/float64(rounds) > 0.08 ||
+			float64(matchStats[i].UtilityDamage)/float64(rounds) > 15):
+			matchStats[i].Role = "Support"
+		default:
+			matchStats[i].Role = "Rifler"
+		}
+	}
+
+	// ---- Pass 10: TTK and TTD ----
+	type ttkKey struct {
+		roundN                  int
+		attackerID, victimID uint64
+	}
+	firstGunDmgTick := make(map[ttkKey]int)
+	for _, d := range raw.Damages {
+		if d.AttackerSteamID == 0 || d.IsUtility {
+			continue
+		}
+		k := ttkKey{d.RoundNumber, d.AttackerSteamID, d.VictimSteamID}
+		if t, ok := firstGunDmgTick[k]; !ok || d.Tick < t {
+			firstGunDmgTick[k] = d.Tick
+		}
+	}
+	ttkSamples := make(map[uint64][]float64)
+	ttdSamples := make(map[uint64][]float64)
+	for _, kill := range raw.Kills {
+		k := ttkKey{kill.RoundNumber, kill.KillerSteamID, kill.VictimSteamID}
+		if firstTick, ok := firstGunDmgTick[k]; ok {
+			ms := float64(kill.Tick-firstTick) / tps * 1000
+			ttkSamples[kill.KillerSteamID] = append(ttkSamples[kill.KillerSteamID], ms)
+			ttdSamples[kill.VictimSteamID] = append(ttdSamples[kill.VictimSteamID], ms)
+		}
+	}
+	for i := range matchStats {
+		id := matchStats[i].SteamID
+		if s := ttkSamples[id]; len(s) > 0 {
+			sort.Float64s(s)
+			matchStats[i].MedianTTKMs = median(s)
+		}
+		if s := ttdSamples[id]; len(s) > 0 {
+			sort.Float64s(s)
+			matchStats[i].MedianTTDMs = median(s)
+		}
+	}
+
+	// ---- Pass 11: Counter-Strafe % ----
+	const csThreshold = 34.0 // Hammer units/s; below this = effectively stationary
+	type csAcc struct{ total, still int }
+	csMap := make(map[uint64]*csAcc)
+	for _, wf := range raw.WeaponFires {
+		if wf.ShooterID == 0 {
+			continue
+		}
+		if csMap[wf.ShooterID] == nil {
+			csMap[wf.ShooterID] = &csAcc{}
+		}
+		csMap[wf.ShooterID].total++
+		if wf.ShooterVelocity <= csThreshold {
+			csMap[wf.ShooterID].still++
+		}
+	}
+	for i := range matchStats {
+		if acc := csMap[matchStats[i].SteamID]; acc != nil && acc.total > 0 {
+			matchStats[i].CounterStrafePercent = float64(acc.still) / float64(acc.total) * 100
+		}
+	}
+
 	return matchStats, allRoundStats, weaponStats, duelSegments, nil
 }
 
 // median returns the median of a pre-sorted (ascending) slice of float64.
+// For an even-length slice the average of the two middle values is returned.
+// An empty slice returns 0.
 func median(sorted []float64) float64 {
 	n := len(sorted)
 	if n == 0 {
@@ -927,7 +1048,9 @@ func median(sorted []float64) float64 {
 }
 
 // angularDeltaDeg computes the angle in degrees between two view directions
-// given as (pitch, yaw) pairs in degrees. Reconstructs forward vectors and uses acos(dot).
+// given as (pitch, yaw) pairs in degrees. It reconstructs unit forward vectors
+// from each pair using Source 2 conventions (positive pitch = looking down)
+// and returns the arc-cosine of their dot product, clamped to [0, 180].
 func angularDeltaDeg(pitch1, yaw1, pitch2, yaw2 float64) float64 {
 	toRad := math.Pi / 180
 	p1R := pitch1 * toRad

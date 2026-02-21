@@ -17,7 +17,8 @@ go-cs-metrics/
 │   ├── fetch.go                     # "fetch" — ingest FACEIT demos via API
 │   ├── list.go                      # "list" — tabulate stored demos
 │   ├── show.go                      # "show <hash-prefix>" — replay stored match
-│   └── player.go                    # "player <steamid64>..." — cross-match aggregate
+│   ├── player.go                    # "player <steamid64>..." — cross-match aggregate
+│   └── rounds.go                    # "rounds <hash> <steamid>" — per-round drill-down
 └── internal/
     ├── model/model.go               # all shared types; no external deps
     ├── parser/parser.go             # .dem → RawMatch
@@ -52,7 +53,7 @@ All business logic lives under `internal/`. The `cmd/` layer is thin: it only wi
     ▼
 [aggregator]   Aggregate(raw) → ([]PlayerMatchStats, []PlayerRoundStats,
     │                            []PlayerWeaponStats, []PlayerDuelSegment, error)
-    │           • 8-pass algorithm over raw event slices
+    │           • 11-pass algorithm over raw event slices
     │           • no I/O, no external dependencies
     │
     ▼
@@ -62,8 +63,11 @@ All business logic lives under `internal/`. The `cmd/` layer is thin: it only wi
     │           • INSERT OR REPLACE for full idempotency
     │
     ▼
-[report]       PrintMatchSummary / PrintPlayerTable / PrintDuelTable
-               / PrintAWPTable / PrintFHHSTable / PrintWeaponTable → stdout
+[report]       PrintMatchSummary / PrintPlayerTable / PrintPlayerSideTable
+               / PrintDuelTable / PrintAWPTable / PrintFHHSTable
+               / PrintWeaponTable / PrintAimTimingTable → stdout
+               PrintRoundDetailTable (rounds command)
+               PrintPlayerAggregateAimTable (player command)
 ```
 
 The parser and aggregator are intentionally decoupled by the `RawMatch` intermediate representation. This means:
@@ -134,9 +138,9 @@ First-hit headshot rate per segment is reported with a 95% Wilson score confiden
 
 ---
 
-## Aggregator: Eight-Pass Algorithm
+## Aggregator: Eleven-Pass Algorithm
 
-The aggregator makes eight sequential passes over the raw event data.
+The aggregator makes eleven sequential passes over the raw event data.
 
 ### Pass 1 — Trade annotation
 
@@ -167,6 +171,8 @@ For each round, the first kill whose tick is `≥ round.FreezeEndTick` is the op
 ### Pass 3 — Per-round per-player stats
 
 For every round, participating players are the union of those in `round.PlayerEndState` and those who appear in kills. Damage and utility damage are indexed by `(playerID, roundNumber)` maps built before the main loop.
+
+**Buy type classification**: equipment value at freeze-end (`PlayerEquipValues[playerID]`, snapshotted by the parser in the `RoundFreezetimeEnd` handler) is thresholded: ≥$4500 = full, ≥$2000 = force, ≥$1000 = half, <$1000 = eco. Stored as `BuyType` on `PlayerRoundStats`.
 
 ### Pass 4 — Match-level rollup
 
@@ -209,6 +215,24 @@ These are non-exclusive — a death can be all three simultaneously.
 
 For each cross-team flash with `FlashDuration > 0`, checks if the blinded player was killed by the attacker's team within `1.5 * tps` ticks. Each such event increments `EffectiveFlashes` for the flash attacker.
 
+### Pass 9 — Role Classification
+
+Assigns a heuristic role label to each player based on their match statistics:
+- **AWPer**: AWP kills > 30% of total kills
+- **Entry**: opening kills > 12% of rounds played
+- **Support**: flash assists > 8% of rounds, or utility damage > 15/round
+- **Rifler**: default (none of the above thresholds met)
+
+### Pass 10 — TTK and TTD
+
+For each kill, finds the earliest gun-damage tick from attacker→victim in that round (`firstGunDmgTick`). If that tick exists, `ms = (killTick - firstGunDmgTick) / tps * 1000`:
+- `MedianTTKMs` (attacker): median time from their first bullet hitting the victim to the kill.
+- `MedianTTDMs` (victim): median time from the attacker's first hit to the victim's death.
+
+### Pass 11 — Counter-Strafe %
+
+Iterates all `RawWeaponFire` events. If `ShooterVelocity` (horizontal speed `sqrt(vx²+vy²)` snapshotted by the parser at fire tick) is ≤ 34 Hammer units/s, the shot is considered counter-strafe-disciplined. `CounterStrafePercent = still / total × 100` per player.
+
 ---
 
 ## Parser: Event Handling Notes
@@ -217,13 +241,17 @@ The parser registers handlers for seven event types from `demoinfocs-golang`:
 
 | Event | Action |
 |-------|--------|
-| `RoundStart` | Increment round counter (skipped during warmup); record start tick |
-| `RoundFreezetimeEnd` | Update freeze-end tick for current round |
-| `RoundEnd` | Snapshot all active players' end-states; record round metadata |
+| `RoundStart` | Increment round counter (skipped during warmup); record start tick; reset `currentEquipVals` |
+| `RoundFreezetimeEnd` | Update freeze-end tick; snapshot equipment values (`EquipmentValueFreezeTimeEnd()`) per player into `currentEquipVals` |
+| `RoundEnd` | Snapshot all active players' end-states; attach `currentEquipVals` to `RawRound.PlayerEquipValues`; record round metadata |
 | `Kill` | Append to kills slice; count nearby alive teammates for AWP kills (512-unit radius) |
 | `PlayerHurt` | Append to damages slice with hitgroup and victim position; skip self-damage |
 | `PlayerFlashed` | Append to flashes slice; skip zero-duration events |
-| `WeaponFire` | Append to weapon-fires slice with shooter position; skip utility/knife/warmup |
+| `WeaponFire` | Append to weapon-fires slice with shooter position and horizontal velocity `sqrt(vx²+vy²)`; skip utility/knife/warmup |
+
+**New parser captures (Phase 2):**
+- **Equipment value**: `pl.EquipmentValueFreezeTimeEnd()` — post-buy equipment value per player, snapshotted in the `RoundFreezetimeEnd` handler and stored in `RawRound.PlayerEquipValues`. Used by Pass 3 to classify buy type.
+- **Shooter velocity**: `e.Shooter.Velocity()` in the `WeaponFire` handler — horizontal component `sqrt(vx²+vy²)` stored in `RawWeaponFire.ShooterVelocity`. Used by Pass 11 to compute counter-strafe %.
 
 Additionally, the **frame-walk loop** inspects `m_bSpottedByMask` transitions every tick to emit `RawFirstSight` events — one per (observer, enemy, round) pair, recording crosshair deviation angles and absolute view angles.
 
@@ -269,17 +297,20 @@ csmetrics list
 csmetrics show <hash-prefix> [--player <steamid64>]
 csmetrics fetch [flags]
 csmetrics player <steamid64> [<steamid64>...]
+csmetrics rounds <hash-prefix> <steamid64>
 ```
 
 All commands also accept `-v` / `--verbose` (persistent flag on root). When set, a one-line column legend is printed before each table. Section titles (`--- Name ---`) are always printed regardless of `-v`.
 
 **Output order** for `parse` and `show`:
 1. Match summary (map, date, score, hash)
-2. Player table — K/A/D, ADR, KAST%, entries, trades, flash assists, effective flashes, xhair median
-3. Duel table — W/L counts, median exposure win/loss ms, hits/kill, first-hit HS%, pre-shot correction
-4. AWP table — AWP deaths with dry%/repeek%/isolated%
-5. FHHS table — first-hit HS rate by (weapon, distance bin) with Wilson 95% CI and sample flags; priority bins marked with `*` and summarised below the table
-6. Weapon table — per-weapon kills, HS%, damage, hits
+2. Player table — K/A/D, ADR, KAST%, role, entries, trades, flash assists, effective flashes, xhair median
+3. Per-side breakdown — K/A/D, ADR, KAST%, entry/trade counts split by CT and T halves
+4. Duel table — W/L counts, median exposure win/loss ms, hits/kill, first-hit HS%, pre-shot correction
+5. AWP table — AWP deaths with dry%/repeek%/isolated%
+6. FHHS table — first-hit HS rate by (weapon, distance bin) with Wilson 95% CI and sample flags; priority bins marked with `*` and summarised below the table
+7. Weapon table — per-weapon kills, HS%, damage, hits
+8. Aim timing — median TTK, median TTD, counter-strafe %
 
 **Output order** for `player <steamid64>...` (one block per player):
 1. Header line — name, SteamID64, match count
@@ -287,7 +318,11 @@ All commands also accept `-v` / `--verbose` (persistent flag on root). When set,
 3. Duel profile — wins/losses, avg exposure win/loss ms, avg hits-to-kill, avg pre-shot correction
 4. AWP breakdown — total AWP deaths, dry%/repeek%/isolated%
 5. Map & side split — K/D, HS%, ADR, KAST%, entry/trade counts broken down by map and CT/T side
-6. FHHS table — same format as parse/show but built from merged cross-demo segment counts (accurate aggregation)
+6. Aim timing aggregate — role, avg TTK, avg TTD, avg counter-strafe %
+7. FHHS table — same format as parse/show but built from merged cross-demo segment counts (accurate aggregation)
+
+**Output for `rounds <hash-prefix> <steamid64>`**:
+Per-round table: round number, side, buy type, K/A/damage, KAST ✓/blank, tactical flags (OPEN_K/D, TRADE_K/D). Footer: buy profile summary (full/force/half/eco counts and percentages).
 
 ---
 

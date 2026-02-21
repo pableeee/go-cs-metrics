@@ -1,3 +1,5 @@
+// Package report formats and prints player, match, and aggregate statistics
+// as terminal tables using tablewriter.
 package report
 
 import (
@@ -7,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/olekukonko/tablewriter"
@@ -43,8 +46,9 @@ func PrintPlayerTable(stats []model.PlayerMatchStats, focusSteamID uint64) {
 func PrintPlayerTableTo(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uint64) {
 	printSection(w, "Performance Overview",
 		"K=Kills  A=Assists  D=Deaths  K/D=kill-death ratio  HS%=headshot kill %  ADR=avg damage per round\n"+
-			"KAST%=rounds with a Kill/Assist/Survival/Trade  ENTRY_K/D=first kill/death of the round\n"+
-			"TRADE_K/D=kill traded within 5s  FA=flash assists  EFF_FLASH=blinded enemy died to your team within 1.5s\n"+
+			"KAST%=rounds with a Kill/Assist/Survival/Trade  ROLE=heuristic role (AWPer/Entry/Support/Rifler)\n"+
+			"ENTRY_K/D=first kill/death of the round  TRADE_K/D=kill traded within 5s\n"+
+			"FA=flash assists  EFF_FLASH=blinded enemy died to your team within 1.5s\n"+
 			"UTIL_DMG=HE/molotov damage  XHAIR_MED=median crosshair deviation at first sight (lower = better pre-aim)")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row: tw.CellConfig{
@@ -56,7 +60,7 @@ func PrintPlayerTableTo(w io.Writer, stats []model.PlayerMatchStats, focusSteamI
 	}))
 
 	table.Header(
-		" ", "NAME", "TEAM", "K", "A", "D", "K/D", "HS%", "ADR", "KAST%",
+		" ", "NAME", "ROLE", "TEAM", "K", "A", "D", "K/D", "HS%", "ADR", "KAST%",
 		"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D", "FA", "EFF_FLASH", "UTIL_DMG", "XHAIR_MED",
 	)
 
@@ -69,9 +73,14 @@ func PrintPlayerTableTo(w io.Writer, stats []model.PlayerMatchStats, focusSteamI
 		if s.CrosshairEncounters > 0 {
 			xhairStr = fmt.Sprintf("%.1f°", s.CrosshairMedianDeg)
 		}
+		role := s.Role
+		if role == "" {
+			role = "Rifler"
+		}
 		table.Append(
 			marker,
 			s.Name,
+			role,
 			s.Team.String(),
 			strconv.Itoa(s.Kills),
 			strconv.Itoa(s.Assists),
@@ -433,6 +442,8 @@ func bucketOrder(bucket string) int {
 	}
 }
 
+// sampleFlag returns a reliability label ("OK", "LOW", or "VERY_LOW") based on
+// the number of samples n.
 func sampleFlag(n int) string {
 	switch {
 	case n >= 50:
@@ -444,6 +455,8 @@ func sampleFlag(n int) string {
 	}
 }
 
+// colorFlag wraps a sample-flag string in a terminal color: cyan for OK,
+// yellow for LOW, and dim red for VERY_LOW.
 func colorFlag(flag string) string {
 	switch flag {
 	case "OK":
@@ -455,10 +468,14 @@ func colorFlag(flag string) string {
 	}
 }
 
+// isRifleBucket reports whether b is a rifle weapon bucket (AK, M4, Galil,
+// FAMAS, or ScopedRifle).
 func isRifleBucket(b string) bool {
 	return b == "AK" || b == "M4" || b == "Galil" || b == "FAMAS" || b == "ScopedRifle"
 }
 
+// isMidRangeBin reports whether b represents a mid-range engagement distance
+// (10-15m, 15-20m, or 20-30m).
 func isMidRangeBin(b string) bool {
 	return b == "10-15m" || b == "15-20m" || b == "20-30m"
 }
@@ -592,6 +609,162 @@ func wilsonCI(hits, n int) (lo, hi float64) {
 	center := (p + z*z/(2*nf)) / denom
 	half := z * math.Sqrt(p*(1-p)/nf+z*z/(4*nf*nf)) / denom
 	return math.Max(0, center-half), math.Min(1, center+half)
+}
+
+// PrintAimTimingTable prints the TTK, TTD, and Counter-Strafe % table.
+// If focusSteamID is non-zero, that player's row is highlighted with ">".
+// Rows where all three values are zero are shown as "—".
+func PrintAimTimingTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uint64) {
+	// Only show if at least one player has data.
+	hasData := false
+	for _, s := range stats {
+		if s.MedianTTKMs > 0 || s.MedianTTDMs > 0 || s.CounterStrafePercent > 0 {
+			hasData = true
+			break
+		}
+	}
+	if !hasData {
+		return
+	}
+	printSection(w, "Aim Timing & Movement",
+		"MEDIAN_TTK=median ms from your first bullet hit to kill (lower = faster finisher)\n"+
+			"MEDIAN_TTD=median ms from enemy's first hit on you to your death (lower = died faster)\n"+
+			"CS%=% of shots fired while horizontal speed ≤ 34 u/s (counter-strafe discipline, higher = better)")
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header(" ", "PLAYER", "MEDIAN_TTK", "MEDIAN_TTD", "CS%")
+
+	for _, s := range stats {
+		marker := " "
+		if focusSteamID != 0 && s.SteamID == focusSteamID {
+			marker = color.CyanString(">")
+		}
+		ttkStr := "—"
+		if s.MedianTTKMs > 0 {
+			ttkStr = fmt.Sprintf("%.0fms", s.MedianTTKMs)
+		}
+		ttdStr := "—"
+		if s.MedianTTDMs > 0 {
+			ttdStr = fmt.Sprintf("%.0fms", s.MedianTTDMs)
+		}
+		csStr := "—"
+		if s.CounterStrafePercent > 0 {
+			csStr = fmt.Sprintf("%.0f%%", s.CounterStrafePercent)
+		}
+		table.Append(marker, s.Name, ttkStr, ttdStr, csStr)
+	}
+	table.Render()
+}
+
+// PrintRoundDetailTable prints a per-round drill-down table for a single player in a match.
+func PrintRoundDetailTable(w io.Writer, stats []model.PlayerRoundStats, playerName, mapName string) {
+	if len(stats) == 0 {
+		return
+	}
+	printSection(w, fmt.Sprintf("%s — %s — %d rounds", playerName, mapName, len(stats)),
+		"SIDE=CT or T  BUY=buy type (full/force/half/eco)  K/A/DMG=kills/assists/damage\n"+
+			"KAST=✓ if earned KAST that round  FLAGS=OPEN_K/OPEN_D/TRADE_K/TRADE_D")
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header("RD", "SIDE", "BUY", "K", "A", "DMG", "KAST", "FLAGS")
+
+	buyCount := make(map[string]int)
+	for _, s := range stats {
+		buyType := s.BuyType
+		if buyType == "" {
+			buyType = "eco"
+		}
+		buyCount[buyType]++
+
+		kastStr := " "
+		if s.KASTEarned {
+			kastStr = "✓"
+		}
+
+		var flags []string
+		if s.IsOpeningKill {
+			flags = append(flags, "OPEN_K")
+		}
+		if s.IsOpeningDeath {
+			flags = append(flags, "OPEN_D")
+		}
+		if s.IsTradeKill {
+			flags = append(flags, "TRADE_K")
+		}
+		if s.IsTradeDeath {
+			flags = append(flags, "TRADE_D")
+		}
+		flagStr := strings.Join(flags, ",")
+
+		table.Append(
+			strconv.Itoa(s.RoundNumber),
+			s.Team.String(),
+			buyType,
+			strconv.Itoa(s.Kills),
+			strconv.Itoa(s.Assists),
+			strconv.Itoa(s.Damage),
+			kastStr,
+			flagStr,
+		)
+	}
+	table.Render()
+
+	// Buy profile summary.
+	total := len(stats)
+	fmt.Fprintf(w, "\nBuy Profile: ")
+	for _, bt := range []string{"full", "force", "half", "eco"} {
+		n := buyCount[bt]
+		fmt.Fprintf(w, "%s=%d (%.0f%%)  ", bt, n, float64(n)/float64(total)*100)
+	}
+	fmt.Fprintln(w)
+}
+
+// PrintPlayerAggregateAimTable prints TTK/TTD/CS% aggregated across all demos.
+func PrintPlayerAggregateAimTable(w io.Writer, aggs []model.PlayerAggregate) {
+	hasData := false
+	for _, a := range aggs {
+		if a.AvgTTKMs > 0 || a.AvgTTDMs > 0 || a.AvgCounterStrafePercent > 0 || a.Role != "" {
+			hasData = true
+			break
+		}
+	}
+	if !hasData {
+		return
+	}
+	printSection(w, "Aim Timing & Movement (Aggregate)",
+		"ROLE=most common heuristic role across matches\n"+
+			"AVG_TTK/AVG_TTD=average of per-match median ms (lower TTK = faster finisher, lower TTD = died faster)\n"+
+			"AVG_CS%=average counter-strafe discipline % across matches (higher = better)")
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header("PLAYER", "ROLE", "AVG_TTK", "AVG_TTD", "AVG_CS%")
+
+	for _, a := range aggs {
+		role := a.Role
+		if role == "" {
+			role = "Rifler"
+		}
+		ttkStr := "—"
+		if a.AvgTTKMs > 0 {
+			ttkStr = fmt.Sprintf("%.0fms", a.AvgTTKMs)
+		}
+		ttdStr := "—"
+		if a.AvgTTDMs > 0 {
+			ttdStr = fmt.Sprintf("%.0fms", a.AvgTTDMs)
+		}
+		csStr := "—"
+		if a.AvgCounterStrafePercent > 0 {
+			csStr = fmt.Sprintf("%.0f%%", a.AvgCounterStrafePercent)
+		}
+		table.Append(a.Name, role, ttkStr, ttdStr, csStr)
+	}
+	table.Render()
 }
 
 // PrintWeaponTable prints a per-weapon breakdown table.

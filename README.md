@@ -16,6 +16,7 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
   - [show](#show)
   - [fetch](#fetch)
   - [player](#player)
+  - [rounds](#rounds)
 - [Metric Definitions](#metric-definitions)
   - [General](#general)
   - [Entry Frags](#entry-frags)
@@ -42,8 +43,12 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
 
 - **Full demo parsing** — tick-level event extraction using [`demoinfocs-golang`](https://github.com/markus-wa/demoinfocs-golang): kills, damage, flashes, weapon fires, spotted-flag transitions.
 - **Rich metric suite** — K/D/A, ADR, KAST, HS%, entry frags, trade kills/deaths, utility damage, unused utility, flash assists, flash quality, crosshair placement, duel engine (exposure time, hits-to-kill, pre-shot correction), AWP death classification.
+- **Role detection** — per-match heuristic label (AWPer / Entry / Support / Rifler) computed from kill distribution and opening/utility stats; shown in the player table.
+- **Buy type** — eco/half/force/full classification per player per round, derived from equipment value at freeze-end; used in drill-down tables.
+- **Aim timing & movement** — Median TTK (ms from first hit to kill), Median TTD (ms from first hit received to death), and Counter-Strafe % (shots fired while horizontal speed ≤ 34 u/s).
 - **FHHS breakdown** — first-hit headshot rate segmented by weapon bucket and distance bin, with Wilson 95% CI and automatic priority bin detection.
-- **Cross-match player analysis** — `player` command aggregates stats across all stored demos for one or more SteamID64s, producing a full overview + duel + AWP + FHHS report per player.
+- **Cross-match player analysis** — `player` command aggregates stats across all stored demos for one or more SteamID64s, producing a full overview + duel + AWP + FHHS + aim timing report per player.
+- **Per-round drill-down** — `rounds` command shows per-round side, buy type, K/A/damage, KAST, and tactical flags for one player in one match, with a buy profile summary.
 - **Per-weapon breakdown** — kills, HS%, assists, deaths, damage, hits, damage-per-hit per weapon per player.
 - **Idempotent ingestion** — demos are SHA-256 hashed; re-parsing the same file is a no-op.
 - **SQLite storage** — portable single-file database at `~/.csmetrics/metrics.db`; no server required.
@@ -139,11 +144,13 @@ Parse a `.dem` file, aggregate all metrics, and store the results. If the demo w
 **Output tables:**
 
 1. **Match summary** — map, date, type, score, hash prefix
-2. **Player stats** — K/A/D, K/D, HS%, ADR, KAST%, entry kills/deaths, trade kills/deaths, flash assists, effective flashes, utility damage, crosshair median angle
-3. **Duel engine** — duel wins/losses, median exposure time on wins and losses, median hits-to-kill, first-bullet HS rate, pre-shot correction angle and % under 2°
-4. **AWP death classifier** — total AWP deaths, % dry-peek, % re-peek, % isolated
-5. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample flags (OK/LOW/VERY_LOW), priority bins marked `*`
-6. **Weapon breakdown** — per-weapon kills, HS%, assists, deaths, damage, hits, damage-per-hit (filtered to `--player` if specified)
+2. **Player stats** — K/A/D, K/D, HS%, ADR, KAST%, role, entry kills/deaths, trade kills/deaths, flash assists, effective flashes, utility damage, crosshair median angle
+3. **Per-side breakdown** — K/A/D, K/D, ADR, KAST%, entry/trade counts split by CT and T halves
+4. **Duel engine** — duel wins/losses, median exposure time on wins and losses, median hits-to-kill, first-bullet HS rate, pre-shot correction angle and % under 2°
+5. **AWP death classifier** — total AWP deaths, % dry-peek, % re-peek, % isolated
+6. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample flags (OK/LOW/VERY_LOW), priority bins marked `*`
+7. **Weapon breakdown** — per-weapon kills, HS%, assists, deaths, damage, hits, damage-per-hit (filtered to `--player` if specified)
+8. **Aim timing & movement** — median TTK, median TTD, counter-strafe %
 
 **Example:**
 
@@ -268,7 +275,8 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 2. **Duel profile** — duel wins/losses, average exposure time (win and loss), average hits-to-kill, average pre-shot correction
 3. **AWP breakdown** — total AWP deaths with dry-peek %, re-peek %, and isolated %
 4. **Map & side split** — K/D, HS%, ADR, KAST%, entry/trade counts broken down by map and side (CT/T)
-5. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample quality flags, priority bins marked with `*`
+5. **Aim timing & movement** — role, average TTK, average TTD, average counter-strafe %
+6. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample quality flags, priority bins marked with `*`
 
 **Example:**
 
@@ -292,6 +300,38 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 ```
 
 Integer stats (kills, duels, etc.) are **summed** across matches. Float medians (exposure, correction) are **averaged** per match. FHHS is computed from raw count totals for accuracy.
+
+---
+
+### rounds
+
+Per-round drill-down table for one player in one match. Shows side, buy type, kills/assists/damage, KAST, and tactical flags per round, plus a buy profile summary line.
+
+```
+./go-cs-metrics rounds <hash-prefix> <steamid64>
+```
+
+**Example:**
+
+```sh
+./go-cs-metrics rounds a3f9c2 76561198XXXXXXXXX
+```
+
+```
+=== PlayerName — de_mirage — 25 rounds ===
+
+ RD | SIDE | BUY   | K | A | DMG | KAST | FLAGS
+  1 | CT   | full  | 2 | 0 | 150 | ✓    | OPEN_K
+  2 | CT   | full  | 0 | 1 |  45 | ✓    |
+  3 | CT   | eco   | 0 | 0 |   0 |      |
+ ...
+
+Buy Profile: full=14 (56%)  force=5 (20%)  half=3 (12%)  eco=3 (12%)
+```
+
+FLAGS: `OPEN_K` = opening kill, `OPEN_D` = opening death, `TRADE_K` = trade kill, `TRADE_D` = trade death.
+
+> **Note:** Schema changes require a DB rebuild: `rm ~/.csmetrics/metrics.db` and re-parse your demos.
 
 ---
 
@@ -655,16 +695,19 @@ go test ./internal/aggregator/... -run TestTradeKill -v
 
 - **Match date**: Uses the demo file's modification time (`os.Stat` mtime), which reflects when CS2 wrote the demo to disk (end of match). FACEIT-fetched demos use the match's `started_at` API timestamp.
 - **Crosshair placement**: Uses server-side `m_bSpottedByMask` as a proxy for first-sight. This may fire slightly before the player's client renders the enemy. Values should be treated as directional, not absolute.
-- **No role detection**: AWPer vs rifler vs support are not automatically classified. Metric interpretation (especially ADR) should account for role when doing manual analysis.
+- **Schema changes**: Adding new columns requires a DB rebuild (`rm ~/.csmetrics/metrics.db` and re-parse demos). Automatic migrations handle this for existing DBs via `ALTER TABLE`.
 - **Demo availability**: FACEIT demo URLs are time-limited and may expire. Download soon after a match is played.
 - **South America region**: The FACEIT player pool at specific levels is smaller than EU/NA; fetching large baseline corpora may require pulling from multiple regions.
 
-### Planned (Phase 2)
+### Planned
 
-- **Filters in output**: slice stats by side (T/CT), buy type (eco/force/full), or round range.
+- ~~**CT/T side split table**~~ — done (per-side breakdown in `show`/`parse`).
+- ~~**Role detection**~~ — done (AWPer/Entry/Support/Rifler heuristic, shown in player table).
+- ~~**Buy type**~~ — done (eco/half/force/full per round from equipment value).
+- ~~**Drill-down**~~ — done (`rounds` command shows per-round detail with buy type and flags).
+- ~~**TTK/TTD**~~ — done (median ms from first hit to kill/death).
+- ~~**Counter-strafe %**~~ — done (shots at horizontal speed ≤ 34 u/s).
 - **Trend view**: rolling averages across matches (last 10 / last 30 / per map).
 - **Percentile comparison**: given a tier corpus, automatically show where your stats land (p25 / p50 / p75).
-- **Drill-down**: click a metric → see the specific rounds and ticks that drove it.
-- **Aim metrics**: TTK, TTD, counter-strafe %, spray control proxy (requires careful validation).
 - **Round context**: clutch detection, man-advantage conversion, post-plant / retake labeling.
 - **Local web UI**: lightweight browser-based dashboard for non-terminal users.
