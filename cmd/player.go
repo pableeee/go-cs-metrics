@@ -28,6 +28,17 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
+	type fhhsEntry struct {
+		name  string
+		id    uint64
+		segs  []model.PlayerDuelSegment
+		synth []model.PlayerMatchStats
+	}
+
+	var allAggs    []model.PlayerAggregate
+	var allMapSide []model.PlayerMapSideAggregate
+	var fhhsList   []fhhsEntry
+
 	for _, arg := range args {
 		id, err := strconv.ParseUint(arg, 10, 64)
 		if err != nil {
@@ -62,21 +73,32 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 			overallFHHS = float64(totalHSHits) / float64(totalHits) * 100
 		}
 
-		// Synthetic PlayerMatchStats for PrintFHHSTable's priority-bin detection.
-		syntheticPlayers := []model.PlayerMatchStats{{
-			SteamID:        id,
-			Name:           agg.Name,
-			FirstHitHSRate: overallFHHS,
-		}}
+		allAggs = append(allAggs, agg)
+		allMapSide = append(allMapSide, buildMapSideAggregates(stats)...)
+		fhhsList = append(fhhsList, fhhsEntry{
+			name: agg.Name,
+			id:   id,
+			segs: merged,
+			synth: []model.PlayerMatchStats{{
+				SteamID:        id,
+				Name:           agg.Name,
+				FirstHitHSRate: overallFHHS,
+			}},
+		})
+	}
 
-		mapSide := buildMapSideAggregates(stats)
+	if len(allAggs) == 0 {
+		return nil
+	}
 
-		fmt.Fprintf(os.Stdout, "\n=== %s (%d) — %d matches ===\n\n", agg.Name, id, agg.Matches)
-		report.PrintPlayerAggregateOverview(os.Stdout, []model.PlayerAggregate{agg})
-		report.PrintPlayerAggregateDuelTable(os.Stdout, []model.PlayerAggregate{agg})
-		report.PrintPlayerAggregateAWPTable(os.Stdout, []model.PlayerAggregate{agg})
-		report.PrintPlayerMapSideTable(os.Stdout, mapSide)
-		report.PrintFHHSTable(os.Stdout, merged, syntheticPlayers, 0)
+	fmt.Fprintln(os.Stdout)
+	report.PrintPlayerAggregateOverview(os.Stdout, allAggs)
+	report.PrintPlayerAggregateDuelTable(os.Stdout, allAggs)
+	report.PrintPlayerAggregateAWPTable(os.Stdout, allAggs)
+	report.PrintPlayerMapSideTable(os.Stdout, allMapSide)
+	for _, f := range fhhsList {
+		fmt.Fprintln(os.Stdout)
+		report.PrintFHHSTable(os.Stdout, f.segs, f.synth, 0)
 	}
 	return nil
 }

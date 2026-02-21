@@ -16,7 +16,7 @@ import (
 
 // Verbose controls whether metric explanations are printed before each table.
 // Set this to true when the -v flag is passed.
-var Verbose bool
+var Verbose = true
 
 // printSection prints a bold section title and, when Verbose is true, a one-line
 // explanation of the columns that follow.
@@ -88,6 +88,53 @@ func PrintPlayerTableTo(w io.Writer, stats []model.PlayerMatchStats, focusSteamI
 			strconv.Itoa(s.EffectiveFlashes),
 			strconv.Itoa(s.UtilityDamage),
 			xhairStr,
+		)
+	}
+	table.Render()
+}
+
+// PrintPlayerSideTable prints per-side (CT/T) basic stats for all players in a match.
+// Rows are ordered by player (same order as PrintPlayerTable) with CT before T per player.
+// If focusSteamID is non-zero, that player's rows are marked with ">".
+func PrintPlayerSideTable(w io.Writer, sides []model.PlayerSideStats, focusSteamID uint64) {
+	if len(sides) == 0 {
+		return
+	}
+	printSection(w, "Per-Side Breakdown",
+		"Stats split by CT and T halves for each player in this match.\n"+
+			"K/A/D and ADR derived from round-level data. KAST/ENTRY/TRADE as per Performance Overview.")
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header(" ", "NAME", "SIDE", "K", "A", "D", "K/D", "ADR", "KAST%",
+		"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D")
+
+	var lastID uint64
+	for _, s := range sides {
+		marker := " "
+		if focusSteamID != 0 && s.SteamID == focusSteamID {
+			marker = color.CyanString(">")
+		}
+		name := s.Name
+		if s.SteamID == lastID {
+			name = `"`
+		}
+		lastID = s.SteamID
+		table.Append(
+			marker,
+			name,
+			s.Team.String(),
+			strconv.Itoa(s.Kills),
+			strconv.Itoa(s.Assists),
+			strconv.Itoa(s.Deaths),
+			fmt.Sprintf("%.2f", s.KDRatio()),
+			fmt.Sprintf("%.1f", s.ADR()),
+			fmt.Sprintf("%.0f%%", s.KASTPct()),
+			strconv.Itoa(s.OpeningKills),
+			strconv.Itoa(s.OpeningDeaths),
+			strconv.Itoa(s.TradeKills),
+			strconv.Itoa(s.TradeDeaths),
 		)
 	}
 	table.Render()
@@ -316,11 +363,12 @@ func PrintPlayerMapSideTable(w io.Writer, aggs []model.PlayerMapSideAggregate) {
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	table.Header("MAP", "SIDE", "M", "K", "D", "K/D", "HS%", "ADR", "KAST%",
+	table.Header("NAME", "MAP", "SIDE", "M", "K", "D", "K/D", "HS%", "ADR", "KAST%",
 		"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D")
 
 	for _, a := range aggs {
 		table.Append(
+			a.Name,
 			a.MapName,
 			a.Side,
 			strconv.Itoa(a.Matches),

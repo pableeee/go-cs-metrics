@@ -350,6 +350,41 @@ func (a *PlayerMapSideAggregate) KASTPct() float64 {
 	return float64(a.KASTRounds) / float64(a.RoundsPlayed) * 100
 }
 
+// PlayerSideStats holds per-side (CT/T) basic stats for one player within a single match,
+// derived by aggregating player_round_stats.
+type PlayerSideStats struct {
+	SteamID uint64
+	Name    string
+	Team    Team // CT or T
+
+	Kills, Assists, Deaths    int
+	TotalDamage, RoundsPlayed int
+	KASTRounds                int
+	OpeningKills, OpeningDeaths int
+	TradeKills, TradeDeaths   int
+}
+
+func (s *PlayerSideStats) KDRatio() float64 {
+	if s.Deaths == 0 {
+		return float64(s.Kills)
+	}
+	return float64(s.Kills) / float64(s.Deaths)
+}
+
+func (s *PlayerSideStats) ADR() float64 {
+	if s.RoundsPlayed == 0 {
+		return 0
+	}
+	return float64(s.TotalDamage) / float64(s.RoundsPlayed)
+}
+
+func (s *PlayerSideStats) KASTPct() float64 {
+	if s.RoundsPlayed == 0 {
+		return 0
+	}
+	return float64(s.KASTRounds) / float64(s.RoundsPlayed) * 100
+}
+
 // PlayerDuelSegment holds FHHS stats for one (weapon_bucket, distance_bin) segment per player per demo.
 type PlayerDuelSegment struct {
 	DemoHash        string

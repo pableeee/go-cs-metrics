@@ -148,6 +148,11 @@ func shellShow(db *storage.DB, prefix string, playerID uint64) {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}
+	sideStats, err := db.GetPlayerSideStats(demo.DemoHash)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return
+	}
 	weaponStats, err := db.GetPlayerWeaponStats(demo.DemoHash)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -160,6 +165,7 @@ func shellShow(db *storage.DB, prefix string, playerID uint64) {
 	}
 	report.PrintMatchSummary(os.Stdout, *demo)
 	report.PrintPlayerTable(stats, playerID)
+	report.PrintPlayerSideTable(os.Stdout, sideStats, playerID)
 	report.PrintDuelTable(os.Stdout, stats, playerID)
 	report.PrintAWPTable(os.Stdout, stats, playerID)
 	report.PrintFHHSTable(os.Stdout, duelSegs, stats, playerID)
@@ -167,6 +173,17 @@ func shellShow(db *storage.DB, prefix string, playerID uint64) {
 }
 
 func shellPlayer(db *storage.DB, args []string) {
+	type fhhsEntry struct {
+		name  string
+		id    uint64
+		segs  []model.PlayerDuelSegment
+		synth []model.PlayerMatchStats
+	}
+
+	var allAggs    []model.PlayerAggregate
+	var allMapSide []model.PlayerMapSideAggregate
+	var fhhsList   []fhhsEntry
+
 	for _, arg := range args {
 		id, err := strconv.ParseUint(arg, 10, 64)
 		if err != nil {
@@ -201,23 +218,32 @@ func shellPlayer(db *storage.DB, args []string) {
 			overallFHHS = float64(totalHSHits) / float64(totalHits) * 100
 		}
 
-		synthetic := []model.PlayerMatchStats{{
-			SteamID:        id,
-			Name:           agg.Name,
-			FirstHitHSRate: overallFHHS,
-		}}
-		mapSide := buildMapSideAggregates(stats)
+		allAggs = append(allAggs, agg)
+		allMapSide = append(allMapSide, buildMapSideAggregates(stats)...)
+		fhhsList = append(fhhsList, fhhsEntry{
+			name: agg.Name,
+			id:   id,
+			segs: merged,
+			synth: []model.PlayerMatchStats{{
+				SteamID:        id,
+				Name:           agg.Name,
+				FirstHitHSRate: overallFHHS,
+			}},
+		})
+	}
 
-		fmt.Fprintln(os.Stdout)
-		cHeader.Fprintf(os.Stdout, "=== %s", agg.Name)
-		cMuted.Fprintf(os.Stdout, " (%d)", id)
-		cHeader.Fprintf(os.Stdout, " — %d matches", agg.Matches)
-		cHeader.Fprintln(os.Stdout, " ===")
-		fmt.Fprintln(os.Stdout)
-		report.PrintPlayerAggregateOverview(os.Stdout, []model.PlayerAggregate{agg})
-		report.PrintPlayerAggregateDuelTable(os.Stdout, []model.PlayerAggregate{agg})
-		report.PrintPlayerAggregateAWPTable(os.Stdout, []model.PlayerAggregate{agg})
-		report.PrintPlayerMapSideTable(os.Stdout, mapSide)
-		report.PrintFHHSTable(os.Stdout, merged, synthetic, 0)
+	if len(allAggs) == 0 {
+		return
+	}
+
+	fmt.Fprintln(os.Stdout)
+	report.PrintPlayerAggregateOverview(os.Stdout, allAggs)
+	report.PrintPlayerAggregateDuelTable(os.Stdout, allAggs)
+	report.PrintPlayerAggregateAWPTable(os.Stdout, allAggs)
+	report.PrintPlayerMapSideTable(os.Stdout, allMapSide)
+	for _, f := range fhhsList {
+		fmt.Fprintf(os.Stdout, "\n")
+		cHeader.Fprintf(os.Stdout, "--- FHHS: %s ---\n", f.name)
+		report.PrintFHHSTable(os.Stdout, f.segs, f.synth, 0)
 	}
 }

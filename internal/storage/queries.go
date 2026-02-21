@@ -213,6 +213,48 @@ func (db *DB) GetPlayerMatchStats(demoHash string) ([]model.PlayerMatchStats, er
 	return out, rows.Err()
 }
 
+// GetPlayerSideStats returns per-side (CT/T) basic stats for all players in a demo,
+// derived by aggregating player_round_stats. Deaths = rounds played - rounds survived.
+func (db *DB) GetPlayerSideStats(demoHash string) ([]model.PlayerSideStats, error) {
+	rows, err := db.conn.Query(`
+		SELECT p.steam_id, m.name, p.team,
+		       SUM(p.kills), SUM(p.assists),
+		       COUNT(*) - SUM(p.survived),
+		       SUM(p.damage),
+		       COUNT(*),
+		       SUM(p.kast_earned),
+		       SUM(p.is_opening_kill), SUM(p.is_opening_death),
+		       SUM(p.is_trade_kill),   SUM(p.is_trade_death)
+		FROM player_round_stats p
+		JOIN player_match_stats m ON m.demo_hash = p.demo_hash AND m.steam_id = p.steam_id
+		WHERE p.demo_hash = ?
+		GROUP BY p.steam_id, p.team
+		ORDER BY m.kills DESC, p.steam_id ASC, p.team ASC`, demoHash)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []model.PlayerSideStats
+	for rows.Next() {
+		var s model.PlayerSideStats
+		var steamIDStr, teamStr string
+		if err := rows.Scan(
+			&steamIDStr, &s.Name, &teamStr,
+			&s.Kills, &s.Assists, &s.Deaths,
+			&s.TotalDamage, &s.RoundsPlayed, &s.KASTRounds,
+			&s.OpeningKills, &s.OpeningDeaths,
+			&s.TradeKills, &s.TradeDeaths,
+		); err != nil {
+			return nil, err
+		}
+		s.SteamID, _ = strconv.ParseUint(steamIDStr, 10, 64)
+		s.Team = parseTeam(teamStr)
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 // InsertPlayerWeaponStats bulk-inserts per-weapon stats in a transaction.
 func (db *DB) InsertPlayerWeaponStats(stats []model.PlayerWeaponStats) error {
 	tx, err := db.conn.Begin()

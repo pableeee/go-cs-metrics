@@ -45,6 +45,10 @@ func runShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("get player stats: %w", err)
 	}
+	sideStats, err := db.GetPlayerSideStats(demo.DemoHash)
+	if err != nil {
+		return fmt.Errorf("get side stats: %w", err)
+	}
 	weaponStats, err := db.GetPlayerWeaponStats(demo.DemoHash)
 	if err != nil {
 		return fmt.Errorf("get weapon stats: %w", err)
@@ -56,6 +60,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 
 	report.PrintMatchSummary(os.Stdout, *demo)
 	report.PrintPlayerTable(stats, showPlayerID)
+	report.PrintPlayerSideTable(os.Stdout, sideStats, showPlayerID)
 	report.PrintDuelTable(os.Stdout, stats, showPlayerID)
 	report.PrintAWPTable(os.Stdout, stats, showPlayerID)
 	report.PrintFHHSTable(os.Stdout, duelSegs, stats, showPlayerID)

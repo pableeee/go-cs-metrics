@@ -11,11 +11,15 @@ import (
 )
 
 var dbPath string
+var silent bool
 
 var rootCmd = &cobra.Command{
 	Use:   "csmetrics",
 	Short: "CS2 demo metrics tool",
 	Long:  "Parse CS2 .dem files and compute player/team performance metrics.",
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		report.Verbose = !silent
+	},
 }
 
 // Execute runs the root command.
@@ -29,7 +33,7 @@ func Execute() {
 func init() {
 	defaultDB := filepath.Join(mustUserHome(), ".csmetrics", "metrics.db")
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db", defaultDB, "path to SQLite database")
-	rootCmd.PersistentFlags().BoolVarP(&report.Verbose, "verbose", "v", false, "print metric explanations before each table")
+	rootCmd.PersistentFlags().BoolVarP(&silent, "silent", "s", false, "hide metric explanations before each table")
 
 	rootCmd.AddCommand(parseCmd)
 	rootCmd.AddCommand(listCmd)

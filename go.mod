@@ -19,6 +19,7 @@ require (
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/klauspost/compress v1.18.4 // indirect
 	github.com/markus-wa/go-unassert v0.1.3 // indirect
 	github.com/markus-wa/gobitread v0.2.4 // indirect
 	github.com/markus-wa/godispatch v1.4.1 // indirect

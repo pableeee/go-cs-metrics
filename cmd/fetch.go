@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/spf13/cobra"
 
 	"github.com/pable/go-cs-metrics/internal/aggregator"
@@ -139,7 +142,22 @@ func runFetch(cmd *cobra.Command, args []string) error {
 		fmt.Printf("[%d/%d] %s  map=%-15s  level=%d  date=%s\n",
 			ingested+1, fetchCount, item.MatchID, mapName, match.SkillLevel, matchDate)
 
-		demPath, err := downloadAndDecompress(match.DemoURLs[0], tmpDir, item.MatchID)
+		demoURL := match.DemoURLs[0]
+		if isKnownBrokenCDN(demoURL) {
+			dlKey := loadFaceitDownloadsKey()
+			if dlKey == "" {
+				fmt.Fprintf(os.Stderr, "  [warn] demo CDN URL won't resolve; set FACEIT_DOWNLOADS_KEY or create ~/.csmetrics/faceit_downloads_key\n")
+			} else {
+				resolved, rerr := resolveDemoURL(demoURL, dlKey)
+				if rerr != nil {
+					fmt.Fprintf(os.Stderr, "  [warn] URL resolution failed: %v\n", rerr)
+				} else {
+					demoURL = resolved
+				}
+			}
+		}
+
+		demPath, err := downloadAndDecompress(demoURL, tmpDir, item.MatchID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  [error] download: %v\n", err)
 			continue
@@ -206,7 +224,7 @@ func runFetch(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// downloadAndDecompress downloads a demo URL (handling optional gzip) to dir.
+// downloadAndDecompress downloads a demo URL (handling gzip or zstd) to dir.
 func downloadAndDecompress(url, dir, matchID string) (string, error) {
 	resp, err := http.Get(url) //nolint:gosec
 	if err != nil {
@@ -226,7 +244,15 @@ func downloadAndDecompress(url, dir, matchID string) (string, error) {
 	defer f.Close()
 
 	var src io.Reader = resp.Body
-	if strings.HasSuffix(url, ".gz") || resp.Header.Get("Content-Encoding") == "gzip" {
+	switch {
+	case strings.HasSuffix(url, ".zst"):
+		dec, err := zstd.NewReader(resp.Body)
+		if err != nil {
+			return "", fmt.Errorf("zstd: %w", err)
+		}
+		defer dec.Close()
+		src = dec
+	case strings.HasSuffix(url, ".gz") || resp.Header.Get("Content-Encoding") == "gzip":
 		gz, err := gzip.NewReader(resp.Body)
 		if err != nil {
 			return "", fmt.Errorf("gzip: %w", err)
@@ -240,6 +266,77 @@ func downloadAndDecompress(url, dir, matchID string) (string, error) {
 		return "", fmt.Errorf("write: %w", err)
 	}
 	return outPath, nil
+}
+
+// isKnownBrokenCDN returns true for FACEIT CDN hostnames that have no DNS record.
+func isKnownBrokenCDN(demoURL string) bool {
+	return strings.Contains(demoURL, "backblaze.faceit-cdn.net")
+}
+
+// resolveDemoURL exchanges a broken FACEIT CDN URL for a signed download URL
+// using the official FACEIT Downloads API (https://docs.faceit.com/getting-started/Guides/download-api).
+// downloadsKey must be a Downloads API access token (separate from the Data API key).
+func resolveDemoURL(brokenURL, downloadsKey string) (string, error) {
+	body, err := json.Marshal(map[string]string{"resource_url": brokenURL})
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST",
+		"https://open.faceit.com/download/v2/demos/download",
+		bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+downloadsKey)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		snippet := string(respBody)
+		if len(snippet) > 200 {
+			snippet = snippet[:200]
+		}
+		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, snippet)
+	}
+
+	var result struct {
+		Payload struct {
+			DownloadURL string `json:"download_url"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("decode: %w", err)
+	}
+	if result.Payload.DownloadURL == "" {
+		return "", fmt.Errorf("empty download_url in response")
+	}
+	return result.Payload.DownloadURL, nil
+}
+
+// loadFaceitDownloadsKey returns the FACEIT Downloads API access token from the
+// FACEIT_DOWNLOADS_KEY environment variable or ~/.csmetrics/faceit_downloads_key.
+// This is a separate token from the Data API key — apply at https://fce.gg/downloads-api-application.
+func loadFaceitDownloadsKey() string {
+	if v := os.Getenv("FACEIT_DOWNLOADS_KEY"); v != "" {
+		return v
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".csmetrics", "faceit_downloads_key"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 func loadFaceitAPIKey() (string, error) {
