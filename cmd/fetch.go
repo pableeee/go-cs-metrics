@@ -56,11 +56,6 @@ func init() {
 }
 
 func runFetch(cmd *cobra.Command, args []string) error {
-	apiKey, err := loadFaceitAPIKey()
-	if err != nil {
-		return err
-	}
-
 	tier := fetchTier
 	if tier == "" {
 		if fetchLevel > 0 {
@@ -79,28 +74,38 @@ func runFetch(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
+	return doFetch(db, fetchPlayer, fetchMap, fetchLevel, fetchCount, tier)
+}
+
+// doFetch is the shared implementation used by both runFetch and the shell's fetch command.
+func doFetch(db *storage.DB, playerQuery, mapFilter string, level, count int, tier string) error {
+	apiKey, err := loadFaceitAPIKey()
+	if err != nil {
+		return err
+	}
+
 	client := faceit.NewClient(apiKey)
 
 	// Resolve player from nickname or Steam ID64.
-	var player *faceit.Player
-	if looksLikeSteamID(fetchPlayer) {
-		player, err = client.GetPlayerBySteamID(fetchPlayer)
+	var fp *faceit.Player
+	if looksLikeSteamID(playerQuery) {
+		fp, err = client.GetPlayerBySteamID(playerQuery)
 	} else {
-		player, err = client.GetPlayerByNickname(fetchPlayer)
+		fp, err = client.GetPlayerByNickname(playerQuery)
 	}
 	if err != nil {
-		return fmt.Errorf("lookup player %q: %w", fetchPlayer, err)
+		return fmt.Errorf("lookup player %q: %w", playerQuery, err)
 	}
 	fmt.Printf("Player: %s  level=%d  ELO=%d  region=%s\n",
-		player.Nickname, player.Games.CS2.SkillLevel,
-		player.Games.CS2.FaceitELO, player.Games.CS2.Region)
+		fp.Nickname, fp.Games.CS2.SkillLevel,
+		fp.Games.CS2.FaceitELO, fp.Games.CS2.Region)
 
 	// Over-fetch history to leave room for map/level filtering.
-	histLimit := fetchCount * 5
+	histLimit := count * 5
 	if histLimit < 50 {
 		histLimit = 50
 	}
-	history, err := client.GetMatchHistory(player.PlayerID, histLimit)
+	history, err := client.GetMatchHistory(fp.PlayerID, histLimit)
 	if err != nil {
 		return fmt.Errorf("match history: %w", err)
 	}
@@ -113,7 +118,7 @@ func runFetch(cmd *cobra.Command, args []string) error {
 
 	ingested := 0
 	for _, item := range history {
-		if ingested >= fetchCount {
+		if ingested >= count {
 			break
 		}
 		if !strings.EqualFold(item.Status, "FINISHED") {
@@ -127,10 +132,10 @@ func runFetch(cmd *cobra.Command, args []string) error {
 		}
 
 		mapName := match.MapName()
-		if fetchMap != "" && mapName != fetchMap {
+		if mapFilter != "" && mapName != mapFilter {
 			continue
 		}
-		if fetchLevel > 0 && match.SkillLevel != fetchLevel {
+		if level > 0 && match.SkillLevel != level {
 			continue
 		}
 		if len(match.DemoURLs) == 0 {
@@ -140,7 +145,7 @@ func runFetch(cmd *cobra.Command, args []string) error {
 
 		matchDate := time.Unix(match.StartedAt, 0).UTC().Format("2006-01-02")
 		fmt.Printf("[%d/%d] %s  map=%-15s  level=%d  date=%s\n",
-			ingested+1, fetchCount, item.MatchID, mapName, match.SkillLevel, matchDate)
+			ingested+1, count, item.MatchID, mapName, match.SkillLevel, matchDate)
 
 		demoURL := match.DemoURLs[0]
 		if isKnownBrokenCDN(demoURL) {
@@ -220,7 +225,7 @@ func runFetch(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("\nDone: %d/%d matches ingested (tier=%q, is_baseline=true)\n",
-		ingested, fetchCount, tier)
+		ingested, count, tier)
 	return nil
 }
 

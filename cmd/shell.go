@@ -2,18 +2,26 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
+	"github.com/pable/go-cs-metrics/internal/aggregator"
 	"github.com/pable/go-cs-metrics/internal/model"
+	"github.com/pable/go-cs-metrics/internal/parser"
 	"github.com/pable/go-cs-metrics/internal/report"
 	"github.com/pable/go-cs-metrics/internal/storage"
 )
+
+var errInterrupt = errors.New("interrupt")
 
 var (
 	cPrompt  = color.New(color.FgCyan, color.Bold)
@@ -44,17 +52,42 @@ func runShell(_ *cobra.Command, _ []string) error {
 	cMuted.Println("type 'help' or 'exit'")
 	fmt.Println()
 
-	scanner := bufio.NewScanner(os.Stdin)
+	fd := int(os.Stdin.Fd())
+	isTTY := term.IsTerminal(fd)
+
+	var history []string
+	var scanner *bufio.Scanner
+	if !isTTY {
+		scanner = bufio.NewScanner(os.Stdin)
+	}
+
 	for {
-		cPrompt.Print("csmetrics")
-		cMuted.Print("> ")
-		if !scanner.Scan() {
-			fmt.Println()
-			break
+		var line string
+		if isTTY {
+			line, err = readLine(history)
+			if errors.Is(err, io.EOF) {
+				fmt.Println()
+				break
+			}
+			if err != nil { // Ctrl+C: redraw prompt and continue
+				continue
+			}
+		} else {
+			cPrompt.Print("csmetrics")
+			cMuted.Print("> ")
+			if !scanner.Scan() {
+				fmt.Println()
+				break
+			}
+			line = strings.TrimSpace(scanner.Text())
 		}
-		line := strings.TrimSpace(scanner.Text())
+
 		if line == "" {
 			continue
+		}
+
+		if isTTY && (len(history) == 0 || history[len(history)-1] != line) {
+			history = append(history, line)
 		}
 
 		tokens := strings.Fields(line)
@@ -65,6 +98,8 @@ func runShell(_ *cobra.Command, _ []string) error {
 			return nil
 		case "help":
 			shellHelp()
+		case "parse":
+			shellParse(db, args)
 		case "list":
 			shellList(db)
 		case "show":
@@ -72,14 +107,15 @@ func runShell(_ *cobra.Command, _ []string) error {
 				cError.Fprintln(os.Stderr, "usage: show <hash-prefix> [--player <steamid64>]")
 				continue
 			}
-			prefix := args[0]
+			pos, flags := shellFlags(args)
+			prefix := pos[0]
 			var playerID uint64
-			for i := 1; i+1 < len(args); i++ {
-				if args[i] == "--player" {
-					playerID, _ = strconv.ParseUint(args[i+1], 10, 64)
-				}
+			if v, ok := flags["player"]; ok {
+				playerID, _ = strconv.ParseUint(v, 10, 64)
 			}
 			shellShow(db, prefix, playerID)
+		case "fetch":
+			shellFetch(db, args)
 		case "player":
 			if len(args) == 0 {
 				cError.Fprintln(os.Stderr, "usage: player <steamid64> [<steamid64>...]")
@@ -93,23 +129,249 @@ func runShell(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
+// readLine prints the prompt and reads one line in raw terminal mode,
+// supporting up/down arrow history navigation within the current session.
+// Returns ("", io.EOF) on Ctrl+D or closed input, ("", errInterrupt) on Ctrl+C.
+func readLine(hist []string) (string, error) {
+	fd := int(os.Stdin.Fd())
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		return "", fmt.Errorf("raw mode: %w", err)
+	}
+	defer term.Restore(fd, oldState) //nolint:errcheck
+
+	var buf []byte
+	histIdx := len(hist) // start past the end — the "new line" position
+	var savedLine string  // line saved before navigating into history
+
+	redraw := func() {
+		os.Stdout.WriteString("\r\x1b[K") // carriage-return + erase to EOL
+		cPrompt.Fprint(os.Stdout, "csmetrics")
+		cMuted.Fprint(os.Stdout, "> ")
+		os.Stdout.Write(buf)
+	}
+	redraw()
+
+	b := make([]byte, 1)
+	for {
+		if _, err := os.Stdin.Read(b); err != nil {
+			os.Stdout.WriteString("\r\n")
+			return "", io.EOF
+		}
+		switch b[0] {
+		case 3: // Ctrl+C
+			os.Stdout.WriteString("\r\n")
+			return "", errInterrupt
+		case 4: // Ctrl+D — EOF only on empty line (bash behaviour)
+			if len(buf) == 0 {
+				os.Stdout.WriteString("\r\n")
+				return "", io.EOF
+			}
+		case 13, 10: // Enter (CR or LF)
+			line := strings.TrimSpace(string(buf))
+			os.Stdout.WriteString("\r\n")
+			return line, nil
+		case 127, 8: // Backspace / DEL
+			if len(buf) > 0 {
+				_, size := utf8.DecodeLastRune(buf)
+				buf = buf[:len(buf)-size]
+				redraw()
+			}
+		case 27: // ESC — read the rest of the CSI sequence
+			seq := make([]byte, 2)
+			if _, err := os.Stdin.Read(seq[:1]); err != nil || seq[0] != '[' {
+				continue
+			}
+			if _, err := os.Stdin.Read(seq[1:]); err != nil {
+				continue
+			}
+			switch seq[1] {
+			case 'A': // Up arrow
+				if histIdx == len(hist) {
+					savedLine = string(buf)
+				}
+				if histIdx > 0 {
+					histIdx--
+					buf = []byte(hist[histIdx])
+					redraw()
+				}
+			case 'B': // Down arrow
+				if histIdx < len(hist) {
+					histIdx++
+					if histIdx == len(hist) {
+						buf = []byte(savedLine)
+					} else {
+						buf = []byte(hist[histIdx])
+					}
+					redraw()
+				}
+			}
+		default:
+			if b[0] >= 32 { // printable ASCII
+				buf = append(buf, b[0])
+				redraw()
+			}
+		}
+	}
+}
+
 func shellHelp() {
 	fmt.Println()
 	type entry struct{ cmd, desc string }
 	rows := []entry{
+		{"parse <demo.dem> [--player <id>] [--type <t>] [--tier <tag>] [--baseline]", "parse + store a demo"},
 		{"list", "list all stored demos"},
-		{"show <hash-prefix>", "show a match's stats"},
-		{"show <hash-prefix> --player <id>", "same, highlighting one player"},
-		{"player <steamid64> [...]", "cross-match analysis for one or more players"},
+		{"show <hash-prefix> [--player <id>]", "re-display a stored match"},
+		{"fetch --player <name|id> [--map <m>] [--level <n>] [--count <n>] [--tier <t>]", "download FACEIT demos"},
+		{"player <steamid64> [...]", "cross-match aggregate report"},
 		{"help", "show this message"},
 		{"exit / quit", "close the session"},
 	}
 	for _, r := range rows {
 		fmt.Print("  ")
-		cCmd.Printf("%-38s", r.cmd)
-		fmt.Println(r.desc)
+		cCmd.Print(r.cmd)
+		fmt.Printf("  —  %s\n", r.desc)
 	}
 	fmt.Println()
+}
+
+// shellFlags splits args into positional arguments and --key value flag pairs.
+// Names listed in boolFlags are treated as value-less boolean flags
+// (e.g. --baseline sets flags["baseline"] = "true").
+func shellFlags(args []string, boolFlags ...string) (positional []string, flags map[string]string) {
+	flags = make(map[string]string)
+	bools := make(map[string]bool, len(boolFlags))
+	for _, b := range boolFlags {
+		bools[b] = true
+	}
+	for i := 0; i < len(args); i++ {
+		if strings.HasPrefix(args[i], "--") {
+			key := args[i][2:]
+			if bools[key] {
+				flags[key] = "true"
+			} else if i+1 < len(args) {
+				i++
+				flags[key] = args[i]
+			}
+		} else {
+			positional = append(positional, args[i])
+		}
+	}
+	return
+}
+
+func shellParse(db *storage.DB, args []string) {
+	pos, flags := shellFlags(args, "baseline")
+	if len(pos) == 0 {
+		cError.Fprintln(os.Stderr, "usage: parse <demo.dem> [--player <id>] [--type <type>] [--tier <tag>] [--baseline]")
+		return
+	}
+	demoPath := pos[0]
+
+	var playerID uint64
+	if v, ok := flags["player"]; ok {
+		playerID, _ = strconv.ParseUint(v, 10, 64)
+	}
+	mType := "Competitive"
+	if v, ok := flags["type"]; ok {
+		mType = v
+	}
+	tier := flags["tier"]
+	baseline := flags["baseline"] == "true"
+
+	fmt.Fprintf(os.Stdout, "Parsing %s...\n", demoPath)
+	raw, err := parser.ParseDemo(demoPath, mType)
+	if err != nil {
+		cError.Fprintf(os.Stderr, "error: %v\n", err)
+		return
+	}
+
+	exists, err := db.DemoExists(raw.DemoHash)
+	if err != nil {
+		cError.Fprintf(os.Stderr, "error: %v\n", err)
+		return
+	}
+	if exists {
+		fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", raw.DemoHash[:12])
+		shellShow(db, raw.DemoHash[:12], playerID)
+		return
+	}
+
+	matchStats, roundStats, weaponStats, duelSegs, err := aggregator.Aggregate(raw)
+	if err != nil {
+		cError.Fprintf(os.Stderr, "error: %v\n", err)
+		return
+	}
+
+	ctScore, tScore := computeScore(raw.Rounds)
+	summary := model.MatchSummary{
+		DemoHash:   raw.DemoHash,
+		MapName:    raw.MapName,
+		MatchDate:  raw.MatchDate,
+		MatchType:  raw.MatchType,
+		Tickrate:   raw.Tickrate,
+		CTScore:    ctScore,
+		TScore:     tScore,
+		Tier:       tier,
+		IsBaseline: baseline,
+	}
+
+	if err := db.InsertDemo(summary); err != nil {
+		cError.Fprintf(os.Stderr, "error: %v\n", err)
+		return
+	}
+	if err := db.InsertPlayerMatchStats(matchStats); err != nil {
+		cError.Fprintf(os.Stderr, "error: %v\n", err)
+		return
+	}
+	if err := db.InsertPlayerRoundStats(roundStats); err != nil {
+		cError.Fprintf(os.Stderr, "error: %v\n", err)
+		return
+	}
+	if err := db.InsertPlayerWeaponStats(weaponStats); err != nil {
+		cError.Fprintf(os.Stderr, "error: %v\n", err)
+		return
+	}
+	if err := db.InsertPlayerDuelSegments(duelSegs); err != nil {
+		cError.Fprintf(os.Stderr, "error: %v\n", err)
+		return
+	}
+
+	report.PrintMatchSummary(os.Stdout, summary)
+	report.PrintPlayerTable(matchStats, playerID)
+	report.PrintDuelTable(os.Stdout, matchStats, playerID)
+	report.PrintAWPTable(os.Stdout, matchStats, playerID)
+	report.PrintFHHSTable(os.Stdout, duelSegs, matchStats, playerID)
+	report.PrintWeaponTable(os.Stdout, weaponStats, matchStats, playerID)
+}
+
+func shellFetch(db *storage.DB, args []string) {
+	_, flags := shellFlags(args)
+	playerQuery := flags["player"]
+	if playerQuery == "" {
+		cError.Fprintln(os.Stderr, "usage: fetch --player <nickname|id> [--map <map>] [--level <n>] [--count <n>] [--tier <tag>]")
+		return
+	}
+	mapFilter := flags["map"]
+	level := 0
+	if v, ok := flags["level"]; ok {
+		level, _ = strconv.Atoi(v)
+	}
+	count := 10
+	if v, ok := flags["count"]; ok {
+		count, _ = strconv.Atoi(v)
+	}
+	tier := flags["tier"]
+	if tier == "" {
+		if level > 0 {
+			tier = fmt.Sprintf("faceit-%d", level)
+		} else {
+			tier = "faceit"
+		}
+	}
+	if err := doFetch(db, playerQuery, mapFilter, level, count, tier); err != nil {
+		cError.Fprintf(os.Stderr, "error: %v\n", err)
+	}
 }
 
 func shellList(db *storage.DB) {
