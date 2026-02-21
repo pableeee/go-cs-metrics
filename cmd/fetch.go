@@ -23,14 +23,21 @@ import (
 	"github.com/pable/go-cs-metrics/internal/storage"
 )
 
+// fetch command flags.
 var (
+	// fetchPlayer is the FACEIT nickname or Steam ID64 of the target player.
 	fetchPlayer string
-	fetchMap    string
-	fetchLevel  int
-	fetchCount  int
-	fetchTier   string
+	// fetchMap restricts ingestion to demos on this map (e.g. "de_mirage").
+	fetchMap string
+	// fetchLevel restricts ingestion to matches at this FACEIT skill level (1-10).
+	fetchLevel int
+	// fetchCount is the number of matches to ingest.
+	fetchCount int
+	// fetchTier is the tier label stored alongside ingested demos.
+	fetchTier string
 )
 
+// fetchCmd is the cobra command for downloading and ingesting FACEIT baseline demos.
 var fetchCmd = &cobra.Command{
 	Use:   "fetch",
 	Short: "Download and ingest FACEIT baseline demos",
@@ -55,6 +62,7 @@ func init() {
 	_ = fetchCmd.MarkFlagRequired("player")
 }
 
+// runFetch resolves flags and delegates to doFetch for the actual download/ingest loop.
 func runFetch(cmd *cobra.Command, args []string) error {
 	tier := fetchTier
 	if tier == "" {
@@ -77,7 +85,7 @@ func runFetch(cmd *cobra.Command, args []string) error {
 	return doFetch(db, fetchPlayer, fetchMap, fetchLevel, fetchCount, tier)
 }
 
-// doFetch is the shared implementation used by both runFetch and the shell's fetch command.
+// doFetch is the shared implementation for the fetch command.
 func doFetch(db *storage.DB, playerQuery, mapFilter string, level, count int, tier string) error {
 	apiKey, err := loadFaceitAPIKey()
 	if err != nil {
@@ -344,6 +352,8 @@ func loadFaceitDownloadsKey() string {
 	return strings.TrimSpace(string(data))
 }
 
+// loadFaceitAPIKey returns the FACEIT Data API key from the FACEIT_API_KEY
+// environment variable or ~/.csmetrics/faceit_api_key file.
 func loadFaceitAPIKey() (string, error) {
 	if key := os.Getenv("FACEIT_API_KEY"); key != "" {
 		return key, nil
@@ -359,6 +369,8 @@ func loadFaceitAPIKey() (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
+// looksLikeSteamID returns true if s is a numeric string of at least 15 digits,
+// consistent with a Steam ID64.
 func looksLikeSteamID(s string) bool {
 	if len(s) < 15 {
 		return false

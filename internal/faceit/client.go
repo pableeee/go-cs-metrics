@@ -1,3 +1,4 @@
+// Package faceit provides a minimal client for the FACEIT Data API v4.
 package faceit
 
 import (
@@ -7,6 +8,7 @@ import (
 	"time"
 )
 
+// baseURL is the root endpoint for the FACEIT Data API v4.
 const baseURL = "https://open.faceit.com/data/v4"
 
 // Client is a minimal FACEIT Data API v4 client.
@@ -15,6 +17,7 @@ type Client struct {
 	http   *http.Client
 }
 
+// NewClient returns a FACEIT API client authenticated with the given API key.
 func NewClient(apiKey string) *Client {
 	return &Client{
 		apiKey: apiKey,
@@ -64,6 +67,8 @@ func (m *MatchDetail) MapName() string {
 	return ""
 }
 
+// get performs an authenticated GET request against the FACEIT API and
+// JSON-decodes the response body into out.
 func (c *Client) get(path string, out interface{}) error {
 	req, err := http.NewRequest("GET", baseURL+path, nil)
 	if err != nil {

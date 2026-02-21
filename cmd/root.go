@@ -1,6 +1,5 @@
 // Package cmd implements the CLI commands for csmetrics, including demo parsing,
-// listing, showing, FACEIT fetching, cross-match player analysis, and an
-// interactive shell.
+// listing, showing, FACEIT fetching, and cross-match player analysis.
 package cmd
 
 import (
@@ -47,7 +46,6 @@ func init() {
 	rootCmd.AddCommand(showCmd)
 	rootCmd.AddCommand(fetchCmd)
 	rootCmd.AddCommand(playerCmd)
-	rootCmd.AddCommand(shellCmd)
 	rootCmd.AddCommand(roundsCmd)
 }
 

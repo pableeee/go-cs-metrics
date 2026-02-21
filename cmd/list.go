@@ -9,6 +9,7 @@ import (
 	"github.com/pable/go-cs-metrics/internal/storage"
 )
 
+// listCmd is the cobra command that lists all stored demos in the database.
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all stored demos",
@@ -16,6 +17,7 @@ var listCmd = &cobra.Command{
 	RunE:  runList,
 }
 
+// runList opens the database and prints a summary table of all stored demos.
 func runList(cmd *cobra.Command, args []string) error {
 	db, err := storage.Open(dbPath)
 	if err != nil {
