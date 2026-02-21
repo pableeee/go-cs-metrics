@@ -116,8 +116,8 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 	}
 	var expoWinSum, expoLossSum, corrSum, hitsSum float64
 	var expoWinN, expoLossN, corrN, hitsN int
-	var ttkSum, ttdSum, csSum float64
-	var ttkN, ttdN, csN int
+	var ttkSum, ttdSum float64
+	var ttkN, ttdN int
 	roleCounts := make(map[string]int)
 
 	for _, s := range stats {
@@ -140,6 +140,7 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 		agg.AWPDeathsDry += s.AWPDeathsDry
 		agg.AWPDeathsRePeek += s.AWPDeathsRePeek
 		agg.AWPDeathsIsolated += s.AWPDeathsIsolated
+		agg.OneTapKills += s.OneTapKills
 
 		if s.MedianExposureWinMs > 0 {
 			expoWinSum += s.MedianExposureWinMs
@@ -165,10 +166,6 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 			ttdSum += s.MedianTTDMs
 			ttdN++
 		}
-		if s.CounterStrafePercent > 0 {
-			csSum += s.CounterStrafePercent
-			csN++
-		}
 		role := s.Role
 		if role == "" {
 			role = "Rifler"
@@ -193,9 +190,6 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 	}
 	if ttdN > 0 {
 		agg.AvgTTDMs = ttdSum / float64(ttdN)
-	}
-	if csN > 0 {
-		agg.AvgCounterStrafePercent = csSum / float64(csN)
 	}
 	// Most common role across matches.
 	bestRole, bestCount := "Rifler", 0

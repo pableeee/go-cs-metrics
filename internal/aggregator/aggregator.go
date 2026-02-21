@@ -1,4 +1,4 @@
-// Package aggregator implements the 11-pass pipeline that transforms a parsed
+// Package aggregator implements the 10-pass pipeline that transforms a parsed
 // RawMatch into per-player, per-round, per-weapon, and per-duel-segment
 // statistics. The passes run in order: trade annotation, opening kills,
 // per-round stats (with buy-type classification), match rollup, crosshair
@@ -86,7 +86,7 @@ func wilsonCI(hits, n int) (lo, hi float64) {
 	return math.Max(0, center-half), math.Min(1, center+half)
 }
 
-// Aggregate runs the full 11-pass pipeline on a parsed RawMatch and returns
+// Aggregate runs the full 10-pass pipeline on a parsed RawMatch and returns
 // four result slices: per-player match stats, per-round stats, per-weapon
 // stats, and per-duel-segment (FHHS) stats. The passes are:
 //  1. Trade annotation (backward + forward scan within 5 s window)
@@ -971,30 +971,46 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		}
 	}
 
-	// ---- Pass 10: TTK and TTD ----
-	type ttkKey struct {
-		roundN                  int
-		attackerID, victimID uint64
-	}
-	firstGunDmgTick := make(map[ttkKey]int)
-	for _, d := range raw.Damages {
-		if d.AttackerSteamID == 0 || d.IsUtility {
-			continue
-		}
-		k := ttkKey{d.RoundNumber, d.AttackerSteamID, d.VictimSteamID}
-		if t, ok := firstGunDmgTick[k]; !ok || d.Tick < t {
-			firstGunDmgTick[k] = d.Tick
-		}
-	}
+	// ---- Pass 10: TTK, TTD, and one-tap kills (WeaponFire-based, rolling 3s window) ----
+	// TTK is measured from the first shot FIRED (not first hit) within 3s of the kill tick.
+	// Including missed shots makes the numbers comparable to external tools like Refrag.
+	// wfIdx is already built and sorted in Pass 6, keyed by {shooterID, roundN}.
+	// One-taps (first shot in window fires at the same tick as the kill) are tracked
+	// separately and excluded from TTK/TTD median samples.
+	const ttkWindowSec = 3.0
+	ttkWindowTicks := int(ttkWindowSec * tps)
+
 	ttkSamples := make(map[uint64][]float64)
 	ttdSamples := make(map[uint64][]float64)
+	oneTapKills := make(map[uint64]int)
 	for _, kill := range raw.Kills {
-		k := ttkKey{kill.RoundNumber, kill.KillerSteamID, kill.VictimSteamID}
-		if firstTick, ok := firstGunDmgTick[k]; ok {
-			ms := float64(kill.Tick-firstTick) / tps * 1000
-			ttkSamples[kill.KillerSteamID] = append(ttkSamples[kill.KillerSteamID], ms)
-			ttdSamples[kill.VictimSteamID] = append(ttdSamples[kill.VictimSteamID], ms)
+		if kill.KillerSteamID == 0 {
+			continue
 		}
+		fires := wfIdx[wfKey{kill.KillerSteamID, kill.RoundNumber}]
+		if len(fires) == 0 {
+			continue // knife / fall / no weapon fires in this round
+		}
+		windowStart := kill.Tick - ttkWindowTicks
+		// wfIdx entries are sorted ascending by Tick (Pass 6 sorts them).
+		firstTick := -1
+		for _, wf := range fires {
+			if wf.Tick >= windowStart && wf.Tick <= kill.Tick {
+				firstTick = wf.Tick
+				break
+			}
+		}
+		if firstTick == -1 {
+			continue // no shot within the engagement window
+		}
+		if firstTick == kill.Tick {
+			// One-tap: the killing shot was the first shot fired in the window.
+			oneTapKills[kill.KillerSteamID]++
+			continue
+		}
+		ms := float64(kill.Tick-firstTick) / tps * 1000
+		ttkSamples[kill.KillerSteamID] = append(ttkSamples[kill.KillerSteamID], ms)
+		ttdSamples[kill.VictimSteamID] = append(ttdSamples[kill.VictimSteamID], ms)
 	}
 	for i := range matchStats {
 		id := matchStats[i].SteamID
@@ -1006,28 +1022,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			sort.Float64s(s)
 			matchStats[i].MedianTTDMs = median(s)
 		}
-	}
-
-	// ---- Pass 11: Counter-Strafe % ----
-	const csThreshold = 34.0 // Hammer units/s; below this = effectively stationary
-	type csAcc struct{ total, still int }
-	csMap := make(map[uint64]*csAcc)
-	for _, wf := range raw.WeaponFires {
-		if wf.ShooterID == 0 {
-			continue
-		}
-		if csMap[wf.ShooterID] == nil {
-			csMap[wf.ShooterID] = &csAcc{}
-		}
-		csMap[wf.ShooterID].total++
-		if wf.ShooterVelocity <= csThreshold {
-			csMap[wf.ShooterID].still++
-		}
-	}
-	for i := range matchStats {
-		if acc := csMap[matchStats[i].SteamID]; acc != nil && acc.total > 0 {
-			matchStats[i].CounterStrafePercent = float64(acc.still) / float64(acc.total) * 100
-		}
+		matchStats[i].OneTapKills = oneTapKills[id]
 	}
 
 	return matchStats, allRoundStats, weaponStats, duelSegments, nil

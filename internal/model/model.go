@@ -105,7 +105,6 @@ type RawWeaponFire struct {
 	PitchDeg    float64 // normalized view pitch at fire tick
 	YawDeg      float64 // view yaw at fire tick
 	AttackerPos Vec3    // shooter world position at fire tick
-	ShooterVelocity float64 // horizontal speed sqrt(vx²+vy²) at fire tick, Hammer units/s
 }
 
 // RawMatch is the fully parsed representation of a single demo file.
@@ -193,9 +192,9 @@ type PlayerMatchStats struct {
 
 	// Role and aim timing metrics
 	Role                 string  // "AWPer" | "Entry" | "Support" | "Rifler"
-	MedianTTKMs          float64 // median ms from first hit → kill (attacker POV)
-	MedianTTDMs          float64 // median ms from first hit received → death (victim POV)
-	CounterStrafePercent float64 // % of shots at horizontal velocity ≤ 34 u/s
+	MedianTTKMs          float64 // median ms first hit → kill, multi-hit kills only (attacker POV)
+	MedianTTDMs          float64 // median ms first hit received → death, multi-hit only (victim POV)
+	OneTapKills          int     // kills where the first hit in the 3s window was the kill shot
 }
 
 // KDRatio returns the kill-to-death ratio. If deaths is 0, kills is returned.
@@ -316,7 +315,7 @@ type PlayerAggregate struct {
 	Role                    string
 	AvgTTKMs               float64
 	AvgTTDMs               float64
-	AvgCounterStrafePercent float64
+	OneTapKills             int
 }
 
 // KDRatio returns the aggregate kill-to-death ratio across all matches.
