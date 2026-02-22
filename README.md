@@ -18,6 +18,7 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
   - [player](#player)
   - [rounds](#rounds)
   - [trend](#trend)
+  - [sql](#sql)
 - [Metric Definitions](#metric-definitions)
   - [General](#general)
   - [Entry Frags](#entry-frags)
@@ -270,6 +271,12 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 ./go-cs-metrics player <steamid64> [<steamid64>...] [flags]
 ```
 
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--map <name>` | `""` | Only include matches on this map (e.g. `nuke`, `de_nuke`; prefix stripped, case-insensitive) |
+| `--since <date>` | `""` | Only include matches on or after this date (`YYYY-MM-DD`) |
+| `--last <N>` | `0` | Only use the N most recent matches (applied after map/since filters) |
+
 **Output tables per player:**
 
 1. **Overview** — matches played, K/A/D, K/D, HS%, ADR, KAST%, entry kills/deaths, trade kills/deaths, flash assists, effective flashes
@@ -279,10 +286,12 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 5. **Aim timing & movement** — role, average TTK, average TTD, average counter-strafe %
 6. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample quality flags, priority bins marked with `*`
 
-**Example:**
+**Examples:**
 
 ```sh
 ./go-cs-metrics player 76561198XXXXXXXXX
+./go-cs-metrics player 76561198XXXXXXXXX --map nuke
+./go-cs-metrics player 76561198XXXXXXXXX --since 2026-01-01 --last 10
 ```
 
 ```
@@ -360,6 +369,51 @@ Chronological per-match performance trend for a single player. Shows two tables 
  2026-01-10  | mirage  | 24 | 18 | 5 | 14 | 1.29 | 0.75 |  82.3 |  71%
  2026-01-15  | inferno | 26 | 22 | 3 | 11 | 2.00 | 0.85 |  97.1 |  77%
  ...
+```
+
+---
+
+### sql
+
+Run an arbitrary SQL query against the metrics database and print the results as a formatted table. Useful for ad-hoc analysis and queries that go beyond the built-in commands.
+
+```
+./go-cs-metrics sql "<query>"
+```
+
+The query is passed as a single argument (quote it in the shell if it contains spaces). Results are printed with right-aligned numeric columns and a row count footer.
+
+**Schema overview** (also shown in `./go-cs-metrics sql --help`):
+
+| Table | Key columns |
+|-------|-------------|
+| `demos` | `hash`, `map_name`, `match_date`, `match_type`, `ct_score`, `t_score`, `tier`, `is_baseline` |
+| `player_match_stats` | `demo_hash`, `steam_id` (TEXT), `name`, `kills`, `assists`, `deaths`, `total_damage`, `rounds_played`, `kast_rounds`, `role`, `median_ttk_ms`, `median_ttd_ms`, … |
+| `player_round_stats` | `demo_hash`, `steam_id` (TEXT), `round_number`, `team`, `kills`, `damage`, `buy_type`, `is_post_plant`, `is_in_clutch`, `clutch_enemy_count`, … |
+| `player_weapon_stats` | `demo_hash`, `steam_id` (TEXT), `weapon`, `kills`, `headshot_kills`, `damage`, `hits` |
+| `player_duel_segments` | `demo_hash`, `steam_id` (TEXT), `weapon_bucket`, `distance_bin`, `duel_count`, `first_hit_count`, `first_hit_hs_count`, … |
+
+> **Note:** `steam_id` is stored as TEXT. Use single quotes in WHERE clauses: `WHERE steam_id = '76561198031906602'`
+
+**Examples:**
+
+```sh
+# Recent matches with scores
+./go-cs-metrics sql "SELECT map_name, match_date, ct_score, t_score FROM demos ORDER BY match_date DESC LIMIT 5"
+
+# Your ADR per map
+./go-cs-metrics sql "
+  SELECT d.map_name, ROUND(AVG(CAST(p.total_damage AS REAL)/p.rounds_played),1) AS adr
+  FROM player_match_stats p JOIN demos d ON d.hash = p.demo_hash
+  WHERE p.steam_id = '76561198XXXXXXXXX'
+  GROUP BY d.map_name ORDER BY adr DESC"
+
+# Clutch rounds for a player
+./go-cs-metrics sql "
+  SELECT round_number, clutch_enemy_count, kills, damage
+  FROM player_round_stats
+  WHERE steam_id = '76561198XXXXXXXXX' AND is_in_clutch = 1
+  ORDER BY demo_hash, round_number"
 ```
 
 ---
@@ -616,11 +670,11 @@ Schema migrations run automatically at startup via `ALTER TABLE ... ADD COLUMN` 
                │  RawMatch
                ▼
 ┌──────────────────────────────┐
-│  aggregator (internal/       │  8-pass aggregation:
+│  aggregator (internal/       │  10-pass aggregation:
 │  aggregator)                 │  trade annotation, opening
 │                              │  kills, KAST, crosshair,
 │                              │  duel engine, AWP classifier,
-│                              │  flash quality, weapon stats
+│                              │  flash quality, role, TTK/TTD
 └──────────────┬───────────────┘
                │  PlayerMatchStats
                │  PlayerRoundStats
@@ -635,8 +689,8 @@ Schema migrations run automatically at startup via `ALTER TABLE ... ADD COLUMN` 
                ▼
 ┌──────────────────────────────┐
 │  report (internal/report)    │  terminal tables via
-│  cmd/{parse,show,list,       │  tablewriter, focus highlighting
-│      fetch,player}           │
+│  cmd/{parse,show,list,fetch, │  tablewriter, focus highlighting
+│      player,rounds,trend,sql}│
 └──────────────────────────────┘
 
 FACEIT baseline path:
@@ -655,7 +709,10 @@ FACEIT baseline path:
 │   ├── list.go      # list command
 │   ├── show.go      # show command
 │   ├── fetch.go     # fetch command (FACEIT baseline download)
-│   └── player.go    # player command (cross-match aggregate report)
+│   ├── player.go    # player command (cross-match aggregate report, --map/--since/--last)
+│   ├── rounds.go    # rounds command (per-round drill-down)
+│   ├── trend.go     # trend command (chronological per-match trend)
+│   └── sql.go       # sql command (raw SQL query)
 ├── internal/
 │   ├── model/       # data model structs (RawMatch, PlayerMatchStats, ...)
 │   ├── parser/      # demo parsing, crosshair angle computation
@@ -738,5 +795,7 @@ go test ./internal/aggregator/... -run TestTradeKill -v
 - ~~**Counter-strafe %**~~ — done (shots at horizontal speed ≤ 34 u/s).
 - ~~**Trend view**~~ — done (`trend` command, chronological KPR/ADR/KAST% and TTK/TTD tables per match).
 - ~~**Round context**~~ — done (`POST_PLT` and `CLUTCH_1vN` flags in `rounds` drill-down).
+- ~~**Player filters**~~ — done (`--map`, `--since`, `--last` on the `player` command).
+- ~~**Raw SQL access**~~ — done (`sql` command for ad-hoc queries against the SQLite DB).
 - **Percentile comparison**: given a tier corpus, automatically show where your stats land (p25 / p50 / p75).
 - **Local web UI**: lightweight browser-based dashboard for non-terminal users.

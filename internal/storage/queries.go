@@ -524,6 +524,42 @@ func (db *DB) GetPlayerDuelSegments(demoHash string) ([]model.PlayerDuelSegment,
 	return out, rows.Err()
 }
 
+// QueryRaw executes an arbitrary SQL query and returns the column names and
+// all row values as strings. NULL values are rendered as "NULL".
+func (db *DB) QueryRaw(query string) (cols []string, rows [][]string, err error) {
+	r, err := db.conn.Query(query)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer r.Close()
+
+	cols, err = r.Columns()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for r.Next() {
+		vals := make([]interface{}, len(cols))
+		ptrs := make([]interface{}, len(cols))
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+		if err := r.Scan(ptrs...); err != nil {
+			return nil, nil, err
+		}
+		row := make([]string, len(cols))
+		for i, v := range vals {
+			if v == nil {
+				row[i] = "NULL"
+			} else {
+				row[i] = fmt.Sprintf("%v", v)
+			}
+		}
+		rows = append(rows, row)
+	}
+	return cols, rows, r.Err()
+}
+
 // boolInt converts a bool to an int (0 or 1) for SQLite storage.
 func boolInt(b bool) int {
 	if b {

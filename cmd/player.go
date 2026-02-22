@@ -14,12 +14,24 @@ import (
 	"github.com/pable/go-cs-metrics/internal/storage"
 )
 
+var (
+	playerMap   string
+	playerSince string
+	playerLast  int
+)
+
 // playerCmd is the cobra command for cross-match aggregate analysis of one or more players.
 var playerCmd = &cobra.Command{
 	Use:   "player <steamid64> [<steamid64>...]",
 	Short: "Cross-match analysis for one or more players",
 	Args:  cobra.MinimumNArgs(1),
 	RunE:  runPlayer,
+}
+
+func init() {
+	playerCmd.Flags().StringVar(&playerMap, "map", "", "filter to a specific map (e.g. nuke, de_nuke)")
+	playerCmd.Flags().StringVar(&playerSince, "since", "", "filter to matches on or after this date (YYYY-MM-DD)")
+	playerCmd.Flags().IntVar(&playerLast, "last", 0, "only use the N most recent matches")
 }
 
 // runPlayer loads all match data for each given SteamID64, builds cross-match
@@ -52,14 +64,30 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("query stats for %d: %w", id, err)
 		}
+		stats = filterStats(stats, playerMap, playerSince, playerLast)
 		if len(stats) == 0 {
-			fmt.Fprintf(os.Stderr, "No data found for SteamID64 %d\n", id)
+			fmt.Fprintf(os.Stderr, "No data found for SteamID64 %d (after filters)\n", id)
 			continue
 		}
 
 		segs, err := db.GetAllPlayerDuelSegments(id)
 		if err != nil {
 			return fmt.Errorf("query segments for %d: %w", id, err)
+		}
+
+		// Filter segments to only those matching the filtered demo hashes.
+		if playerMap != "" || playerSince != "" || playerLast > 0 {
+			keep := make(map[string]struct{}, len(stats))
+			for _, s := range stats {
+				keep[s.DemoHash] = struct{}{}
+			}
+			var filteredSegs []model.PlayerDuelSegment
+			for _, seg := range segs {
+				if _, ok := keep[seg.DemoHash]; ok {
+					filteredSegs = append(filteredSegs, seg)
+				}
+			}
+			segs = filteredSegs
 		}
 
 		agg := buildAggregate(stats)
@@ -105,6 +133,26 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 		report.PrintFHHSTable(os.Stdout, f.segs, f.synth, 0)
 	}
 	return nil
+}
+
+// filterStats applies --map, --since, and --last filters to a slice of match stats.
+// stats must be ordered ascending by date (as returned by GetAllPlayerMatchStats).
+func filterStats(stats []model.PlayerMatchStats, mapFilter, since string, last int) []model.PlayerMatchStats {
+	mapFilter = strings.TrimPrefix(strings.ToLower(mapFilter), "de_")
+	var out []model.PlayerMatchStats
+	for _, s := range stats {
+		if mapFilter != "" && strings.TrimPrefix(strings.ToLower(s.MapName), "de_") != mapFilter {
+			continue
+		}
+		if since != "" && s.MatchDate < since {
+			continue
+		}
+		out = append(out, s)
+	}
+	if last > 0 && len(out) > last {
+		out = out[len(out)-last:]
+	}
+	return out
 }
 
 // buildAggregate sums integer stats and averages float medians across all matches.
