@@ -36,6 +36,8 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `show <hash-prefix>` | Re-display a stored demo's tables |
 | `fetch` | Download and ingest FACEIT baseline demos |
 | `player <steamid64>...` | Cross-match aggregate report for one or more players |
+| `rounds <hash-prefix> <steamid64>` | Per-round drill-down with buy type, flags (POST_PLT, CLUTCH_1vN) |
+| `trend <steamid64>` | Chronological per-match performance trend (KPR/ADR/KAST% + TTK/TTD) |
 
 All commands share `--db` to point at an alternate database.
 

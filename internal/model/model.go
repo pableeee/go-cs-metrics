@@ -76,6 +76,7 @@ type RawRound struct {
 	WinnerTeam                                Team
 	PlayerEndState                            map[uint64]PlayerRoundEndState
 	PlayerEquipValues                         map[uint64]int // USD equipment value per player at freeze-end
+	BombPlantTick                             int            // tick when bomb was planted; 0 if not planted this round
 }
 
 // RawFirstSight is emitted by the parser each time a player first spots an enemy
@@ -132,9 +133,10 @@ type RawMatch struct {
 // player within a single demo. This is the primary output of the aggregator
 // and the main table stored in SQLite.
 type PlayerMatchStats struct {
-	DemoHash string
-	MapName  string // populated when queried across demos (JOIN with demos table)
-	SteamID  uint64
+	DemoHash  string
+	MapName   string // populated when queried across demos (JOIN with demos table)
+	MatchDate string // populated when queried (JOIN with demos.match_date)
+	SteamID   uint64
 	Name     string
 	Team     Team
 
@@ -255,6 +257,10 @@ type PlayerRoundStats struct {
 
 	UnusedUtility int
 	BuyType       string // "full" ≥$4500 | "force" ≥$2000 | "half" ≥$1000 | "eco" <$1000
+
+	IsPostPlant      bool // bomb was planted at some point this round
+	IsInClutch       bool // player was last alive on their team with ≥1 enemy alive
+	ClutchEnemyCount int  // max enemies alive when player entered clutch (0 if not clutch)
 }
 
 // PlayerWeaponStats holds per-weapon kill/damage/hit breakdown for a single

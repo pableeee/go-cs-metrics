@@ -181,10 +181,11 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 	}
 
 	var (
-		roundNumber       int
-		roundStartTick    int
-		freezeEndTick     int
-		currentEquipVals  map[uint64]int
+		roundNumber          int
+		roundStartTick       int
+		freezeEndTick        int
+		currentEquipVals     map[uint64]int
+		currentBombPlantTick int
 	)
 
 	// seenThisRound tracks (observer, enemy) pairs already recorded in the current round
@@ -201,6 +202,12 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 		freezeEndTick = roundStartTick // will be updated by RoundFreezetimeEnd
 		seenThisRound = make(map[pairKey]bool)
 		currentEquipVals = nil
+		currentBombPlantTick = 0
+	})
+
+	// BombPlanted: record the tick when the bomb was planted this round.
+	p.RegisterEventHandler(func(e events.BombPlanted) {
+		currentBombPlantTick = p.CurrentFrame()
 	})
 
 	// RoundFreezetimeEnd: record the tick after freeze ends and snapshot equipment values.
@@ -258,6 +265,7 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 			WinnerTeam:        winnerTeam,
 			PlayerEndState:    endState,
 			PlayerEquipValues: currentEquipVals,
+			BombPlantTick:     currentBombPlantTick,
 		})
 	})
 

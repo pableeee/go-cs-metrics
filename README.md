@@ -17,6 +17,7 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
   - [fetch](#fetch)
   - [player](#player)
   - [rounds](#rounds)
+  - [trend](#trend)
 - [Metric Definitions](#metric-definitions)
   - [General](#general)
   - [Entry Frags](#entry-frags)
@@ -329,9 +330,37 @@ Per-round drill-down table for one player in one match. Shows side, buy type, ki
 Buy Profile: full=14 (56%)  force=5 (20%)  half=3 (12%)  eco=3 (12%)
 ```
 
-FLAGS: `OPEN_K` = opening kill, `OPEN_D` = opening death, `TRADE_K` = trade kill, `TRADE_D` = trade death.
+FLAGS: `OPEN_K` = opening kill, `OPEN_D` = opening death, `TRADE_K` = trade kill, `TRADE_D` = trade death, `POST_PLT` = bomb was planted this round, `CLUTCH_1vN` = player was last alive on their team facing N enemies.
 
 > **Note:** Schema changes require a DB rebuild: `rm ~/.csmetrics/metrics.db` and re-parse your demos.
+
+---
+
+### trend
+
+Chronological per-match performance trend for a single player. Shows two tables in ascending match-date order.
+
+```
+./go-cs-metrics trend <steamid64>
+```
+
+**Table 1 — Performance Trend:** DATE, MAP, RD (rounds), K, A, D, K/D, KPR (kills per round), ADR, KAST%
+
+**Table 2 — Aim Timing Trend** (only shown if TTK/TTD data exists): DATE, MAP, RD, MEDIAN_TTK, MEDIAN_TTD, ONE_TAP%
+
+**Example:**
+
+```sh
+./go-cs-metrics trend 76561198XXXXXXXXX
+```
+
+```
+--- Performance Trend ---
+ DATE        | MAP     | RD | K  | A | D  | K/D  | KPR  | ADR   | KAST%
+ 2026-01-10  | mirage  | 24 | 18 | 5 | 14 | 1.29 | 0.75 |  82.3 |  71%
+ 2026-01-15  | inferno | 26 | 22 | 3 | 11 | 2.00 | 0.85 |  97.1 |  77%
+ ...
+```
 
 ---
 
@@ -707,7 +736,7 @@ go test ./internal/aggregator/... -run TestTradeKill -v
 - ~~**Drill-down**~~ — done (`rounds` command shows per-round detail with buy type and flags).
 - ~~**TTK/TTD**~~ — done (median ms from first hit to kill/death).
 - ~~**Counter-strafe %**~~ — done (shots at horizontal speed ≤ 34 u/s).
-- **Trend view**: rolling averages across matches (last 10 / last 30 / per map).
+- ~~**Trend view**~~ — done (`trend` command, chronological KPR/ADR/KAST% and TTK/TTD tables per match).
+- ~~**Round context**~~ — done (`POST_PLT` and `CLUTCH_1vN` flags in `rounds` drill-down).
 - **Percentile comparison**: given a tier corpus, automatically show where your stats land (p25 / p50 / p75).
-- **Round context**: clutch detection, man-advantage conversion, post-plant / retake labeling.
 - **Local web UI**: lightweight browser-based dashboard for non-terminal users.

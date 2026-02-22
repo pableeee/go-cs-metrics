@@ -351,6 +351,18 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			roundPlayers[k.victimID] = struct{}{}
 		}
 
+		// Build victim order for clutch detection (kills are already sorted by tick via Pass 1).
+		victimOrder := make([]uint64, 0, len(kills))
+		for _, k := range kills {
+			victimOrder = append(victimOrder, k.victimID)
+		}
+		clutchMap := computeClutch(roundPlayers, victimOrder, func(id uint64) model.Team {
+			if es, ok := round.PlayerEndState[id]; ok {
+				return es.Team
+			}
+			return playerDominantTeam[id]
+		})
+
 		for playerID := range roundPlayers {
 			if playerID == 0 {
 				continue
@@ -427,6 +439,13 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 
 			// KAST: Kill, Assist, Survive, or Traded.
 			rs.KASTEarned = rs.GotKill || rs.GotAssist || rs.Survived || rs.WasTraded
+
+			// Round context: post-plant and clutch.
+			rs.IsPostPlant = round.BombPlantTick > 0
+			if ci, ok := clutchMap[playerID]; ok {
+				rs.IsInClutch = ci.isClutch
+				rs.ClutchEnemyCount = ci.enemyCount
+			}
 
 			allRoundStats = append(allRoundStats, rs)
 
@@ -1026,6 +1045,77 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 	}
 
 	return matchStats, allRoundStats, weaponStats, duelSegments, nil
+}
+
+// clutchResult holds the clutch outcome for a single player in a round.
+type clutchResult struct {
+	isClutch   bool
+	enemyCount int // max enemies alive when the clutch was detected
+}
+
+// computeClutch walks the kill list for a round and determines which players
+// entered a clutch situation (last alive on their team facing ≥1 enemy).
+// roundPlayers is the set of all player IDs who participated in the round.
+// victimOrder is the ordered list of victim IDs (kill order by tick ascending).
+// teamOf returns the team for a given player ID.
+func computeClutch(
+	roundPlayers map[uint64]struct{},
+	victimOrder []uint64,
+	teamOf func(uint64) model.Team,
+) map[uint64]clutchResult {
+	// Start with everyone alive.
+	alive := make(map[uint64]bool, len(roundPlayers))
+	for id := range roundPlayers {
+		if id != 0 {
+			alive[id] = true
+		}
+	}
+
+	results := make(map[uint64]clutchResult, len(roundPlayers))
+
+	checkClutch := func() {
+		// Count alive players per team.
+		teamAlive := make(map[model.Team]int)
+		for id, isAlive := range alive {
+			if isAlive {
+				teamAlive[teamOf(id)]++
+			}
+		}
+		// For each alive player, check if they are the sole survivor on their team
+		// with at least one enemy alive.
+		for id, isAlive := range alive {
+			if !isAlive {
+				continue
+			}
+			myTeam := teamOf(id)
+			if myTeam == model.TeamUnknown {
+				continue
+			}
+			myAlive := teamAlive[myTeam]
+			// Count enemies alive (all teams except own).
+			enemiesAlive := 0
+			for t, cnt := range teamAlive {
+				if t != myTeam && t != model.TeamUnknown && t != model.TeamSpectators {
+					enemiesAlive += cnt
+				}
+			}
+			if myAlive == 1 && enemiesAlive >= 1 {
+				prev := results[id]
+				prev.isClutch = true
+				if enemiesAlive > prev.enemyCount {
+					prev.enemyCount = enemiesAlive
+				}
+				results[id] = prev
+			}
+		}
+	}
+
+	for _, victimID := range victimOrder {
+		alive[victimID] = false
+		checkClutch()
+	}
+
+	return results
 }
 
 // median returns the median of a pre-sorted (ascending) slice of float64.

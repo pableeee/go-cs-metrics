@@ -678,6 +678,87 @@ func PrintAimTimingTable(w io.Writer, stats []model.PlayerMatchStats, focusSteam
 	table.Render()
 }
 
+// PrintTrendTable prints a chronological per-match performance table for a player.
+func PrintTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
+	printSection(w, "Performance Trend",
+		"Per-match stats in chronological order.\n"+
+			"DATE=match date  MAP=map  RD=rounds played  KPR=kills/round  ADR=avg damage/round  KAST=KAST%")
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header("DATE", "MAP", "RD", "K", "A", "D", "K/D", "KPR", "ADR", "KAST%")
+
+	for _, s := range stats {
+		mapDisplay := strings.TrimPrefix(s.MapName, "de_")
+		kpr := "—"
+		if s.RoundsPlayed > 0 {
+			kpr = fmt.Sprintf("%.2f", float64(s.Kills)/float64(s.RoundsPlayed))
+		}
+		table.Append(
+			s.MatchDate,
+			mapDisplay,
+			strconv.Itoa(s.RoundsPlayed),
+			strconv.Itoa(s.Kills),
+			strconv.Itoa(s.Assists),
+			strconv.Itoa(s.Deaths),
+			fmt.Sprintf("%.2f", s.KDRatio()),
+			kpr,
+			fmt.Sprintf("%.1f", s.ADR()),
+			fmt.Sprintf("%.0f%%", s.KASTPct()),
+		)
+	}
+	table.Render()
+}
+
+// PrintAimTrendTable prints a chronological per-match aim timing table for a player.
+// It is only rendered if at least one match has TTK, TTD, or one-tap data.
+func PrintAimTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
+	hasData := false
+	for _, s := range stats {
+		if s.MedianTTKMs > 0 || s.MedianTTDMs > 0 || s.OneTapKills > 0 {
+			hasData = true
+			break
+		}
+	}
+	if !hasData {
+		return
+	}
+	printSection(w, "Aim Timing Trend",
+		"Per-match aim timing in chronological order.\n"+
+			"DATE=match date  MEDIAN_TTK/TTD=ms from first shot fired to kill/death (multi-hit only)  ONE_TAP%=% of kills that were one-taps")
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header("DATE", "MAP", "RD", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%")
+
+	for _, s := range stats {
+		mapDisplay := strings.TrimPrefix(s.MapName, "de_")
+		ttkStr := "—"
+		if s.MedianTTKMs > 0 {
+			ttkStr = fmt.Sprintf("%.0fms", s.MedianTTKMs)
+		}
+		ttdStr := "—"
+		if s.MedianTTDMs > 0 {
+			ttdStr = fmt.Sprintf("%.0fms", s.MedianTTDMs)
+		}
+		oneTapStr := "—"
+		if s.Kills > 0 {
+			oneTapStr = fmt.Sprintf("%.0f%%", float64(s.OneTapKills)/float64(s.Kills)*100)
+		}
+		table.Append(
+			s.MatchDate,
+			mapDisplay,
+			strconv.Itoa(s.RoundsPlayed),
+			ttkStr,
+			ttdStr,
+			oneTapStr,
+		)
+	}
+	table.Render()
+}
+
 // PrintRoundDetailTable prints a per-round drill-down table for a single player in a match.
 func PrintRoundDetailTable(w io.Writer, stats []model.PlayerRoundStats, playerName, mapName string) {
 	if len(stats) == 0 {
@@ -685,7 +766,7 @@ func PrintRoundDetailTable(w io.Writer, stats []model.PlayerRoundStats, playerNa
 	}
 	printSection(w, fmt.Sprintf("%s — %s — %d rounds", playerName, mapName, len(stats)),
 		"SIDE=CT or T  BUY=buy type (full/force/half/eco)  K/A/DMG=kills/assists/damage\n"+
-			"KAST=✓ if earned KAST that round  FLAGS=OPEN_K/OPEN_D/TRADE_K/TRADE_D")
+			"KAST=✓ if earned KAST that round  FLAGS=OPEN_K/OPEN_D/TRADE_K/TRADE_D/POST_PLT/CLUTCH_1vN")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
@@ -717,6 +798,12 @@ func PrintRoundDetailTable(w io.Writer, stats []model.PlayerRoundStats, playerNa
 		}
 		if s.IsTradeDeath {
 			flags = append(flags, "TRADE_D")
+		}
+		if s.IsPostPlant {
+			flags = append(flags, "POST_PLT")
+		}
+		if s.IsInClutch {
+			flags = append(flags, fmt.Sprintf("CLUTCH_1v%d", s.ClutchEnemyCount))
 		}
 		flagStr := strings.Join(flags, ",")
 

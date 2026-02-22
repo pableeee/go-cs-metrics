@@ -97,8 +97,9 @@ func (db *DB) InsertPlayerRoundStats(stats []model.PlayerRoundStats) error {
 			demo_hash, steam_id, round_number, team,
 			got_kill, got_assist, survived, was_traded, kast_earned,
 			is_opening_kill, is_opening_death, is_trade_kill, is_trade_death,
-			kills, assists, damage, unused_utility, buy_type
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+			kills, assists, damage, unused_utility, buy_type,
+			is_post_plant, is_in_clutch, clutch_enemy_count
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -112,6 +113,7 @@ func (db *DB) InsertPlayerRoundStats(stats []model.PlayerRoundStats) error {
 			boolInt(s.IsOpeningKill), boolInt(s.IsOpeningDeath),
 			boolInt(s.IsTradeKill), boolInt(s.IsTradeDeath),
 			s.Kills, s.Assists, s.Damage, s.UnusedUtility, s.BuyType,
+			boolInt(s.IsPostPlant), boolInt(s.IsInClutch), s.ClutchEnemyCount,
 		)
 		if err != nil {
 			return fmt.Errorf("insert player_round_stats: %w", err)
@@ -267,7 +269,8 @@ func (db *DB) GetPlayerRoundStats(demoHash string, steamID uint64) ([]model.Play
 		SELECT round_number, team,
 		       got_kill, got_assist, survived, was_traded, kast_earned,
 		       is_opening_kill, is_opening_death, is_trade_kill, is_trade_death,
-		       kills, assists, damage, unused_utility, buy_type
+		       kills, assists, damage, unused_utility, buy_type,
+		       is_post_plant, is_in_clutch, clutch_enemy_count
 		FROM player_round_stats
 		WHERE demo_hash = ? AND steam_id = ?
 		ORDER BY round_number ASC`,
@@ -283,11 +286,13 @@ func (db *DB) GetPlayerRoundStats(demoHash string, steamID uint64) ([]model.Play
 		var teamStr string
 		var gotKill, gotAssist, survived, wasTraded, kastEarned int
 		var isOpeningKill, isOpeningDeath, isTradeKill, isTradeDeath int
+		var isPostPlant, isInClutch int
 		if err := rows.Scan(
 			&s.RoundNumber, &teamStr,
 			&gotKill, &gotAssist, &survived, &wasTraded, &kastEarned,
 			&isOpeningKill, &isOpeningDeath, &isTradeKill, &isTradeDeath,
 			&s.Kills, &s.Assists, &s.Damage, &s.UnusedUtility, &s.BuyType,
+			&isPostPlant, &isInClutch, &s.ClutchEnemyCount,
 		); err != nil {
 			return nil, err
 		}
@@ -303,6 +308,8 @@ func (db *DB) GetPlayerRoundStats(demoHash string, steamID uint64) ([]model.Play
 		s.IsOpeningDeath = isOpeningDeath != 0
 		s.IsTradeKill = isTradeKill != 0
 		s.IsTradeDeath = isTradeDeath != 0
+		s.IsPostPlant = isPostPlant != 0
+		s.IsInClutch = isInClutch != 0
 		out = append(out, s)
 	}
 	return out, rows.Err()
@@ -371,7 +378,7 @@ func (db *DB) GetPlayerWeaponStats(demoHash string) ([]model.PlayerWeaponStats, 
 func (db *DB) GetAllPlayerMatchStats(steamID uint64) ([]model.PlayerMatchStats, error) {
 	steamIDStr := strconv.FormatUint(steamID, 10)
 	rows, err := db.conn.Query(`
-		SELECT p.demo_hash, d.map_name, p.name, p.team,
+		SELECT p.demo_hash, d.map_name, d.match_date, p.name, p.team,
 		       p.kills, p.assists, p.deaths, p.headshot_kills, p.flash_assists,
 		       p.total_damage, p.utility_damage, p.rounds_played,
 		       p.opening_kills, p.opening_deaths, p.trade_kills, p.trade_deaths,
@@ -387,7 +394,8 @@ func (db *DB) GetAllPlayerMatchStats(steamID uint64) ([]model.PlayerMatchStats, 
 		       p.role, p.median_ttk_ms, p.median_ttd_ms, p.one_tap_kills
 		FROM player_match_stats p
 		JOIN demos d ON d.hash = p.demo_hash
-		WHERE p.steam_id = ?`, steamIDStr)
+		WHERE p.steam_id = ?
+		ORDER BY d.match_date ASC, p.demo_hash ASC`, steamIDStr)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +406,7 @@ func (db *DB) GetAllPlayerMatchStats(steamID uint64) ([]model.PlayerMatchStats, 
 		var s model.PlayerMatchStats
 		var teamStr string
 		if err := rows.Scan(
-			&s.DemoHash, &s.MapName, &s.Name, &teamStr,
+			&s.DemoHash, &s.MapName, &s.MatchDate, &s.Name, &teamStr,
 			&s.Kills, &s.Assists, &s.Deaths, &s.HeadshotKills, &s.FlashAssists,
 			&s.TotalDamage, &s.UtilityDamage, &s.RoundsPlayed,
 			&s.OpeningKills, &s.OpeningDeaths, &s.TradeKills, &s.TradeDeaths,

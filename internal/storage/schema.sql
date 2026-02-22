@@ -73,6 +73,9 @@ CREATE TABLE IF NOT EXISTS player_round_stats (
     damage          INTEGER NOT NULL DEFAULT 0,
     unused_utility  INTEGER NOT NULL DEFAULT 0,
     buy_type        TEXT    NOT NULL DEFAULT 'eco',
+    is_post_plant      INTEGER NOT NULL DEFAULT 0,
+    is_in_clutch       INTEGER NOT NULL DEFAULT 0,
+    clutch_enemy_count INTEGER NOT NULL DEFAULT 0,
     UNIQUE(demo_hash, steam_id, round_number)
 );
 

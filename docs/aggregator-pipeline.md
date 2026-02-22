@@ -55,6 +55,17 @@ This is the heaviest pass. For every round, every player who appeared in that ro
 | `UnusedUtility` | Grenade count remaining from `PlayerEndState` |
 | `KASTEarned` | True if any of: GotKill, GotAssist, Survived, WasTraded |
 | `BuyType` | Derived from `round.PlayerEquipValues[playerID]` (equipment value at freeze-end): ≥$4500 = full, ≥$2000 = force, ≥$1000 = half, <$1000 = eco |
+| `IsPostPlant` | True when `round.BombPlantTick > 0` — the bomb was planted at some point in this round (captured by the parser's `BombPlanted` event handler) |
+| `IsInClutch`, `ClutchEnemyCount` | From `computeClutch` — see below |
+
+### Clutch detection (`computeClutch`)
+
+Before the per-player inner loop, `computeClutch` is called once per round:
+
+1. All players in the round are initially marked alive.
+2. Kills are processed in tick order. After each kill, the victim is marked dead.
+3. After each death, every still-alive player is checked: if `myTeamAlive == 1 && enemyAlive >= 1`, that player is in a clutch. The maximum `enemyAlive` count seen during the clutch is stored as `ClutchEnemyCount`.
+4. Returns a map of `playerID → {isClutch, enemyCount}` used to populate the round stats.
 
 Match-level accumulators (`matchAccums`) are updated incrementally per round — kills, assists, deaths, damage, KAST rounds, opening kills/deaths, trade kills/deaths, unused utility.
 
