@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"compress/bzip2"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
@@ -258,6 +259,8 @@ func downloadAndDecompress(url, dir, matchID string) (string, error) {
 
 	var src io.Reader = resp.Body
 	switch {
+	case strings.HasSuffix(url, ".bz2"):
+		src = bzip2.NewReader(resp.Body)
 	case strings.HasSuffix(url, ".zst"):
 		dec, err := zstd.NewReader(resp.Body)
 		if err != nil {

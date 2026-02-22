@@ -15,6 +15,7 @@ go-cs-metrics/
 │   ├── root.go                      # root cobra command, --db flag
 │   ├── parse.go                     # "parse <demo.dem>" — full pipeline
 │   ├── fetch.go                     # "fetch" — ingest FACEIT demos via API
+│   ├── fetchmm.go                   # "fetch-mm" — ingest Valve MM/Premier demos via Steam share codes
 │   ├── list.go                      # "list" — tabulate stored demos
 │   ├── show.go                      # "show <hash-prefix>" — replay stored match
 │   ├── player.go                    # "player <steamid64>..." — cross-match aggregate
@@ -33,6 +34,9 @@ go-cs-metrics/
     │   ├── storage.go               # DB open / schema apply
     │   ├── queries.go               # insert / query helpers
     │   └── storage_test.go          # round-trip tests against :memory:
+    ├── steam/
+    │   ├── sharecode.go             # base-57 CS2 share code decoder (matchID + reservationID + tvPort)
+    │   └── client.go                # Steam Web API client + Valve replay server prober
     └── report/
         └── report.go                # terminal table formatting
 ```
@@ -309,6 +313,7 @@ csmetrics parse [<demo.dem>...] [--dir <dir>] [--player <steamid64>] [--type Lab
 csmetrics list
 csmetrics show <hash-prefix> [--player <steamid64>]
 csmetrics fetch [flags]
+csmetrics fetch-mm --steam-id <SteamID64> [--auth-code <code>] [--share-code <code>] [--count N] [--map <name>] [--tier label]
 csmetrics player <steamid64> [<steamid64>...] [--map <name>] [--since <date>] [--last <N>]
 csmetrics rounds <hash-prefix> <steamid64>
 csmetrics trend <steamid64>

@@ -45,6 +45,7 @@ func init() {
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(showCmd)
 	rootCmd.AddCommand(fetchCmd)
+	rootCmd.AddCommand(fetchMMCmd)
 	rootCmd.AddCommand(playerCmd)
 	rootCmd.AddCommand(roundsCmd)
 	rootCmd.AddCommand(trendCmd)
