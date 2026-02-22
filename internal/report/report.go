@@ -24,16 +24,58 @@ var Verbose = true
 // printSection prints a bold section title and, when Verbose is true, a one-line
 // explanation of the columns that follow.
 func printSection(w io.Writer, title, desc string) {
-	fmt.Fprintf(w, "\n--- %s ---\n", title)
+	fmt.Fprintf(w, "\n%s\n", color.New(color.Bold).Sprintf("--- %s ---", title))
 	if Verbose {
 		fmt.Fprintf(w, "%s\n", desc)
 	}
 }
 
+// colorKD wraps a K/D ratio string in green (≥1.0) or red (<1.0).
+func colorKD(kd float64) string {
+	s := fmt.Sprintf("%.2f", kd)
+	if kd >= 1.0 {
+		return color.GreenString(s)
+	}
+	return color.RedString(s)
+}
+
+// colorSide wraps a side string in cyan (CT) or yellow (T).
+func colorSide(side string) string {
+	switch side {
+	case "CT":
+		return color.CyanString(side)
+	case "T":
+		return color.YellowString(side)
+	default:
+		return side
+	}
+}
+
+// colorRoundFlag wraps a single round flag in a contextual color:
+// green for positive events (kill/trade), red for negative (death),
+// yellow for post-plant, magenta for clutch.
+func colorRoundFlag(flag string) string {
+	switch {
+	case flag == "OPEN_K" || flag == "TRADE_K":
+		return color.GreenString(flag)
+	case flag == "OPEN_D" || flag == "TRADE_D":
+		return color.RedString(flag)
+	case flag == "POST_PLT":
+		return color.YellowString(flag)
+	case strings.HasPrefix(flag, "CLUTCH"):
+		return color.MagentaString(flag)
+	default:
+		return flag
+	}
+}
+
 // PrintMatchSummary prints a one-line summary header for the match.
 func PrintMatchSummary(w io.Writer, s model.MatchSummary) {
-	fmt.Fprintf(w, "\nMap: %s  |  Date: %s  |  Type: %s  |  Score: CT %d – T %d  |  Hash: %s\n\n",
-		s.MapName, s.MatchDate, s.MatchType, s.CTScore, s.TScore, s.DemoHash[:12])
+	fmt.Fprintf(w, "\nMap: %s  |  Date: %s  |  Type: %s  |  Score: %s %d – %s %d  |  Hash: %s\n\n",
+		s.MapName, s.MatchDate, s.MatchType,
+		color.CyanString("CT"), s.CTScore,
+		color.YellowString("T"), s.TScore,
+		s.DemoHash[:12])
 }
 
 // PrintPlayerRosterTable prints a compact name → SteamID64 listing so the user
@@ -50,7 +92,7 @@ func PrintPlayerRosterTable(w io.Writer, stats []model.PlayerMatchStats) {
 	}))
 	table.Header("TEAM", "NAME", "STEAM_ID")
 	for _, s := range stats {
-		table.Append(s.Team.String(), s.Name, strconv.FormatUint(s.SteamID, 10))
+		table.Append(colorSide(s.Team.String()), s.Name, strconv.FormatUint(s.SteamID, 10))
 	}
 	table.Render()
 	fmt.Fprintln(w)
@@ -101,11 +143,11 @@ func PrintPlayerTableTo(w io.Writer, stats []model.PlayerMatchStats, focusSteamI
 			marker,
 			s.Name,
 			role,
-			s.Team.String(),
+			colorSide(s.Team.String()),
 			strconv.Itoa(s.Kills),
 			strconv.Itoa(s.Assists),
 			strconv.Itoa(s.Deaths),
-			fmt.Sprintf("%.2f", s.KDRatio()),
+			colorKD(s.KDRatio()),
 			fmt.Sprintf("%.0f%%", s.HSPercent()),
 			fmt.Sprintf("%.1f", s.ADR()),
 			fmt.Sprintf("%.0f%%", s.KASTPct()),
@@ -153,11 +195,11 @@ func PrintPlayerSideTable(w io.Writer, sides []model.PlayerSideStats, focusSteam
 		table.Append(
 			marker,
 			name,
-			s.Team.String(),
+			colorSide(s.Team.String()),
 			strconv.Itoa(s.Kills),
 			strconv.Itoa(s.Assists),
 			strconv.Itoa(s.Deaths),
-			fmt.Sprintf("%.2f", s.KDRatio()),
+			colorKD(s.KDRatio()),
 			fmt.Sprintf("%.1f", s.ADR()),
 			fmt.Sprintf("%.0f%%", s.KASTPct()),
 			strconv.Itoa(s.OpeningKills),
@@ -299,7 +341,7 @@ func PrintPlayerAggregateOverview(w io.Writer, aggs []model.PlayerAggregate) {
 			strconv.Itoa(a.Kills),
 			strconv.Itoa(a.Assists),
 			strconv.Itoa(a.Deaths),
-			fmt.Sprintf("%.2f", a.KDRatio()),
+			colorKD(a.KDRatio()),
 			fmt.Sprintf("%.0f%%", a.HSPercent()),
 			fmt.Sprintf("%.1f", a.ADR()),
 			fmt.Sprintf("%.0f%%", a.KASTPct()),
@@ -399,11 +441,11 @@ func PrintPlayerMapSideTable(w io.Writer, aggs []model.PlayerMapSideAggregate) {
 		table.Append(
 			a.Name,
 			a.MapName,
-			a.Side,
+			colorSide(a.Side),
 			strconv.Itoa(a.Matches),
 			strconv.Itoa(a.Kills),
 			strconv.Itoa(a.Deaths),
-			fmt.Sprintf("%.2f", a.KDRatio()),
+			colorKD(a.KDRatio()),
 			fmt.Sprintf("%.0f%%", a.HSPercent()),
 			fmt.Sprintf("%.1f", a.ADR()),
 			fmt.Sprintf("%.0f%%", a.KASTPct()),
@@ -707,7 +749,7 @@ func PrintTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
 			strconv.Itoa(s.Kills),
 			strconv.Itoa(s.Assists),
 			strconv.Itoa(s.Deaths),
-			fmt.Sprintf("%.2f", s.KDRatio()),
+			colorKD(s.KDRatio()),
 			kpr,
 			fmt.Sprintf("%.1f", s.ADR()),
 			fmt.Sprintf("%.0f%%", s.KASTPct()),
@@ -794,33 +836,33 @@ func PrintRoundDetailTable(w io.Writer, stats []model.PlayerRoundStats, playerNa
 
 		kastStr := " "
 		if s.KASTEarned {
-			kastStr = "✓"
+			kastStr = color.GreenString("✓")
 		}
 
 		var flags []string
 		if s.IsOpeningKill {
-			flags = append(flags, "OPEN_K")
+			flags = append(flags, colorRoundFlag("OPEN_K"))
 		}
 		if s.IsOpeningDeath {
-			flags = append(flags, "OPEN_D")
+			flags = append(flags, colorRoundFlag("OPEN_D"))
 		}
 		if s.IsTradeKill {
-			flags = append(flags, "TRADE_K")
+			flags = append(flags, colorRoundFlag("TRADE_K"))
 		}
 		if s.IsTradeDeath {
-			flags = append(flags, "TRADE_D")
+			flags = append(flags, colorRoundFlag("TRADE_D"))
 		}
 		if s.IsPostPlant {
-			flags = append(flags, "POST_PLT")
+			flags = append(flags, colorRoundFlag("POST_PLT"))
 		}
 		if s.IsInClutch {
-			flags = append(flags, fmt.Sprintf("CLUTCH_1v%d", s.ClutchEnemyCount))
+			flags = append(flags, colorRoundFlag(fmt.Sprintf("CLUTCH_1v%d", s.ClutchEnemyCount)))
 		}
 		flagStr := strings.Join(flags, ",")
 
 		table.Append(
 			strconv.Itoa(s.RoundNumber),
-			s.Team.String(),
+			colorSide(s.Team.String()),
 			buyType,
 			strconv.Itoa(s.Kills),
 			strconv.Itoa(s.Assists),
