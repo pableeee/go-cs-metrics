@@ -316,7 +316,7 @@ All tables use `CREATE TABLE IF NOT EXISTS`; new columns are added at startup vi
 Subcommands, all accessed via a persistent `--db` flag on the root command:
 
 ```
-csmetrics parse [<demo.dem>...] [--dir <dir>] [--player <steamid64>] [--type Label] [--tier Label] [--baseline]
+csmetrics parse [<demo.dem>...] [--dir <dir>] [--player <steamid64>] [--type Label] [--tier Label] [--baseline] [--workers N]
 csmetrics list
 csmetrics show <hash-prefix> [--player <steamid64>]
 csmetrics player <steamid64> [<steamid64>...] [--map <name>] [--since <date>] [--last <N>] [--top <N>] [--top-min <N>]
@@ -340,7 +340,7 @@ All commands also accept `--silent` / `-s` (persistent flag on root). When set, 
 7. Aim timing — median TTK, median TTD, one-tap%
 8. Clutch table — 1v1–1v5 attempt/win counts per player
 
-**Bulk mode** (`parse` with multiple files or `--dir`): full tables are suppressed. Each demo prints a one-line status including map, date, score, player count, round count, and `(parse Xs  agg Xs  total Xs)` timing.
+**Bulk mode** (`parse` with multiple files or `--dir`): full tables are suppressed. Demos are parsed and aggregated in parallel across `--workers` goroutines (default: `runtime.NumCPU()`). Database writes are always serialised on the main goroutine — no SQLite contention regardless of worker count. Results arrive out of input order (each line carries a `[i/n] filename` tag). Each status line includes map, date, score, player count, round count, and `(parse Xs  agg Xs  total Xs)` timing.
 
 **Output order** for `show`:
 1. Match summary (map, date, score, hash)

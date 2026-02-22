@@ -137,6 +137,8 @@ Parse one or more `.dem` files, aggregate all metrics, and store the results. If
 
 **Bulk mode** — triggered when more than one demo is provided (via multiple args or `--dir`). Full tables are suppressed; a compact status line is printed per demo instead, followed by a stored/skipped/failed summary. Parse and aggregate elapsed times are included in the status line.
 
+**Parallelism** — in bulk mode, demos are parsed and aggregated in parallel across multiple worker goroutines (default: `NumCPU`). Database writes are always serialised on the main goroutine, so there is no SQLite contention regardless of worker count. Use `--workers 1` to restore sequential behaviour (e.g. on HDDs where parallel disk seeks hurt throughput).
+
 **Timing** — after each successfully processed demo, elapsed times for the parse and aggregate stages (and their total) are printed. In single mode this appears as a line before the tables; in bulk mode it is appended to the per-demo status line.
 
 | Flag | Default | Description |
@@ -146,6 +148,7 @@ Parse one or more `.dem` files, aggregate all metrics, and store the results. If
 | `--tier` | `""` | Tier label for baseline comparisons (e.g. `faceit-5`, `premier-10k`); auto-detected from an `event.json` sidecar in the demo directory if present |
 | `--baseline` | `false` | Mark this demo as a baseline reference match |
 | `--dir` | `""` | Directory containing `.dem` files to parse in bulk (all `*.dem` files inside) |
+| `--workers` | `0` | Number of parallel parse+aggregate workers in bulk mode (`0` = `NumCPU`) |
 
 **Output tables:**
 
@@ -188,11 +191,15 @@ Map: de_mirage  |  Date: 2026-02-20  |  Type: Competitive  |  Score: CT 13 – T
  ...
 ```
 
-Bulk mode status line (includes timing):
+Bulk mode output (results arrive as workers finish, order may differ from input):
 
 ```
-[1/3] match1.dem
-  stored: Mirage  2024-11-01  13–5  10 players  18 rounds  (parse 4.2s  agg 312ms  total 4.512s)
+Parsing 3 demos with 8 worker(s)...
+  [2/3] match2.dem  stored: Dust2   2024-11-02  10–4  10 players  14 rounds  (parse 3.8s  agg 290ms  total 4.1s)
+  [1/3] match1.dem  stored: Mirage  2024-11-01  13–5  10 players  18 rounds  (parse 4.2s  agg 312ms  total 4.5s)
+  [3/3] match3.dem  skipped (already stored)
+
+Done: 2 stored, 1 skipped, 0 failed (total 3)
 ```
 
 ---

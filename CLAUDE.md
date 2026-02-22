@@ -31,7 +31,7 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 
 | Command | Description |
 |---------|-------------|
-| `parse [<demo.dem>...] [--dir <dir>]` | Parse + store one or more demos; bulk mode prints compact status per demo |
+| `parse [<demo.dem>...] [--dir <dir>]` | Parse + store one or more demos; bulk mode parses in parallel (`--workers N`, default `NumCPU`) with serialised DB writes; prints compact status per demo |
 | `list` | List all stored demos |
 | `show <hash-prefix>` | Re-display a stored demo's tables |
 | `fetch` | *(disabled — not registered as a CLI command; non-functional due to platform auth changes; see `docs/demo-download-automation.md`)* |

@@ -1,10 +1,14 @@
 package cmd
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -28,6 +32,8 @@ var (
 	parseBaseline bool
 	// parseDir is an optional directory path; all *.dem files inside are parsed.
 	parseDir string
+	// parseWorkers is the number of parallel parse workers (0 = NumCPU).
+	parseWorkers int
 )
 
 // parseCmd is the cobra command for parsing a CS2 demo file and storing its metrics.
@@ -46,7 +52,9 @@ Whole directory:
   parse --dir /path/to/replays
 
 When more than one demo is provided, full tables are suppressed and a
-brief status line is printed per demo instead.`,
+brief status line is printed per demo instead. Multiple demos are parsed
+and aggregated in parallel (parse+aggregate workers); database writes are
+always serialised. Use --workers to control concurrency (default: NumCPU).`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runParse,
 }
@@ -57,6 +65,7 @@ func init() {
 	parseCmd.Flags().StringVar(&parseTier, "tier", "", "tier label for baseline comparisons (e.g. faceit-5)")
 	parseCmd.Flags().BoolVar(&parseBaseline, "baseline", false, "mark this demo as a baseline reference match")
 	parseCmd.Flags().StringVar(&parseDir, "dir", "", "directory containing .dem files to parse in bulk")
+	parseCmd.Flags().IntVar(&parseWorkers, "workers", 0, "parallel parse+aggregate workers (0 = NumCPU)")
 }
 
 // demoMeta holds the event metadata written by cs-demo-downloader into event.json
@@ -85,10 +94,63 @@ func loadDemoMeta(dir string) *demoMeta {
 	return &m
 }
 
+// parseJob carries the input for one parse worker.
+type parseJob struct {
+	idx  int
+	path string
+}
+
+// parseResult carries the output of one parse+aggregate cycle.
+type parseResult struct {
+	idx          int
+	path         string
+	raw          *model.RawMatch // nil on error
+	matchStats   []model.PlayerMatchStats
+	roundStats   []model.PlayerRoundStats
+	weaponStats  []model.PlayerWeaponStats
+	duelSegs     []model.PlayerDuelSegment
+	parseElapsed time.Duration
+	aggElapsed   time.Duration
+	err          error
+}
+
+// runDemoWorker consumes parseJobs, calls ParseDemo+Aggregate for each, and
+// sends a parseResult to results. It exits when jobs is closed.
+func runDemoWorker(jobs <-chan parseJob, results chan<- parseResult, mt string) {
+	for job := range jobs {
+		res := parseResult{idx: job.idx, path: job.path}
+
+		t0 := time.Now()
+		raw, err := parser.ParseDemo(job.path, mt)
+		res.parseElapsed = time.Since(t0)
+		if err != nil {
+			res.err = fmt.Errorf("parse: %w", err)
+			results <- res
+			continue
+		}
+		res.raw = raw
+
+		t1 := time.Now()
+		ms, rs, ws, ds, err := aggregator.Aggregate(raw)
+		res.aggElapsed = time.Since(t1)
+		if err != nil {
+			res.err = fmt.Errorf("aggregate: %w", err)
+			results <- res
+			continue
+		}
+		res.matchStats = ms
+		res.roundStats = rs
+		res.weaponStats = ws
+		res.duelSegs = ds
+		results <- res
+	}
+}
+
 // runParse parses one or more demo files, aggregates metrics, stores them in
 // the database, and prints report tables. When more than one demo is provided
 // (via args or --dir), full tables are suppressed and a brief status line is
-// printed per demo instead.
+// printed per demo instead. Multiple demos are parsed in parallel via a worker
+// pool; all DB writes happen on the calling goroutine to avoid SQLite contention.
 func runParse(cmd *cobra.Command, args []string) error {
 	// Collect demo paths from positional args and --dir.
 	paths := append([]string(nil), args...)
@@ -138,25 +200,59 @@ func runParse(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	bulk := len(paths) > 1
-	var stored, skipped, failed int
+	// Redirect os.Stderr through a pipe for the duration of all parsing.
+	// A single filter goroutine silently drops "unknown grenade model N" lines
+	// that the demoinfocs-golang library prints directly to os.Stderr for
+	// Source 2 grenade entities whose model hash it hasn't indexed yet; all
+	// other lines are forwarded to the real stderr unchanged.
+	//
+	// Using a single pipe shared across all workers is safe: POSIX guarantees
+	// that concurrent pipe writes ≤ PIPE_BUF bytes are atomic, and each
+	// "unknown grenade model N" line is well under that limit.
+	origStderr := os.Stderr
+	pr, pw, pipeErr := os.Pipe()
+	var stderrDone chan struct{}
+	if pipeErr == nil {
+		os.Stderr = pw
+		stderrDone = make(chan struct{})
+		go func() {
+			defer close(stderrDone)
+			sc := bufio.NewScanner(pr)
+			for sc.Scan() {
+				line := sc.Text()
+				if !strings.HasPrefix(line, "unknown grenade model ") {
+					fmt.Fprintln(origStderr, line)
+				}
+			}
+		}()
+	}
 
-	for i, demoPath := range paths {
-		if bulk {
-			fmt.Fprintf(os.Stdout, "[%d/%d] %s\n", i+1, len(paths), filepath.Base(demoPath))
-		} else {
-			fmt.Fprintf(os.Stdout, "Parsing %s...\n", demoPath)
-		}
+	// restoreStderr closes the write end of the pipe (signalling EOF to the
+	// filter goroutine), restores os.Stderr, and waits for all buffered output
+	// to drain. Idempotent via sync.Once.
+	var restoreOnce sync.Once
+	restoreStderr := func() {
+		restoreOnce.Do(func() {
+			if pipeErr == nil {
+				pw.Close()
+				os.Stderr = origStderr
+				<-stderrDone
+			}
+		})
+	}
+	defer restoreStderr()
+
+	// ── Single-file path ─────────────────────────────────────────────────────
+	// Parse sequentially and print full report tables.
+	if len(paths) == 1 {
+		demoPath := paths[0]
+		fmt.Fprintf(os.Stdout, "Parsing %s...\n", demoPath)
 
 		t0 := time.Now()
 		raw, err := parser.ParseDemo(demoPath, matchType)
 		parseElapsed := time.Since(t0)
+		restoreStderr() // no more library stderr output after this point
 		if err != nil {
-			if bulk {
-				fmt.Fprintf(os.Stderr, "  error: %v\n", err)
-				failed++
-				continue
-			}
 			return fmt.Errorf("parse demo: %w", err)
 		}
 
@@ -165,11 +261,6 @@ func runParse(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("check demo: %w", err)
 		}
 		if exists {
-			if bulk {
-				fmt.Fprintf(os.Stdout, "  already stored — skipped\n")
-				skipped++
-				continue
-			}
 			fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", raw.DemoHash[:12])
 			return showByHash(db, raw.DemoHash)
 		}
@@ -178,11 +269,6 @@ func runParse(cmd *cobra.Command, args []string) error {
 		matchStats, roundStats, weaponStats, duelSegs, err := aggregator.Aggregate(raw)
 		aggElapsed := time.Since(t1)
 		if err != nil {
-			if bulk {
-				fmt.Fprintf(os.Stderr, "  aggregate error: %v\n", err)
-				failed++
-				continue
-			}
 			return fmt.Errorf("aggregate: %w", err)
 		}
 
@@ -216,17 +302,6 @@ func runParse(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("insert duel segments: %w", err)
 		}
 
-		if bulk {
-			fmt.Fprintf(os.Stdout, "  stored: %s  %s  %d–%d  %d players  %d rounds  (parse %s  agg %s  total %s)\n",
-				summary.MapName, summary.MatchDate, ctScore, tScore,
-				len(matchStats), len(raw.Rounds),
-				parseElapsed.Round(time.Millisecond),
-				aggElapsed.Round(time.Millisecond),
-				(parseElapsed+aggElapsed).Round(time.Millisecond))
-			stored++
-			continue
-		}
-
 		fmt.Fprintf(os.Stdout, "  parse: %s  aggregate: %s  total: %s\n\n",
 			parseElapsed.Round(time.Millisecond),
 			aggElapsed.Round(time.Millisecond),
@@ -244,12 +319,111 @@ func runParse(cmd *cobra.Command, args []string) error {
 		report.PrintWeaponTable(os.Stdout, weaponStats, matchStats, playerSteamID)
 		report.PrintAimTimingTable(os.Stdout, matchStats, playerSteamID)
 		report.PrintMatchClutchTable(os.Stdout, matchStats, clutch)
+		return nil
 	}
 
-	if bulk {
-		fmt.Fprintf(os.Stdout, "\nDone: %d stored, %d skipped, %d failed (total %d)\n",
-			stored, skipped, failed, len(paths))
+	// ── Bulk path: parallel parse+aggregate, serial DB writes ────────────────
+	numWorkers := parseWorkers
+	if numWorkers <= 0 {
+		numWorkers = runtime.NumCPU()
 	}
+	if numWorkers > len(paths) {
+		numWorkers = len(paths)
+	}
+
+	fmt.Fprintf(os.Stdout, "Parsing %d demos with %d worker(s)...\n", len(paths), numWorkers)
+
+	jobs := make(chan parseJob, numWorkers)
+	resultsCh := make(chan parseResult, numWorkers)
+
+	var wg sync.WaitGroup
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runDemoWorker(jobs, resultsCh, matchType)
+		}()
+	}
+
+	// Feed all jobs; close the channel when done so workers exit.
+	go func() {
+		for i, p := range paths {
+			jobs <- parseJob{idx: i, path: p}
+		}
+		close(jobs)
+	}()
+
+	// Close resultsCh once all workers have finished so the writer loop exits.
+	go func() {
+		wg.Wait()
+		close(resultsCh)
+	}()
+
+	var stored, skipped, failed int
+
+	for res := range resultsCh {
+		name := filepath.Base(res.path)
+		tag := fmt.Sprintf("[%d/%d] %s", res.idx+1, len(paths), name)
+
+		if res.err != nil {
+			fmt.Fprintf(origStderr, "  %s  error: %v\n", tag, res.err)
+			failed++
+			continue
+		}
+
+		exists, err := db.DemoExists(res.raw.DemoHash)
+		if err != nil {
+			return fmt.Errorf("check demo %s: %w", name, err)
+		}
+		if exists {
+			fmt.Fprintf(os.Stdout, "  %s  skipped (already stored)\n", tag)
+			skipped++
+			continue
+		}
+
+		ctScore, tScore := computeScore(res.raw.Rounds)
+		summary := model.MatchSummary{
+			DemoHash:   res.raw.DemoHash,
+			MapName:    res.raw.MapName,
+			MatchDate:  res.raw.MatchDate,
+			MatchType:  res.raw.MatchType,
+			Tickrate:   res.raw.Tickrate,
+			CTScore:    ctScore,
+			TScore:     tScore,
+			Tier:       effectiveTier,
+			IsBaseline: parseBaseline,
+			EventID:    effectiveEventID,
+		}
+
+		if err := db.InsertDemo(summary); err != nil {
+			return fmt.Errorf("insert demo: %w", err)
+		}
+		if err := db.InsertPlayerMatchStats(res.matchStats); err != nil {
+			return fmt.Errorf("insert player stats: %w", err)
+		}
+		if err := db.InsertPlayerRoundStats(res.roundStats); err != nil {
+			return fmt.Errorf("insert round stats: %w", err)
+		}
+		if err := db.InsertPlayerWeaponStats(res.weaponStats); err != nil {
+			return fmt.Errorf("insert weapon stats: %w", err)
+		}
+		if err := db.InsertPlayerDuelSegments(res.duelSegs); err != nil {
+			return fmt.Errorf("insert duel segments: %w", err)
+		}
+
+		fmt.Fprintf(os.Stdout, "  %s  stored: %s  %s  %d–%d  %d players  %d rounds  (parse %s  agg %s  total %s)\n",
+			tag,
+			summary.MapName, summary.MatchDate, ctScore, tScore,
+			len(res.matchStats), len(res.raw.Rounds),
+			res.parseElapsed.Round(time.Millisecond),
+			res.aggElapsed.Round(time.Millisecond),
+			(res.parseElapsed+res.aggElapsed).Round(time.Millisecond))
+		stored++
+	}
+
+	restoreStderr()
+	fmt.Fprintf(os.Stdout, "\nDone: %d stored, %d skipped, %d failed (total %d)\n",
+		stored, skipped, failed, len(paths))
 	return nil
 }
 
