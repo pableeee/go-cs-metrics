@@ -56,6 +56,10 @@ func runShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("get weapon stats: %w", err)
 	}
+	clutch, err := db.GetClutchStatsByDemo(demo.DemoHash)
+	if err != nil {
+		return fmt.Errorf("get clutch stats: %w", err)
+	}
 	report.PrintMatchSummary(os.Stdout, *demo)
 	report.PrintPlayerRosterTable(os.Stdout, stats)
 	report.PrintPlayerTable(stats, showPlayerID)
@@ -64,5 +68,6 @@ func runShow(cmd *cobra.Command, args []string) error {
 	report.PrintAWPTable(os.Stdout, stats, showPlayerID)
 	report.PrintWeaponTable(os.Stdout, weaponStats, stats, showPlayerID)
 	report.PrintAimTimingTable(os.Stdout, stats, showPlayerID)
+	report.PrintMatchClutchTable(os.Stdout, stats, clutch)
 	return nil
 }

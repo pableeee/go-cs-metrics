@@ -169,6 +169,10 @@ func runParse(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
+		clutch, err := db.GetClutchStatsByDemo(summary.DemoHash)
+		if err != nil {
+			return fmt.Errorf("get clutch stats: %w", err)
+		}
 		report.PrintMatchSummary(os.Stdout, summary)
 		report.PrintPlayerRosterTable(os.Stdout, matchStats)
 		report.PrintPlayerTable(matchStats, playerSteamID)
@@ -176,6 +180,7 @@ func runParse(cmd *cobra.Command, args []string) error {
 		report.PrintAWPTable(os.Stdout, matchStats, playerSteamID)
 		report.PrintWeaponTable(os.Stdout, weaponStats, matchStats, playerSteamID)
 		report.PrintAimTimingTable(os.Stdout, matchStats, playerSteamID)
+		report.PrintMatchClutchTable(os.Stdout, matchStats, clutch)
 	}
 
 	if bulk {
@@ -217,6 +222,10 @@ func showByHash(db *storage.DB, hash string) error {
 	if err != nil {
 		return err
 	}
+	clutch, err := db.GetClutchStatsByDemo(hash)
+	if err != nil {
+		return fmt.Errorf("get clutch stats: %w", err)
+	}
 	report.PrintMatchSummary(os.Stdout, *demo)
 	report.PrintPlayerRosterTable(os.Stdout, stats)
 	report.PrintPlayerTable(stats, playerSteamID)
@@ -225,5 +234,6 @@ func showByHash(db *storage.DB, hash string) error {
 	report.PrintAWPTable(os.Stdout, stats, playerSteamID)
 	report.PrintWeaponTable(os.Stdout, weaponStats, stats, playerSteamID)
 	report.PrintAimTimingTable(os.Stdout, stats, playerSteamID)
+	report.PrintMatchClutchTable(os.Stdout, stats, clutch)
 	return nil
 }

@@ -811,6 +811,64 @@ func PrintAimTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
 	table.Render()
 }
 
+// clutchCell formats a single 1vN cell as "W/A (P%)" with color based on win rate.
+// Returns "—" when attempts is zero.
+func clutchCell(wins, attempts int) string {
+	if attempts == 0 {
+		return "—"
+	}
+	pct := float64(wins) / float64(attempts) * 100
+	s := fmt.Sprintf("%d/%d (%.0f%%)", wins, attempts, pct)
+	switch {
+	case wins == attempts:
+		return color.GreenString(s)
+	case wins > 0:
+		return color.YellowString(s)
+	default:
+		return color.RedString(s)
+	}
+}
+
+// PrintMatchClutchTable prints per-player clutch W/A counts for a single match.
+// Players with no clutch situations are shown as "—". Skips rendering if no player
+// had a clutch situation in the match.
+func PrintMatchClutchTable(w io.Writer, stats []model.PlayerMatchStats, clutch map[uint64]*model.PlayerClutchMatchStats) {
+	hasData := false
+	for _, s := range stats {
+		if c := clutch[s.SteamID]; c != nil && c.TotalAttempts() > 0 {
+			hasData = true
+			break
+		}
+	}
+	if !hasData {
+		return
+	}
+	printSection(w, "Clutch",
+		"Clutch situations this match. W/A (%) = wins/attempts per enemy count.\n"+
+			"Green = all won, yellow = partial, red = none won.")
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header("PLAYER", "1v1", "1v2", "1v3", "1v4", "1v5", "TOTAL")
+
+	for _, s := range stats {
+		c := clutch[s.SteamID]
+		if c == nil {
+			c = &model.PlayerClutchMatchStats{}
+		}
+		cells := make([]string, 5)
+		for i := 1; i <= 5; i++ {
+			cells[i-1] = clutchCell(c.Wins[i], c.Attempts[i])
+		}
+		table.Append(s.Name,
+			cells[0], cells[1], cells[2], cells[3], cells[4],
+			clutchCell(c.TotalWins(), c.TotalAttempts()),
+		)
+	}
+	table.Render()
+}
+
 // PrintPlayerAggregateClutchTable prints clutch W/A counts aggregated across all demos
 // for each player, broken down by enemy count (1v1–1v5). Matched by SteamID.
 func PrintPlayerAggregateClutchTable(w io.Writer, aggs []model.PlayerAggregate, clutch []model.PlayerClutchMatchStats) {
@@ -846,37 +904,12 @@ func PrintPlayerAggregateClutchTable(w io.Writer, aggs []model.PlayerAggregate, 
 		}
 		cells := make([]string, 5)
 		for i := 1; i <= 5; i++ {
-			att := c.Attempts[i]
-			if att == 0 {
-				cells[i-1] = "—"
-				continue
-			}
-			wa := fmt.Sprintf("%d/%d", c.Wins[i], att)
-			switch {
-			case c.Wins[i] == att:
-				cells[i-1] = color.GreenString(wa)
-			case c.Wins[i] > 0:
-				cells[i-1] = color.YellowString(wa)
-			default:
-				cells[i-1] = color.RedString(wa)
-			}
+			cells[i-1] = clutchCell(c.Wins[i], c.Attempts[i])
 		}
-		totalA := c.TotalAttempts()
-		totalW := c.TotalWins()
-		totalStr := "—"
-		if totalA > 0 {
-			pct := float64(totalW) / float64(totalA) * 100
-			wa := fmt.Sprintf("%d/%d (%.0f%%)", totalW, totalA, pct)
-			switch {
-			case totalW == totalA:
-				totalStr = color.GreenString(wa)
-			case totalW > 0:
-				totalStr = color.YellowString(wa)
-			default:
-				totalStr = color.RedString(wa)
-			}
-		}
-		table.Append(a.Name, cells[0], cells[1], cells[2], cells[3], cells[4], totalStr)
+		table.Append(a.Name,
+			cells[0], cells[1], cells[2], cells[3], cells[4],
+			clutchCell(c.TotalWins(), c.TotalAttempts()),
+		)
 	}
 	table.Render()
 }
@@ -912,34 +945,12 @@ func PrintClutchTrendTable(w io.Writer, stats []model.PlayerMatchStats, clutchMa
 		mapDisplay := strings.TrimPrefix(s.MapName, "de_")
 		cells := make([]string, 5)
 		for i := 1; i <= 5; i++ {
-			a := c.Attempts[i]
-			if a == 0 {
-				cells[i-1] = "—"
-				continue
-			}
-			wa := fmt.Sprintf("%d/%d", c.Wins[i], a)
-			switch {
-			case c.Wins[i] == a:
-				cells[i-1] = color.GreenString(wa)
-			case c.Wins[i] > 0:
-				cells[i-1] = color.YellowString(wa)
-			default:
-				cells[i-1] = color.RedString(wa)
-			}
+			cells[i-1] = clutchCell(c.Wins[i], c.Attempts[i])
 		}
-		totalA := c.TotalAttempts()
-		totalW := c.TotalWins()
-		pct := float64(totalW) / float64(totalA) * 100
-		totalStr := fmt.Sprintf("%d/%d (%.0f%%)", totalW, totalA, pct)
-		switch {
-		case totalW == totalA:
-			totalStr = color.GreenString(totalStr)
-		case totalW > 0:
-			totalStr = color.YellowString(totalStr)
-		default:
-			totalStr = color.RedString(totalStr)
-		}
-		table.Append(s.MatchDate, mapDisplay, cells[0], cells[1], cells[2], cells[3], cells[4], totalStr)
+		table.Append(s.MatchDate, mapDisplay,
+			cells[0], cells[1], cells[2], cells[3], cells[4],
+			clutchCell(c.TotalWins(), c.TotalAttempts()),
+		)
 	}
 	table.Render()
 }
