@@ -129,7 +129,7 @@ func runAnalyzePlayer(cmd *cobra.Command, args []string) error {
 			filteredSegs = append(filteredSegs, seg)
 		}
 	}
-	mergedSegs := mergeSegments(id, filteredSegs)
+	// mergedSegs is computed inside buildPlayerContext alongside the per-map breakdown.
 
 	// Weapon stats — load per-demo and aggregate across filtered demos.
 	var allWeaponStats []model.PlayerWeaponStats
@@ -177,7 +177,7 @@ func runAnalyzePlayer(cmd *cobra.Command, args []string) error {
 		"since": analyzePlayerSince,
 		"last":  analyzePlayerLast,
 	}
-	contextJSON, err := buildPlayerContext(agg, mapSideAggs, &aggClutch, filters, stats, mergedSegs, allWeaponStats, allRoundStats)
+	contextJSON, err := buildPlayerContext(agg, mapSideAggs, &aggClutch, filters, stats, filteredSegs, allWeaponStats, allRoundStats)
 	if err != nil {
 		return fmt.Errorf("build context: %w", err)
 	}
@@ -223,10 +223,16 @@ func buildPlayerContext(
 	clutch *model.PlayerClutchMatchStats,
 	filters map[string]interface{},
 	stats []model.PlayerMatchStats,
-	mergedSegs []model.PlayerDuelSegment,
+	rawSegs []model.PlayerDuelSegment, // pre-merge, filtered to the active demo set
 	weaponStats []model.PlayerWeaponStats,
 	roundStats []model.PlayerRoundStats,
 ) (string, error) {
+	// demoToMap maps DemoHash → trimmed map name for per-map grouping.
+	demoToMap := make(map[string]string, len(stats))
+	for _, s := range stats {
+		demoToMap[s.DemoHash] = strings.TrimPrefix(s.MapName, "de_")
+	}
+	mergedSegs := mergeSegments(agg.SteamID, rawSegs)
 	type mapSideEntry struct {
 		Map     string  `json:"map"`
 		Side    string  `json:"side"`
@@ -315,6 +321,8 @@ func buildPlayerContext(
 		"map_side":    mapSide,
 		"trend":       buildTrendContext(stats),
 		"fhhs":        buildFHHSContext(mergedSegs),
+		"fhhs_by_map": buildFHHSByMap(rawSegs, agg.SteamID, demoToMap),
+		"aim_by_map":  buildAimByMap(stats),
 		"weapons":     buildWeaponContext(weaponStats),
 		"buy_profile":  buildBuyProfile(roundStats),
 		"post_plant":   buildPostPlantProfile(roundStats),
@@ -585,6 +593,81 @@ func buildLowConfidence(agg model.PlayerAggregate, clutch *model.PlayerClutchMat
 	}
 
 	return warnings
+}
+
+// buildFHHSByMap groups raw duel segments by map, merges each group, and returns
+// a map[mapName][]fhhsEntry for per-map FHHS analysis.
+func buildFHHSByMap(rawSegs []model.PlayerDuelSegment, steamID uint64, demoToMap map[string]string) map[string]interface{} {
+	byMap := make(map[string][]model.PlayerDuelSegment)
+	for _, seg := range rawSegs {
+		mapName := demoToMap[seg.DemoHash]
+		if mapName == "" {
+			continue
+		}
+		byMap[mapName] = append(byMap[mapName], seg)
+	}
+	out := make(map[string]interface{}, len(byMap))
+	for mapName, segs := range byMap {
+		merged := mergeSegments(steamID, segs)
+		out[mapName] = buildFHHSContext(merged)
+	}
+	return out
+}
+
+// buildAimByMap averages per-match aim metrics grouped by map.
+func buildAimByMap(stats []model.PlayerMatchStats) map[string]interface{} {
+	type accum struct {
+		ttkSum, ttdSum, corrSum, csSum float64
+		ttkN, ttdN, corrN, csN         int
+		oneTapKills, kills             int
+	}
+	m := make(map[string]*accum)
+	for _, s := range stats {
+		mapName := strings.TrimPrefix(s.MapName, "de_")
+		if m[mapName] == nil {
+			m[mapName] = &accum{}
+		}
+		a := m[mapName]
+		if s.MedianTTKMs > 0 {
+			a.ttkSum += s.MedianTTKMs
+			a.ttkN++
+		}
+		if s.MedianTTDMs > 0 {
+			a.ttdSum += s.MedianTTDMs
+			a.ttdN++
+		}
+		if s.MedianCorrectionDeg > 0 {
+			a.corrSum += s.MedianCorrectionDeg
+			a.corrN++
+		}
+		if s.CounterStrafePercent > 0 {
+			a.csSum += s.CounterStrafePercent
+			a.csN++
+		}
+		a.oneTapKills += s.OneTapKills
+		a.kills += s.Kills
+	}
+	out := make(map[string]interface{}, len(m))
+	for mapName, a := range m {
+		entry := make(map[string]interface{}, 5)
+		if a.ttkN > 0 {
+			entry["median_ttk_ms"] = round2(a.ttkSum / float64(a.ttkN))
+		}
+		if a.ttdN > 0 {
+			entry["median_ttd_ms"] = round2(a.ttdSum / float64(a.ttdN))
+		}
+		if a.corrN > 0 {
+			entry["median_correction_deg"] = round2(a.corrSum / float64(a.corrN))
+		}
+		if a.csN > 0 {
+			entry["counter_strafe_pct"] = round2(a.csSum / float64(a.csN))
+		}
+		if a.kills > 0 {
+			entry["one_tap_pct"] = round2(float64(a.oneTapKills) / float64(a.kills) * 100)
+		}
+		out[mapName] = entry
+	}
+	return out
 }
 
 // buildMatchContext serialises a single match into compact JSON.
