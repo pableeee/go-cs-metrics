@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -98,7 +99,9 @@ func runParse(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stdout, "Parsing %s...\n", demoPath)
 		}
 
+		t0 := time.Now()
 		raw, err := parser.ParseDemo(demoPath, matchType)
+		parseElapsed := time.Since(t0)
 		if err != nil {
 			if bulk {
 				fmt.Fprintf(os.Stderr, "  error: %v\n", err)
@@ -122,7 +125,9 @@ func runParse(cmd *cobra.Command, args []string) error {
 			return showByHash(db, raw.DemoHash)
 		}
 
+		t1 := time.Now()
 		matchStats, roundStats, weaponStats, duelSegs, err := aggregator.Aggregate(raw)
+		aggElapsed := time.Since(t1)
 		if err != nil {
 			if bulk {
 				fmt.Fprintf(os.Stderr, "  aggregate error: %v\n", err)
@@ -162,12 +167,20 @@ func runParse(cmd *cobra.Command, args []string) error {
 		}
 
 		if bulk {
-			fmt.Fprintf(os.Stdout, "  stored: %s  %s  %d–%d  %d players  %d rounds\n",
+			fmt.Fprintf(os.Stdout, "  stored: %s  %s  %d–%d  %d players  %d rounds  (parse %s  agg %s  total %s)\n",
 				summary.MapName, summary.MatchDate, ctScore, tScore,
-				len(matchStats), len(raw.Rounds))
+				len(matchStats), len(raw.Rounds),
+				parseElapsed.Round(time.Millisecond),
+				aggElapsed.Round(time.Millisecond),
+				(parseElapsed+aggElapsed).Round(time.Millisecond))
 			stored++
 			continue
 		}
+
+		fmt.Fprintf(os.Stdout, "  parse: %s  aggregate: %s  total: %s\n\n",
+			parseElapsed.Round(time.Millisecond),
+			aggElapsed.Round(time.Millisecond),
+			(parseElapsed+aggElapsed).Round(time.Millisecond))
 
 		clutch, err := db.GetClutchStatsByDemo(summary.DemoHash)
 		if err != nil {
