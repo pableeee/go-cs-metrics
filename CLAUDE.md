@@ -57,10 +57,10 @@ Core types (all in `internal/model/model.go`):
 
 ## Aggregator: 11 Passes
 
-1. Trade annotation (backward + forward scan within 5 s window)
+1. Trade annotation (backward + forward scan within 5 s window); captures trade kill/death delay in ticks for timing metrics
 2. Opening kills (first kill after `FreezeEndTick`)
-3. Per-round per-player stats (buy type, post-plant flag, clutch detection)
-4. Match-level rollup
+3. Per-round per-player stats (buy type, post-plant flag, clutch detection, `won_round` flag)
+4. Match-level rollup (includes `rounds_won`, `median_trade_kill_delay_ms`, `median_trade_death_delay_ms`)
 5. Crosshair placement (from `RawFirstSight` / `m_bSpottedByMask`)
 6. Duel engine + FHHS segments (exposure time, pre-shot correction, weapon+distance bins)
 7. AWP death classifier (dry/repeek/isolated)
@@ -76,7 +76,7 @@ Core types (all in `internal/model/model.go`):
 - **Wilson CI** used for FHHS proportions (stable for small samples unlike Wald).
 - **Distance** computed as `||attackerPos − victimPos|| * 0.01905` (Hammer units → meters).
 - **`player` command aggregation**: integers summed directly; float medians averaged across matches (approximate); FHHS rate recomputed from raw segment count totals (accurate).
-- **Schema migrations**: no versioning yet — a DB rebuild (`rm metrics.db`) is required when the schema changes.
+- **Schema migrations**: new columns are added automatically at startup via `ALTER TABLE ... ADD COLUMN ... DEFAULT` statements (duplicate-column errors silently ignored). Existing rows default to `0`/`''`. A full DB rebuild is only required if a column type or a table structure changes (not just additions).
 
 ## Documentation Rule
 

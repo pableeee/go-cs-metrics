@@ -50,6 +50,8 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
 - **Role detection** — per-match heuristic label (AWPer / Entry / Support / Rifler) computed from kill distribution and opening/utility stats; shown in the player table.
 - **Buy type** — eco/half/force/full classification per player per round, derived from equipment value at freeze-end; used in drill-down tables.
 - **Aim timing** — Median TTK (ms from first shot fired to kill), Median TTD (ms from enemy's first shot to your death), and one-tap kill percentage.
+- **Trade timing** — Median milliseconds between a trade kill and the kill being traded, and between a trade death and the teammate's retaliatory kill.
+- **Round W/L tracking** — `won_round` flag per player per round; aggregated as win rate in the `player` and `analyze` commands; broken down by economy tier (eco/force/half/full) and post-plant context.
 - **FHHS breakdown** — first-hit headshot rate segmented by weapon bucket and distance bin, with Wilson 95% CI and automatic priority bin detection.
 - **Cross-match player analysis** — `player` command aggregates stats across all stored demos for one or more SteamID64s, producing a full overview + duel + AWP + FHHS + aim timing report per player.
 - **Per-round drill-down** — `rounds` command shows per-round side, buy type, K/A/damage, KAST, and tactical flags for one player in one match, with a buy profile summary.
@@ -368,7 +370,7 @@ Buy Profile: full=14 (56%)  force=5 (20%)  half=3 (12%)  eco=3 (12%)
 
 FLAGS: `OPEN_K` = opening kill, `OPEN_D` = opening death, `TRADE_K` = trade kill, `TRADE_D` = trade death, `POST_PLT` = bomb was planted this round, `CLUTCH_1vN` = player was last alive on their team facing N enemies.
 
-> **Note:** Schema changes require a DB rebuild: `rm ~/.csmetrics/metrics.db` and re-parse your demos.
+> **Note:** New columns are added automatically at startup. Re-parse demos after an update to populate newly added metrics with correct values.
 
 ---
 
@@ -456,7 +458,27 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ./go-cs-metrics analyze match a3f9c2 "why did we lose this match?"
 ```
 
-The response is clearly labelled as AI interpretation and streamed directly to the terminal.
+The response is rendered as formatted markdown in the terminal (via `glamour`) and clearly labelled as AI interpretation.
+
+**Data sent to the model (`analyze player`):**
+
+| Section | Contents |
+|---------|----------|
+| `overview` | role, K/D, HS%, ADR, KAST%, kills, assists, deaths, rounds, rounds_won, win_rate |
+| `opening` / `trades` | kills/deaths; trade timing median ms |
+| `utility` | flash assists, effective flashes, utility damage, unused utility |
+| `aim` | median TTK, median TTD, one-tap%, correction°, counter-strafe% |
+| `awp_deaths` | total, dry-peek %, re-peek %, isolated % |
+| `clutch` | 1v1–1v5 wins/attempts/% |
+| `map_side` | per-map CT/T K/D, ADR, KAST% |
+| `trend` | chronological per-match stats including rounds_won |
+| `fhhs` | per-weapon × distance FHHS with confidence tags |
+| `fhhs_by_map` | same, grouped by map |
+| `aim_by_map` | per-map TTK, TTD, correction°, CS%, one-tap% |
+| `weapons` | per-weapon kills, HS%, damage, avg damage/hit |
+| `buy_profile` | avg kills/damage/KAST%/win_rate by eco tier |
+| `post_plant` | avg kills/damage/KAST%/win_rate in vs. outside post-plant |
+| `low_confidence` | list of metrics with insufficient sample sizes |
 
 ---
 
@@ -757,11 +779,12 @@ Schema migrations run automatically at startup via `ALTER TABLE ... ADD COLUMN` 
                │  RawMatch
                ▼
 ┌──────────────────────────────┐
-│  aggregator (internal/       │  10-pass aggregation:
-│  aggregator)                 │  trade annotation, opening
-│                              │  kills, KAST, crosshair,
-│                              │  duel engine, AWP classifier,
-│                              │  flash quality, role, TTK/TTD
+│  aggregator (internal/       │  11-pass aggregation:
+│  aggregator)                 │  trade annotation + timing,
+│                              │  opening kills, round W/L,
+│                              │  KAST, crosshair, duel engine,
+│                              │  AWP classifier, flash quality,
+│                              │  role, TTK/TTD, counter-strafe
 └──────────────┬───────────────┘
                │  PlayerMatchStats
                │  PlayerRoundStats
@@ -799,7 +822,8 @@ FACEIT baseline path:
 │   ├── player.go    # player command (cross-match aggregate report, --map/--since/--last)
 │   ├── rounds.go    # rounds command (per-round drill-down)
 │   ├── trend.go     # trend command (chronological per-match trend)
-│   └── sql.go       # sql command (raw SQL query)
+│   ├── sql.go       # sql command (raw SQL query)
+│   └── analyze.go   # analyze command (AI-powered grounded analysis)
 ├── internal/
 │   ├── model/       # data model structs (RawMatch, PlayerMatchStats, ...)
 │   ├── parser/      # demo parsing, crosshair angle computation
@@ -868,7 +892,7 @@ go test ./internal/aggregator/... -run TestTradeKill -v
 
 - **Match date**: Uses the demo file's modification time (`os.Stat` mtime), which reflects when CS2 wrote the demo to disk (end of match). FACEIT-fetched demos use the match's `started_at` API timestamp.
 - **Crosshair placement**: Uses server-side `m_bSpottedByMask` as a proxy for first-sight. This may fire slightly before the player's client renders the enemy. Values should be treated as directional, not absolute.
-- **Schema changes**: Adding new columns requires a DB rebuild (`rm ~/.csmetrics/metrics.db` and re-parse demos). Automatic migrations handle this for existing DBs via `ALTER TABLE`.
+- **Schema changes**: New columns are added automatically at startup via `ALTER TABLE ... ADD COLUMN ... DEFAULT 0/''`. Existing demos default to `0` for new integer columns (e.g. `rounds_won`, `won_round`) — re-parse demos to get accurate values for newly added metrics. A full DB rebuild is only required if a column type or table structure changes.
 - **Demo availability**: FACEIT demo URLs are time-limited and may expire. Download soon after a match is played.
 - **South America region**: The FACEIT player pool at specific levels is smaller than EU/NA; fetching large baseline corpora may require pulling from multiple regions.
 
@@ -885,5 +909,8 @@ go test ./internal/aggregator/... -run TestTradeKill -v
 - ~~**Player filters**~~ — done (`--map`, `--since`, `--last` on the `player` command).
 - ~~**Raw SQL access**~~ — done (`sql` command for ad-hoc queries against the SQLite DB).
 - ~~**Bulk demo parsing**~~ — done (`parse --dir` and multi-file args with compact bulk output).
+- ~~**Round W/L tracking**~~ — done (`won_round` per round, aggregated as win rate; buy-profile and post-plant win rates in `analyze`).
+- ~~**Trade timing**~~ — done (median ms between trade kill and the traded kill, and between trade death and teammate's retaliatory kill; surfaced in `analyze` context).
+- ~~**AI-powered analysis**~~ — done (`analyze player` / `analyze match` via Anthropic API with grounded context; terminal markdown rendering via `glamour`).
 - **Percentile comparison**: given a tier corpus, automatically show where your stats land (p25 / p50 / p75).
 - **Local web UI**: lightweight browser-based dashboard for non-terminal users.
