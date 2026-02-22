@@ -812,6 +812,76 @@ func PrintAimTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
 	table.Render()
 }
 
+// PrintPlayerAggregateClutchTable prints clutch W/A counts aggregated across all demos
+// for each player, broken down by enemy count (1v1–1v5). Matched by SteamID.
+func PrintPlayerAggregateClutchTable(w io.Writer, aggs []model.PlayerAggregate, clutch []model.PlayerClutchMatchStats) {
+	// Build SteamID → clutch lookup.
+	byID := make(map[uint64]*model.PlayerClutchMatchStats, len(clutch))
+	for i := range clutch {
+		byID[clutch[i].SteamID] = &clutch[i]
+	}
+	// Only render if at least one player has clutch data.
+	hasData := false
+	for _, a := range aggs {
+		if c := byID[a.SteamID]; c != nil && c.TotalAttempts() > 0 {
+			hasData = true
+			break
+		}
+	}
+	if !hasData {
+		return
+	}
+	printSection(w, "Clutch (Aggregate)",
+		"Clutch situations aggregated across all matches. W/A = wins/attempts per enemy count.\n"+
+			"Green = all won, yellow = partial, red = none won.")
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header("PLAYER", "1v1", "1v2", "1v3", "1v4", "1v5", "TOTAL")
+
+	for _, a := range aggs {
+		c := byID[a.SteamID]
+		if c == nil {
+			c = &model.PlayerClutchMatchStats{}
+		}
+		cells := make([]string, 5)
+		for i := 1; i <= 5; i++ {
+			att := c.Attempts[i]
+			if att == 0 {
+				cells[i-1] = "—"
+				continue
+			}
+			wa := fmt.Sprintf("%d/%d", c.Wins[i], att)
+			switch {
+			case c.Wins[i] == att:
+				cells[i-1] = color.GreenString(wa)
+			case c.Wins[i] > 0:
+				cells[i-1] = color.YellowString(wa)
+			default:
+				cells[i-1] = color.RedString(wa)
+			}
+		}
+		totalA := c.TotalAttempts()
+		totalW := c.TotalWins()
+		totalStr := "—"
+		if totalA > 0 {
+			pct := float64(totalW) / float64(totalA) * 100
+			wa := fmt.Sprintf("%d/%d (%.0f%%)", totalW, totalA, pct)
+			switch {
+			case totalW == totalA:
+				totalStr = color.GreenString(wa)
+			case totalW > 0:
+				totalStr = color.YellowString(wa)
+			default:
+				totalStr = color.RedString(wa)
+			}
+		}
+		table.Append(a.Name, cells[0], cells[1], cells[2], cells[3], cells[4], totalStr)
+	}
+	table.Render()
+}
+
 // PrintClutchTrendTable prints a chronological per-match clutch breakdown for a player.
 // Each row shows W/A (wins/attempts) per enemy count (1v1–1v5) for matches that had
 // at least one clutch situation. Skips matches with no clutch data.

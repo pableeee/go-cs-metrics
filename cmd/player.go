@@ -53,6 +53,7 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 	var allAggs    []model.PlayerAggregate
 	var allMapSide []model.PlayerMapSideAggregate
 	var fhhsList   []fhhsEntry
+	var allClutch  []model.PlayerClutchMatchStats
 
 	for _, arg := range args {
 		id, err := strconv.ParseUint(arg, 10, 64)
@@ -104,6 +105,28 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 			overallFHHS = float64(totalHSHits) / float64(totalHits) * 100
 		}
 
+		// Aggregate clutch stats across filtered matches for this player.
+		clutchByMatch, err := db.GetPlayerClutchStatsByMatch(id)
+		if err != nil {
+			return fmt.Errorf("query clutch for %d: %w", id, err)
+		}
+		keep := make(map[string]struct{}, len(stats))
+		for _, s := range stats {
+			keep[s.DemoHash] = struct{}{}
+		}
+		var aggClutch model.PlayerClutchMatchStats
+		aggClutch.SteamID = id
+		for hash, c := range clutchByMatch {
+			if _, ok := keep[hash]; !ok {
+				continue
+			}
+			for i := 1; i <= 5; i++ {
+				aggClutch.Attempts[i] += c.Attempts[i]
+				aggClutch.Wins[i] += c.Wins[i]
+			}
+		}
+		allClutch = append(allClutch, aggClutch)
+
 		allAggs = append(allAggs, agg)
 		allMapSide = append(allMapSide, buildMapSideAggregates(stats)...)
 		fhhsList = append(fhhsList, fhhsEntry{
@@ -128,6 +151,7 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 	report.PrintPlayerAggregateAWPTable(os.Stdout, allAggs)
 	report.PrintPlayerMapSideTable(os.Stdout, allMapSide)
 	report.PrintPlayerAggregateAimTable(os.Stdout, allAggs)
+	report.PrintPlayerAggregateClutchTable(os.Stdout, allAggs, allClutch)
 	for _, f := range fhhsList {
 		fmt.Fprintln(os.Stdout)
 		report.PrintFHHSTable(os.Stdout, f.segs, f.synth, 0)
