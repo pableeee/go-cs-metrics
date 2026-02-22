@@ -4,11 +4,13 @@
 package parser
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"fmt"
 	"io"
 	"math"
 	"os"
+	"strings"
 	"time"
 
 	demoinfocs "github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs"
@@ -148,6 +150,47 @@ func isUtilityOrKnifeWeapon(t common.EquipmentType) bool {
 	return t == common.EqHE || t == common.EqMolotov || t == common.EqIncendiary ||
 		t == common.EqFlash || t == common.EqSmoke || t == common.EqDecoy ||
 		t == common.EqKnife
+}
+
+// filterStderrDuring runs fn with os.Stderr redirected through a pipe that
+// silently drops lines beginning with any of the given prefixes; all other
+// lines are forwarded to the original stderr.  This is used to suppress benign
+// noise printed directly to stderr by the demoinfocs-golang library (e.g.
+// "unknown grenade model N" for Source 2 entities whose model hash has not yet
+// been indexed by the library).
+func filterStderrDuring(prefixes []string, fn func()) {
+	origStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		fn() // no pipe available — run unfiltered
+		return
+	}
+	os.Stderr = w
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sc := bufio.NewScanner(r)
+		for sc.Scan() {
+			line := sc.Text()
+			suppress := false
+			for _, pfx := range prefixes {
+				if strings.HasPrefix(line, pfx) {
+					suppress = true
+					break
+				}
+			}
+			if !suppress {
+				fmt.Fprintln(origStderr, line)
+			}
+		}
+	}()
+
+	fn()
+
+	w.Close()       // signal EOF to the scanner goroutine
+	os.Stderr = origStderr
+	<-done          // wait for all forwarded output to drain
 }
 
 // ParseDemo parses the demo at path and returns a RawMatch.
@@ -419,56 +462,66 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 
 	// Frame-walk loop: fires registered event handlers each frame AND lets us
 	// inspect live game state for spotted-flag transitions every tick.
-	for {
-		ok, err := p.ParseNextFrame()
-		if err != nil {
-			return nil, fmt.Errorf("parse demo: %w", err)
-		}
+	// Wrapped in filterStderrDuring to suppress benign "unknown grenade model N"
+	// lines that the demoinfocs library prints directly to os.Stderr for
+	// Source 2 grenade entity models it hasn't indexed yet.
+	var walkErr error
+	filterStderrDuring([]string{"unknown grenade model "}, func() {
+		for {
+			ok, err := p.ParseNextFrame()
+			if err != nil {
+				walkErr = fmt.Errorf("parse demo: %w", err)
+				return
+			}
 
-		if roundNumber > 0 {
-			tick := p.GameState().IngameTick()
-			players := p.GameState().Participants().Playing()
-			for _, observer := range players {
-				if observer == nil || observer.SteamID64 == 0 || !observer.IsAlive() {
-					continue
-				}
-				for _, enemy := range players {
-					if enemy == nil || enemy.SteamID64 == 0 || !enemy.IsAlive() {
+			if roundNumber > 0 {
+				tick := p.GameState().IngameTick()
+				players := p.GameState().Participants().Playing()
+				for _, observer := range players {
+					if observer == nil || observer.SteamID64 == 0 || !observer.IsAlive() {
 						continue
 					}
-					if enemy.Team == observer.Team {
-						continue
-					}
-					key := pairKey{observer.SteamID64, enemy.SteamID64}
-					if seenThisRound[key] {
-						continue
-					}
-					if enemy.IsSpottedBy(observer) {
-						totalDeg, pitchDeg, yawDeg := crosshairAngles(observer, enemy)
-						obsPitch := float64(observer.ViewDirectionY())
-						if obsPitch > 180 {
-							obsPitch -= 360
+					for _, enemy := range players {
+						if enemy == nil || enemy.SteamID64 == 0 || !enemy.IsAlive() {
+							continue
 						}
-						raw.FirstSights = append(raw.FirstSights, model.RawFirstSight{
-							Tick:             tick,
-							RoundNumber:      roundNumber,
-							ObserverID:       observer.SteamID64,
-							EnemyID:          enemy.SteamID64,
-							AngleDeg:         totalDeg,
-							PitchDeg:         pitchDeg,
-							YawDeg:           yawDeg,
-							ObserverPitchDeg: obsPitch,
-							ObserverYawDeg:   float64(observer.ViewDirectionX()),
-						})
-						seenThisRound[key] = true
+						if enemy.Team == observer.Team {
+							continue
+						}
+						key := pairKey{observer.SteamID64, enemy.SteamID64}
+						if seenThisRound[key] {
+							continue
+						}
+						if enemy.IsSpottedBy(observer) {
+							totalDeg, pitchDeg, yawDeg := crosshairAngles(observer, enemy)
+							obsPitch := float64(observer.ViewDirectionY())
+							if obsPitch > 180 {
+								obsPitch -= 360
+							}
+							raw.FirstSights = append(raw.FirstSights, model.RawFirstSight{
+								Tick:             tick,
+								RoundNumber:      roundNumber,
+								ObserverID:       observer.SteamID64,
+								EnemyID:          enemy.SteamID64,
+								AngleDeg:         totalDeg,
+								PitchDeg:         pitchDeg,
+								YawDeg:           yawDeg,
+								ObserverPitchDeg: obsPitch,
+								ObserverYawDeg:   float64(observer.ViewDirectionX()),
+							})
+							seenThisRound[key] = true
+						}
 					}
 				}
 			}
-		}
 
-		if !ok {
-			break
+			if !ok {
+				break
+			}
 		}
+	})
+	if walkErr != nil {
+		return nil, walkErr
 	}
 
 	// Extract header metadata.
