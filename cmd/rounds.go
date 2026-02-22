@@ -4,11 +4,20 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/pable/go-cs-metrics/internal/model"
 	"github.com/pable/go-cs-metrics/internal/report"
 	"github.com/pable/go-cs-metrics/internal/storage"
+)
+
+var (
+	roundsClutch    bool
+	roundsPostPlant bool
+	roundsSide      string
+	roundsBuy       string
 )
 
 // roundsCmd is the cobra command for per-round drill-down for one player in one match.
@@ -17,6 +26,40 @@ var roundsCmd = &cobra.Command{
 	Short: "Per-round drill-down for one player in one match",
 	Args:  cobra.ExactArgs(2),
 	RunE:  runRounds,
+}
+
+func init() {
+	roundsCmd.Flags().BoolVar(&roundsClutch, "clutch", false, "only show clutch rounds")
+	roundsCmd.Flags().BoolVar(&roundsPostPlant, "post-plant", false, "only show post-plant rounds")
+	roundsCmd.Flags().StringVar(&roundsSide, "side", "", "filter by side: CT or T")
+	roundsCmd.Flags().StringVar(&roundsBuy, "buy", "", "filter by buy type: eco, half, force, full")
+}
+
+// filterRounds applies --clutch, --post-plant, --side, and --buy filters.
+func filterRounds(stats []model.PlayerRoundStats, clutch, postPlant bool, side, buy string) []model.PlayerRoundStats {
+	side = strings.ToUpper(side)
+	buy = strings.ToLower(buy)
+	var out []model.PlayerRoundStats
+	for _, s := range stats {
+		if clutch && !s.IsInClutch {
+			continue
+		}
+		if postPlant && !s.IsPostPlant {
+			continue
+		}
+		if side != "" && s.Team.String() != side {
+			continue
+		}
+		bt := s.BuyType
+		if bt == "" {
+			bt = "eco"
+		}
+		if buy != "" && bt != buy {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // runRounds loads per-round stats for a player in a match and prints the drill-down table.
@@ -62,6 +105,12 @@ func runRounds(cmd *cobra.Command, args []string) error {
 			playerName = ms.Name
 			break
 		}
+	}
+
+	roundStats = filterRounds(roundStats, roundsClutch, roundsPostPlant, roundsSide, roundsBuy)
+	if len(roundStats) == 0 {
+		fmt.Fprintln(os.Stderr, "No rounds match the given filters.")
+		return nil
 	}
 
 	report.PrintRoundDetailTable(os.Stdout, roundStats, playerName, demo.MapName)

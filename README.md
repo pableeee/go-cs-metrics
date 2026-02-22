@@ -329,13 +329,27 @@ Integer stats (kills, duels, etc.) are **summed** across matches. Float medians 
 Per-round drill-down table for one player in one match. Shows side, buy type, kills/assists/damage, KAST, and tactical flags per round, plus a buy profile summary line.
 
 ```
-./go-cs-metrics rounds <hash-prefix> <steamid64>
+./go-cs-metrics rounds <hash-prefix> <steamid64> [flags]
 ```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--clutch` | `false` | Only show clutch rounds (`CLUTCH_1vN`) |
+| `--post-plant` | `false` | Only show post-plant rounds (`POST_PLT`) |
+| `--side <CT\|T>` | `""` | Filter by side |
+| `--buy <type>` | `""` | Filter by buy type: `eco`, `half`, `force`, `full` |
 
 **Example:**
 
 ```sh
+# All rounds
 ./go-cs-metrics rounds a3f9c2 76561198XXXXXXXXX
+
+# Only clutch rounds
+./go-cs-metrics rounds a3f9c2 76561198XXXXXXXXX --clutch
+
+# Eco rounds on CT side
+./go-cs-metrics rounds a3f9c2 76561198XXXXXXXXX --buy eco --side CT
 ```
 
 ```
