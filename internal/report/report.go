@@ -649,12 +649,13 @@ func PrintAimTimingTable(w io.Writer, stats []model.PlayerMatchStats, focusSteam
 	printSection(w, "Aim Timing & Movement",
 		"MEDIAN_TTK=median ms from first shot fired → kill, multi-hit kills only (lower = faster finisher)\n"+
 			"MEDIAN_TTD=median ms from enemy's first shot → your death, multi-hit only (lower = died faster)\n"+
-			"ONE_TAP%=% of kills where the first shot fired in a 3s window was the killing shot")
+			"ONE_TAP%=% of kills where the first shot fired in a 3s window was the killing shot\n"+
+			"CS%=% of shots fired while horizontal speed ≤ 34 u/s (counter-strafed)")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	table.Header(" ", "PLAYER", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%")
+	table.Header(" ", "PLAYER", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%")
 
 	for _, s := range stats {
 		marker := " "
@@ -673,7 +674,11 @@ func PrintAimTimingTable(w io.Writer, stats []model.PlayerMatchStats, focusSteam
 		if s.Kills > 0 {
 			oneTapStr = fmt.Sprintf("%.0f%%", float64(s.OneTapKills)/float64(s.Kills)*100)
 		}
-		table.Append(marker, s.Name, ttkStr, ttdStr, oneTapStr)
+		csStr := "—"
+		if s.CounterStrafePercent > 0 {
+			csStr = fmt.Sprintf("%.0f%%", s.CounterStrafePercent)
+		}
+		table.Append(marker, s.Name, ttkStr, ttdStr, oneTapStr, csStr)
 	}
 	table.Render()
 }
@@ -716,7 +721,7 @@ func PrintTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
 func PrintAimTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
 	hasData := false
 	for _, s := range stats {
-		if s.MedianTTKMs > 0 || s.MedianTTDMs > 0 || s.OneTapKills > 0 {
+		if s.MedianTTKMs > 0 || s.MedianTTDMs > 0 || s.OneTapKills > 0 || s.CounterStrafePercent > 0 {
 			hasData = true
 			break
 		}
@@ -726,12 +731,13 @@ func PrintAimTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
 	}
 	printSection(w, "Aim Timing Trend",
 		"Per-match aim timing in chronological order.\n"+
-			"DATE=match date  MEDIAN_TTK/TTD=ms from first shot fired to kill/death (multi-hit only)  ONE_TAP%=% of kills that were one-taps")
+			"MEDIAN_TTK/TTD=ms from first shot fired to kill/death (multi-hit only)\n"+
+			"ONE_TAP%=% of kills that were one-taps  CS%=% of shots fired while counter-strafed (speed ≤ 34 u/s)")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	table.Header("DATE", "MAP", "RD", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%")
+	table.Header("DATE", "MAP", "RD", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%")
 
 	for _, s := range stats {
 		mapDisplay := strings.TrimPrefix(s.MapName, "de_")
@@ -747,6 +753,10 @@ func PrintAimTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
 		if s.Kills > 0 {
 			oneTapStr = fmt.Sprintf("%.0f%%", float64(s.OneTapKills)/float64(s.Kills)*100)
 		}
+		csStr := "—"
+		if s.CounterStrafePercent > 0 {
+			csStr = fmt.Sprintf("%.0f%%", s.CounterStrafePercent)
+		}
 		table.Append(
 			s.MatchDate,
 			mapDisplay,
@@ -754,6 +764,7 @@ func PrintAimTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
 			ttkStr,
 			ttdStr,
 			oneTapStr,
+			csStr,
 		)
 	}
 	table.Render()
@@ -845,12 +856,13 @@ func PrintPlayerAggregateAimTable(w io.Writer, aggs []model.PlayerAggregate) {
 	printSection(w, "Aim Timing & Movement (Aggregate)",
 		"ROLE=most common heuristic role across matches\n"+
 			"AVG_TTK/AVG_TTD=average of per-match median ms from first shot fired, multi-hit kills only\n"+
-			"ONE_TAP%=one-tap kills as % of total kills across all matches")
+			"ONE_TAP%=one-tap kills as % of total kills across all matches\n"+
+			"AVG_CS%=average per-match counter-strafe % (shots at horizontal speed ≤ 34 u/s)")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	table.Header("PLAYER", "ROLE", "AVG_TTK", "AVG_TTD", "ONE_TAP%")
+	table.Header("PLAYER", "ROLE", "AVG_TTK", "AVG_TTD", "ONE_TAP%", "AVG_CS%")
 
 	for _, a := range aggs {
 		role := a.Role
@@ -869,7 +881,11 @@ func PrintPlayerAggregateAimTable(w io.Writer, aggs []model.PlayerAggregate) {
 		if a.Kills > 0 {
 			oneTapStr = fmt.Sprintf("%.0f%%", float64(a.OneTapKills)/float64(a.Kills)*100)
 		}
-		table.Append(a.Name, role, ttkStr, ttdStr, oneTapStr)
+		csStr := "—"
+		if a.AvgCounterStrafePct > 0 {
+			csStr = fmt.Sprintf("%.0f%%", a.AvgCounterStrafePct)
+		}
+		table.Append(a.Name, role, ttkStr, ttdStr, oneTapStr, csStr)
 	}
 	table.Render()
 }

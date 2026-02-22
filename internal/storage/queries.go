@@ -53,8 +53,8 @@ func (db *DB) InsertPlayerMatchStats(stats []model.PlayerMatchStats) error {
 			median_correction_deg, pct_correction_under2_deg,
 			awp_deaths, awp_deaths_dry, awp_deaths_repeek, awp_deaths_isolated,
 			effective_flashes,
-			role, median_ttk_ms, median_ttd_ms, one_tap_kills
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+			role, median_ttk_ms, median_ttd_ms, one_tap_kills, counter_strafe_pct
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -75,7 +75,7 @@ func (db *DB) InsertPlayerMatchStats(stats []model.PlayerMatchStats) error {
 			s.MedianCorrectionDeg, s.PctCorrectionUnder2Deg,
 			s.AWPDeaths, s.AWPDeathsDry, s.AWPDeathsRePeek, s.AWPDeathsIsolated,
 			s.EffectiveFlashes,
-			s.Role, s.MedianTTKMs, s.MedianTTDMs, s.OneTapKills,
+			s.Role, s.MedianTTKMs, s.MedianTTDMs, s.OneTapKills, s.CounterStrafePercent,
 		)
 		if err != nil {
 			return fmt.Errorf("insert player_match_stats for %d: %w", s.SteamID, err)
@@ -181,7 +181,7 @@ func (db *DB) GetPlayerMatchStats(demoHash string) ([]model.PlayerMatchStats, er
 		       median_correction_deg, pct_correction_under2_deg,
 		       awp_deaths, awp_deaths_dry, awp_deaths_repeek, awp_deaths_isolated,
 		       effective_flashes,
-		       role, median_ttk_ms, median_ttd_ms, one_tap_kills
+		       role, median_ttk_ms, median_ttd_ms, one_tap_kills, counter_strafe_pct
 		FROM player_match_stats WHERE demo_hash = ?
 		ORDER BY kills DESC`, demoHash)
 	if err != nil {
@@ -207,7 +207,7 @@ func (db *DB) GetPlayerMatchStats(demoHash string) ([]model.PlayerMatchStats, er
 			&s.MedianCorrectionDeg, &s.PctCorrectionUnder2Deg,
 			&s.AWPDeaths, &s.AWPDeathsDry, &s.AWPDeathsRePeek, &s.AWPDeathsIsolated,
 			&s.EffectiveFlashes,
-			&s.Role, &s.MedianTTKMs, &s.MedianTTDMs, &s.OneTapKills,
+			&s.Role, &s.MedianTTKMs, &s.MedianTTDMs, &s.OneTapKills, &s.CounterStrafePercent,
 		); err != nil {
 			return nil, err
 		}
@@ -391,7 +391,7 @@ func (db *DB) GetAllPlayerMatchStats(steamID uint64) ([]model.PlayerMatchStats, 
 		       p.median_correction_deg, p.pct_correction_under2_deg,
 		       p.awp_deaths, p.awp_deaths_dry, p.awp_deaths_repeek, p.awp_deaths_isolated,
 		       p.effective_flashes,
-		       p.role, p.median_ttk_ms, p.median_ttd_ms, p.one_tap_kills
+		       p.role, p.median_ttk_ms, p.median_ttd_ms, p.one_tap_kills, p.counter_strafe_pct
 		FROM player_match_stats p
 		JOIN demos d ON d.hash = p.demo_hash
 		WHERE p.steam_id = ?
@@ -419,7 +419,7 @@ func (db *DB) GetAllPlayerMatchStats(steamID uint64) ([]model.PlayerMatchStats, 
 			&s.MedianCorrectionDeg, &s.PctCorrectionUnder2Deg,
 			&s.AWPDeaths, &s.AWPDeathsDry, &s.AWPDeathsRePeek, &s.AWPDeathsIsolated,
 			&s.EffectiveFlashes,
-			&s.Role, &s.MedianTTKMs, &s.MedianTTDMs, &s.OneTapKills,
+			&s.Role, &s.MedianTTKMs, &s.MedianTTDMs, &s.OneTapKills, &s.CounterStrafePercent,
 		); err != nil {
 			return nil, err
 		}

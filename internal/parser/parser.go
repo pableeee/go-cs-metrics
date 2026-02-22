@@ -403,14 +403,17 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 		}
 
 		sp := e.Shooter.Position()
+		vel := e.Shooter.Velocity()
+		hSpeed := math.Sqrt(vel.X*vel.X + vel.Y*vel.Y)
 		raw.WeaponFires = append(raw.WeaponFires, model.RawWeaponFire{
-			Tick:        p.GameState().IngameTick(),
-			RoundNumber: roundNumber,
-			ShooterID:   e.Shooter.SteamID64,
-			Weapon:      e.Weapon.Type.String(),
-			PitchDeg:    pitch,
-			YawDeg:      yaw,
-			AttackerPos: model.Vec3{X: sp.X, Y: sp.Y, Z: sp.Z},
+			Tick:            p.GameState().IngameTick(),
+			RoundNumber:     roundNumber,
+			ShooterID:       e.Shooter.SteamID64,
+			Weapon:          e.Weapon.Type.String(),
+			PitchDeg:        pitch,
+			YawDeg:          yaw,
+			AttackerPos:     model.Vec3{X: sp.X, Y: sp.Y, Z: sp.Z},
+			HorizontalSpeed: hSpeed,
 		})
 	})
 

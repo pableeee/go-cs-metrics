@@ -45,6 +45,7 @@ func Open(path string) (*DB, error) {
 		`ALTER TABLE player_round_stats ADD COLUMN is_post_plant INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_round_stats ADD COLUMN is_in_clutch INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_round_stats ADD COLUMN clutch_enemy_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_match_stats ADD COLUMN counter_strafe_pct REAL NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range altMigrations {
 		if _, err := conn.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {

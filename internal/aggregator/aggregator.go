@@ -1044,6 +1044,31 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		matchStats[i].OneTapKills = oneTapKills[id]
 	}
 
+	// ---- Counter-strafe % ----
+	// A shot is counter-strafed when the shooter's horizontal speed at fire time is
+	// at or below 34 Hammer units/s (≈14% of base walk speed). This threshold is
+	// captured from the velocity field added to RawWeaponFire in the parser.
+	const csThreshold = 34.0
+	type csAccum struct{ total, strafed int }
+	csMap := make(map[uint64]*csAccum)
+	for _, wf := range raw.WeaponFires {
+		if wf.ShooterID == 0 {
+			continue
+		}
+		if _, ok := csMap[wf.ShooterID]; !ok {
+			csMap[wf.ShooterID] = &csAccum{}
+		}
+		csMap[wf.ShooterID].total++
+		if wf.HorizontalSpeed <= csThreshold {
+			csMap[wf.ShooterID].strafed++
+		}
+	}
+	for i := range matchStats {
+		if acc, ok := csMap[matchStats[i].SteamID]; ok && acc.total > 0 {
+			matchStats[i].CounterStrafePercent = float64(acc.strafed) / float64(acc.total) * 100
+		}
+	}
+
 	return matchStats, allRoundStats, weaponStats, duelSegments, nil
 }
 
