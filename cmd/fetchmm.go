@@ -5,15 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/pable/go-cs-metrics/internal/aggregator"
-	"github.com/pable/go-cs-metrics/internal/model"
-	"github.com/pable/go-cs-metrics/internal/parser"
 	"github.com/pable/go-cs-metrics/internal/steam"
-	"github.com/pable/go-cs-metrics/internal/storage"
 )
 
 // fetch-mm command flags.
@@ -22,57 +17,62 @@ var (
 	mmAuthCode  string
 	mmShareCode string
 	mmCount     int
-	mmMap       string
-	mmTier      string
 )
 
-// fetchMMCmd downloads and ingests Valve Matchmaking / Premier demos via the
-// Steam share code API.
+// fetchMMCmd walks the CS2 match sharing code chain for a player and prints
+// each match's share code plus the expected demo filename, saving the last
+// seen code so subsequent runs can resume automatically.
+//
+// Automatic demo download is not supported: Valve's replay servers require
+// a signed URL that can only be obtained from the Steam Game Coordinator,
+// which in turn requires an active Steam client session. Use the share codes
+// printed here to download demos via Refrag, Leetify, CS2's in-game Watch
+// menu, or cs-demo-manager, then ingest them with: csmetrics parse --dir <dir>
 var fetchMMCmd = &cobra.Command{
 	Use:   "fetch-mm",
-	Short: "Download and ingest Valve MM / Premier demos via Steam share codes",
-	Long: `Chains through CS2 match sharing codes to download and ingest your recent
-Valve Matchmaking or Premier demos.
+	Short: "Walk CS2 MM/Premier share code chain and print match info",
+	Long: `Walks your CS2 match sharing code chain and prints each match's share
+code and expected demo filename.
+
+IMPORTANT: Automatic demo download is not possible without the Steam Game
+Coordinator. Valve's replay servers now require a signed token that only
+the GC can provide. To ingest your MM/Premier demos:
+
+  1. Run fetch-mm to see your recent matches and save your place in the chain
+  2. Download the demos via one of:
+       - CS2 Watch menu → Your Matches → Download Demo
+       - Refrag (refrag.gg) — exports .dem files
+       - cs-demo-manager (github.com/akiver/cs-demo-manager)
+  3. Ingest with: csmetrics parse --dir <folder-with-demos>
 
 Credentials can be provided as flags or environment variables:
-  --steam-id    / STEAM_ID      Steam ID64 (e.g. 76561198012345678)
-  --auth-code   / STEAM_AUTH_CODE  Game auth code from Steam Settings → Account → Game Details
+  --steam-id    / STEAM_ID         Steam ID64 (e.g. 76561198012345678)
+  --auth-code   / STEAM_AUTH_CODE  Game auth code — Steam Settings → Account → Game Details
                                    Format: AAAA-BBBBB-CCCC
-  --steam-key   / STEAM_API_KEY    Steam Web API key from https://steamcommunity.com/dev
-  --share-code  / STEAM_SHARE_CODE Starting share code (CSGO-XXXXX-XXXXX-XXXXX-XXXXX)
+  --steam-key   / STEAM_API_KEY    Steam Web API key (https://steamcommunity.com/dev/apikey)
+  --share-code  / STEAM_SHARE_CODE Starting CSGO-XXXXX share code (required on first run)
 
-On the first run, provide --share-code with your most recently known match code.
-The tool saves the last processed code to ~/.csmetrics/mm_last_code so subsequent
-runs can pick up where they left off without needing --share-code again.
-
-How to get your starting share code:
-  • In CS2: Watch → Your Matches → right-click any match → Copy Share Code
-  • Or from Refrag / csgostats.gg / Leetify match detail pages
+The last processed code is saved to ~/.csmetrics/mm_last_code so subsequent
+runs resume automatically without needing --share-code.
 
 Examples:
-  # First run — provide your starting share code
-  csmetrics fetch-mm --steam-id 76561198012345678 --share-code CSGO-XXXXX-XXXXX-XXXXX-XXXXX --count 10
+  # First run — anchor at any known share code
+  csmetrics fetch-mm --steam-id 76561198012345678 --share-code CSGO-XXXXX-XXXXX-XXXXX-XXXXX
 
-  # Subsequent runs — pick up automatically from last processed match
-  csmetrics fetch-mm --steam-id 76561198012345678 --count 10
-
-  # Filter to a specific map
-  csmetrics fetch-mm --steam-id 76561198012345678 --map de_mirage --count 5`,
+  # Subsequent runs — auto-resumes from last seen code
+  csmetrics fetch-mm --steam-id 76561198012345678`,
 	RunE: runFetchMM,
 }
 
 func init() {
 	fetchMMCmd.Flags().StringVar(&mmSteamID, "steam-id", "", "Steam ID64 (or STEAM_ID env)")
-	fetchMMCmd.Flags().StringVar(&mmAuthCode, "auth-code", "", "Game auth code from Steam settings (or STEAM_AUTH_CODE env)")
+	fetchMMCmd.Flags().StringVar(&mmAuthCode, "auth-code", "", "game auth code from Steam settings (or STEAM_AUTH_CODE env)")
 	fetchMMCmd.Flags().StringVar(&mmShareCode, "share-code", "", "starting CSGO share code (or STEAM_SHARE_CODE env); omit to resume from last run")
-	fetchMMCmd.Flags().IntVar(&mmCount, "count", 10, "number of matches to ingest")
-	fetchMMCmd.Flags().StringVar(&mmMap, "map", "", "only ingest matches on this map (e.g. de_mirage)")
-	fetchMMCmd.Flags().StringVar(&mmTier, "tier", "mm", "tier label stored in DB")
+	fetchMMCmd.Flags().IntVar(&mmCount, "count", 20, "max share codes to walk")
 	_ = fetchMMCmd.MarkFlagRequired("steam-id")
 }
 
 func runFetchMM(cmd *cobra.Command, args []string) error {
-	// Resolve credentials from flags → env vars.
 	authCode := firstNonEmpty(mmAuthCode, os.Getenv("STEAM_AUTH_CODE"))
 	if authCode == "" {
 		return fmt.Errorf("auth code required: use --auth-code or STEAM_AUTH_CODE env\n" +
@@ -84,50 +84,41 @@ func runFetchMM(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Resolve starting share code: flag → env → persisted last code.
 	startCode := firstNonEmpty(mmShareCode, os.Getenv("STEAM_SHARE_CODE"))
 	if startCode == "" {
 		startCode, err = loadMMLastCode()
 		if err != nil {
-			return fmt.Errorf("no starting share code: provide --share-code or STEAM_SHARE_CODE, " +
-				"or re-run after a previous fetch-mm that persisted a code")
+			return fmt.Errorf("no starting share code: provide --share-code or STEAM_SHARE_CODE\n" +
+				"  Get one from CS2 Watch menu → right-click a match → Copy Share Code")
 		}
-		fmt.Printf("Resuming from last known code: %s\n", startCode)
+		fmt.Printf("Resuming from: %s\n", startCode)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
-		return fmt.Errorf("create db dir: %w", err)
-	}
-	db, err := storage.Open(dbPath)
-	if err != nil {
-		return fmt.Errorf("open storage: %w", err)
-	}
-	defer db.Close()
-
-	return doFetchMM(db, mmSteamID, authCode, steamAPIKey, startCode, mmMap, mmCount, mmTier)
+	return doFetchMM(mmSteamID, authCode, steamAPIKey, startCode, mmCount)
 }
 
-func doFetchMM(db *storage.DB, steamID, authCode, apiKey, startCode, mapFilter string, count int, tier string) error {
+func doFetchMM(steamID, authCode, apiKey, startCode string, count int) error {
 	client := steam.NewClient(apiKey)
 
-	tmpDir, err := os.MkdirTemp("", "csmetrics-mm-*")
-	if err != nil {
-		return fmt.Errorf("temp dir: %w", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	fmt.Printf("Walking share code chain (up to %d)…\n\n", count)
+	fmt.Printf("  %-42s  %s\n", "Share Code", "Demo filename")
+	fmt.Printf("  %-42s  %s\n", strings.Repeat("-", 42), strings.Repeat("-", 50))
 
-	ingested := 0
 	currentCode := startCode
+	found := 0
 
-	fmt.Printf("Fetching up to %d match(es) from share code chain…\n", count)
-
-	for ingested < count {
+	for found < count {
 		nextCode, err := client.NextShareCode(steamID, authCode, currentCode)
 		if err != nil {
+			// Rate-limit: print what we have so far and stop cleanly.
+			if strings.Contains(err.Error(), "rate limited") {
+				fmt.Printf("\n  [warn] %v\n", err)
+				break
+			}
 			return fmt.Errorf("share code chain: %w", err)
 		}
 		if nextCode == "" {
-			fmt.Println("No more matches available in chain.")
+			fmt.Printf("\n(chain exhausted after %d match(es))\n", found)
 			break
 		}
 
@@ -139,95 +130,18 @@ func doFetchMM(db *storage.DB, steamID, authCode, apiKey, startCode, mapFilter s
 			continue
 		}
 
-		fmt.Printf("[%d/%d] code=%s\n", ingested+1, count, currentCode)
-		fmt.Printf("  matchID=%d  reservationID=%d  tvPort=%d\n",
-			sc.MatchID, sc.ReservationID, sc.TVPort)
-		fmt.Printf("  probe URL: %s\n", steam.ReplayURLPattern(sc))
-
-		fmt.Printf("  resolving replay server…")
-		replayURL, err := steam.ResolveReplayURL(sc)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "\n  [skip] %v\n", err)
-			// Still advance the code even if demo expired.
-			_ = saveMMLastCode(currentCode)
-			continue
-		}
-		fmt.Println(" ok")
-
-		demPath, err := downloadAndDecompress(replayURL, tmpDir, fmt.Sprintf("%d", sc.MatchID))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  [error] download: %v\n", err)
-			continue
-		}
-
-		raw, err := parser.ParseDemo(demPath, "MM")
-		os.Remove(demPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  [error] parse: %v\n", err)
-			continue
-		}
-
-		if mapFilter != "" && !strings.EqualFold(raw.MapName, mapFilter) {
-			fmt.Printf("  [skip] map=%s (want %s)\n", raw.MapName, mapFilter)
-			_ = saveMMLastCode(currentCode)
-			continue
-		}
-
-		exists, err := db.DemoExists(raw.DemoHash)
-		if err != nil {
-			return err
-		}
-		if exists {
-			fmt.Printf("  already stored (map=%s)\n", raw.MapName)
-			_ = saveMMLastCode(currentCode)
-			ingested++
-			continue
-		}
-
-		matchStats, roundStats, weaponStats, duelSegs, err := aggregator.Aggregate(raw)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  [error] aggregate: %v\n", err)
-			continue
-		}
-
-		ctScore, tScore := computeScore(raw.Rounds)
-		summary := model.MatchSummary{
-			DemoHash:  raw.DemoHash,
-			MapName:   raw.MapName,
-			MatchDate: time.Now().UTC().Format("2006-01-02"),
-			MatchType: "MM",
-			Tickrate:  raw.Tickrate,
-			CTScore:   ctScore,
-			TScore:    tScore,
-			Tier:      tier,
-		}
-
-		if err := db.InsertDemo(summary); err != nil {
-			return fmt.Errorf("insert demo: %w", err)
-		}
-		if err := db.InsertPlayerMatchStats(matchStats); err != nil {
-			return fmt.Errorf("insert stats: %w", err)
-		}
-		if err := db.InsertPlayerRoundStats(roundStats); err != nil {
-			return fmt.Errorf("insert round stats: %w", err)
-		}
-		if err := db.InsertPlayerWeaponStats(weaponStats); err != nil {
-			return fmt.Errorf("insert weapon stats: %w", err)
-		}
-		if err := db.InsertPlayerDuelSegments(duelSegs); err != nil {
-			return fmt.Errorf("insert duel segments: %w", err)
-		}
-
-		fmt.Printf("  stored: map=%s  players=%d  rounds=%d\n",
-			raw.MapName, len(matchStats), len(raw.Rounds))
+		fmt.Printf("  %-42s  %s\n", currentCode, steam.DemoFilename(sc))
 		_ = saveMMLastCode(currentCode)
-		ingested++
-
-		// Brief pause to stay within Steam API rate limits.
-		time.Sleep(1 * time.Second)
+		found++
 	}
 
-	fmt.Printf("\nDone: %d/%d matches ingested (tier=%q)\n", ingested, count, tier)
+	if found > 0 {
+		fmt.Printf("\nLast code saved to ~/.csmetrics/mm_last_code — next run resumes from here.\n")
+		fmt.Printf("\nTo ingest demos:\n")
+		fmt.Printf("  1. Download .dem files via CS2 Watch menu, Refrag, or cs-demo-manager\n")
+		fmt.Printf("  2. csmetrics parse --dir <folder>\n")
+	}
+
 	return nil
 }
 

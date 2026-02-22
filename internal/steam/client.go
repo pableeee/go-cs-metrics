@@ -1,13 +1,11 @@
 package steam
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"sync"
 	"time"
 )
 
@@ -54,8 +52,9 @@ func (c *Client) NextShareCode(steamID, authCode, knownCode string) (string, err
 		return "", nil
 	case http.StatusForbidden: // 403 — bad auth code
 		return "", fmt.Errorf("steam: invalid auth code — generate one at Steam Settings → Account → Game Details")
-	case http.StatusServiceUnavailable: // 503 — rate limited
-		return "", fmt.Errorf("steam: rate limited by Valve API, wait a moment and retry")
+	case http.StatusTooManyRequests,     // 429 — rate limited
+		http.StatusServiceUnavailable: // 503 — rate limited
+		return "", fmt.Errorf("steam: rate limited by Valve API (HTTP %d) — wait a minute and retry", resp.StatusCode)
 	default:
 		snippet := string(body)
 		if len(snippet) > 200 {
@@ -80,80 +79,8 @@ func (c *Client) NextShareCode(steamID, authCode, knownCode string) (string, err
 	return result.Result.NextCode, nil
 }
 
-// ReplayURLPattern returns the URL template being probed for a share code
-// (with server number N=1 as a representative sample). Useful for manual debugging.
-func ReplayURLPattern(sc ShareCode) string {
-	return fmt.Sprintf("http://replay1.valve.net/730/%d_%d_%d.dem.bz2",
-		sc.MatchID, sc.ReservationID, sc.TVPort)
-}
-
-// ResolveReplayURL probes Valve's replay server fleet to find the download URL
-// for the given share code. Demos are hosted at:
-//
-//	http://replay{N}.valve.net/730/{matchID}_{reservationID}_{tvPort}.dem.bz2
-//
-// The server number N is not publicly derivable without Game Coordinator access,
-// so we probe servers 1–150 concurrently. HEAD requests are avoided because some
-// Valve servers silently drop them; instead we use GET with Range: bytes=0-0
-// which downloads nothing but reliably exercises the request path.
-// Returns an error if no server has the file (demo may have expired).
-func ResolveReplayURL(sc ShareCode) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	found := make(chan string, 1)
-	var once sync.Once
-	var wg sync.WaitGroup
-
-	probeClient := &http.Client{Timeout: 8 * time.Second}
-
-	for n := 1; n <= 150; n++ {
-		wg.Add(1)
-		go func(n int) {
-			defer wg.Done()
-
-			u := fmt.Sprintf("http://replay%d.valve.net/730/%d_%d_%d.dem.bz2",
-				n, sc.MatchID, sc.ReservationID, sc.TVPort)
-
-			req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
-			if err != nil {
-				return
-			}
-			// Request only the first byte so we don't download the demo here.
-			req.Header.Set("Range", "bytes=0-0")
-
-			resp, err := probeClient.Do(req)
-			if err != nil {
-				return
-			}
-			io.Copy(io.Discard, resp.Body) //nolint:errcheck
-			resp.Body.Close()
-
-			// 200 OK or 206 Partial Content both mean the file exists.
-			if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusPartialContent {
-				once.Do(func() {
-					select {
-					case found <- u:
-					default:
-					}
-					cancel()
-				})
-			}
-		}(n)
-	}
-
-	go func() {
-		wg.Wait()
-		close(found)
-	}()
-
-	u, ok := <-found
-	if !ok {
-		sample := ReplayURLPattern(sc)
-		return "", fmt.Errorf("demo not found on any Valve replay server (servers 1–150)\n"+
-			"  Verify the URL format manually: curl -I %q\n"+
-			"  If curl returns 404 on all servers, the demo may have expired (kept ~30 days)",
-			sample)
-	}
-	return u, nil
+// DemoFilename returns the filename component of a CS2 demo for the given
+// share code, in the format used by Valve's replay servers.
+func DemoFilename(sc ShareCode) string {
+	return fmt.Sprintf("%d_%d_%d.dem.bz2", sc.MatchID, sc.ReservationID, sc.TVPort)
 }
