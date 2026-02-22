@@ -603,6 +603,129 @@ func (db *DB) GetPlayerClutchStatsByMatch(steamID uint64) (map[string]*model.Pla
 	return result, rows.Err()
 }
 
+// DBOverview holds top-level statistics about the entire database.
+type DBOverview struct {
+	TotalMatches  int
+	UniqueMaps    int
+	UniquePlayers int
+	TotalRounds   int
+	EarliestMatch string
+	LatestMatch   string
+}
+
+// MapStat holds per-map match and win counts across all stored demos.
+type MapStat struct {
+	MapName string
+	Matches int
+	CTWins  int
+	TWins   int
+}
+
+// PlayerFrequency holds a player's match count and cross-match aggregate stats.
+type PlayerFrequency struct {
+	Name    string
+	SteamID string
+	Matches int
+	AvgKD   float64
+	AvgADR  float64
+	AvgKAST float64
+}
+
+// MatchTypeCount holds a match type label and how many demos use it.
+type MatchTypeCount struct {
+	MatchType string
+	Matches   int
+}
+
+// GetDBOverview returns high-level statistics about the entire database.
+func (db *DB) GetDBOverview() (DBOverview, error) {
+	var ov DBOverview
+	err := db.conn.QueryRow(`
+		SELECT COUNT(*), COUNT(DISTINCT map_name),
+		       COALESCE(MIN(match_date), ''), COALESCE(MAX(match_date), ''),
+		       COALESCE(SUM(ct_score + t_score), 0)
+		FROM demos`).Scan(
+		&ov.TotalMatches, &ov.UniqueMaps,
+		&ov.EarliestMatch, &ov.LatestMatch, &ov.TotalRounds)
+	if err != nil {
+		return ov, err
+	}
+	err = db.conn.QueryRow(
+		`SELECT COUNT(DISTINCT steam_id) FROM player_match_stats`).Scan(&ov.UniquePlayers)
+	return ov, err
+}
+
+// GetMapStats returns match counts and round-win breakdowns per map, ordered by match count desc.
+func (db *DB) GetMapStats() ([]MapStat, error) {
+	rows, err := db.conn.Query(`
+		SELECT map_name, COUNT(*) AS matches, SUM(ct_score) AS ct_wins, SUM(t_score) AS t_wins
+		FROM demos
+		GROUP BY map_name
+		ORDER BY matches DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MapStat
+	for rows.Next() {
+		var s MapStat
+		if err := rows.Scan(&s.MapName, &s.Matches, &s.CTWins, &s.TWins); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// GetTopPlayersByMatches returns the top N players ordered by number of demos they appear in,
+// with averaged K/D, ADR, and KAST% across those matches.
+func (db *DB) GetTopPlayersByMatches(limit int) ([]PlayerFrequency, error) {
+	rows, err := db.conn.Query(`
+		SELECT name, steam_id, COUNT(*) AS matches,
+		       ROUND(COALESCE(AVG(CAST(kills AS REAL) / NULLIF(deaths, 0)), 0), 2),
+		       ROUND(COALESCE(AVG(CAST(total_damage AS REAL) / NULLIF(rounds_played, 0)), 0), 1),
+		       ROUND(100.0 * COALESCE(AVG(CAST(kast_rounds AS REAL) / NULLIF(rounds_played, 0)), 0), 1)
+		FROM player_match_stats
+		GROUP BY steam_id
+		ORDER BY matches DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PlayerFrequency
+	for rows.Next() {
+		var p PlayerFrequency
+		if err := rows.Scan(&p.Name, &p.SteamID, &p.Matches, &p.AvgKD, &p.AvgADR, &p.AvgKAST); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// GetMatchTypeCounts returns the number of demos per match type, ordered by count desc.
+func (db *DB) GetMatchTypeCounts() ([]MatchTypeCount, error) {
+	rows, err := db.conn.Query(`
+		SELECT match_type, COUNT(*) AS matches
+		FROM demos
+		GROUP BY match_type
+		ORDER BY matches DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MatchTypeCount
+	for rows.Next() {
+		var mt MatchTypeCount
+		if err := rows.Scan(&mt.MatchType, &mt.Matches); err != nil {
+			return nil, err
+		}
+		out = append(out, mt)
+	}
+	return out, rows.Err()
+}
+
 // QueryRaw executes an arbitrary SQL query and returns the column names and
 // all row values as strings. NULL values are rendered as "NULL".
 func (db *DB) QueryRaw(query string) (cols []string, rows [][]string, err error) {

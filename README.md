@@ -21,6 +21,7 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
   - [drop](#drop)
   - [analyze](#analyze)
   - [export](#export)
+  - [summary](#summary)
 - [Integration with simbo3](#integration-with-simbo3)
 - [Metric Definitions](#metric-definitions)
   - [General](#general)
@@ -540,6 +541,46 @@ The top 5 players by rounds played are selected. Fewer than 5 are padded with `1
 ```
 
 See [Integration with simbo3](#integration-with-simbo3) for the full workflow.
+
+---
+
+### summary
+
+Display a high-level overview of the entire database — useful for a quick health-check of what has been ingested.
+
+```
+./go-cs-metrics summary
+```
+
+No flags. Output sections:
+
+1. **Overview** — total demos stored, date range, unique maps, unique players seen, total rounds across all demos.
+2. **Maps** — per-map match count, CT wins, T wins, and CT win percentage.
+3. **Most Active Players** — top 10 players by matches played, with their averaged K/D, ADR, and KAST%.
+4. **Match Types** — breakdown by match type label (only shown when more than one type is present).
+
+```
+=== Database Summary ===
+
+  Demos stored  : 42
+  Date range    : 2025-08-01 → 2026-02-20
+  Unique maps   : 7
+  Players seen  : 34
+  Total rounds  : 891
+
+--- Maps ---
+
+ MAP          | MATCHES | CT WINS | T WINS | CT WIN%
+ de_mirage    |      12 |       8 |      4 |    67%
+ de_inferno   |       8 |       5 |      3 |    63%
+ ...
+
+--- Most Active Players ---
+
+ NAME       | STEAM ID            | MATCHES | AVG K/D | AVG ADR | AVG KAST%
+ PlayerOne  | 76561198XXXXXXXXX   |      12 |    1.35 |    82.1 |       72%
+ ...
+```
 
 ---
 

@@ -43,6 +43,7 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `analyze player <steamid64> <question>` | AI-powered grounded analysis of a player's aggregate stats (requires `ANTHROPIC_API_KEY`) |
 | `analyze match <hash-prefix> <question>` | AI-powered grounded analysis of a single match (requires `ANTHROPIC_API_KEY`) |
 | `export` | Export team stats as a simbo3-compatible JSON file (`--team`, `--players`, `--roster`, `--since`, `--quorum`, `--out`); see Integration section |
+| `summary` | High-level database overview: match count, date range, map breakdown, top players, match type distribution |
 
 All commands share `--db` to point at an alternate database and `--silent` / `-s` to suppress column legends (verbose output is on by default).
 

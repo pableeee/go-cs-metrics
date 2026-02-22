@@ -317,6 +317,7 @@ csmetrics rounds <hash-prefix> <steamid64>
 csmetrics trend <steamid64>
 csmetrics sql "<query>"
 csmetrics drop [--force]
+csmetrics summary
 ```
 
 All commands also accept `--silent` / `-s` (persistent flag on root). When set, the one-line column legend printed before each table is suppressed. Verbose output (legends) is shown by default; section titles (`--- Name ---`) are always printed regardless of `--silent`.
@@ -359,6 +360,12 @@ Per-round table: round number, side, buy type, K/A/damage, KAST ✓/blank, tacti
 **Output for `trend <steamid64>`**:
 1. Performance Trend — one row per match in ascending date order: DATE, MAP, RD, K, A, D, K/D, KPR, ADR, KAST%
 2. Aim Timing Trend — DATE, MAP, RD, MEDIAN_TTK, MEDIAN_TTD, ONE_TAP% (only rendered if any match has TTK/TTD/one-tap data)
+
+**Output for `summary`**:
+1. Overview block — demos stored, date range, unique maps, unique players, total rounds
+2. Maps table — MAP, MATCHES, CT WINS, T WINS, CT WIN% (ordered by match count desc)
+3. Most Active Players table — NAME, STEAM ID, MATCHES, AVG K/D, AVG ADR, AVG KAST% (top 10 by match count)
+4. Match Types table — TYPE, MATCHES (only rendered when more than one match type is present)
 
 ---
 
