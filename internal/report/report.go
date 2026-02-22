@@ -122,7 +122,7 @@ func PrintPlayerTableTo(w io.Writer, stats []model.PlayerMatchStats, focusSteamI
 	}))
 
 	table.Header(
-		" ", "NAME", "ROLE", "TEAM", "K", "A", "D", "K/D", "HS%", "ADR", "KAST%",
+		" ", "NAME", "ROLE", "K", "A", "D", "K/D", "HS%", "ADR", "KAST%",
 		"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D", "FA", "EFF_FLASH", "UTIL_DMG", "XHAIR_MED",
 	)
 
@@ -143,7 +143,6 @@ func PrintPlayerTableTo(w io.Writer, stats []model.PlayerMatchStats, focusSteamI
 			marker,
 			s.Name,
 			role,
-			colorSide(s.Team.String()),
 			strconv.Itoa(s.Kills),
 			strconv.Itoa(s.Assists),
 			strconv.Itoa(s.Deaths),
