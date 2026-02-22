@@ -20,6 +20,7 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
   - [trend](#trend)
   - [sql](#sql)
   - [drop](#drop)
+  - [analyze](#analyze)
 - [Metric Definitions](#metric-definitions)
   - [General](#general)
   - [Entry Frags](#entry-frags)
@@ -419,6 +420,43 @@ Without `--force`, the command prints the database path and exits safely. Add `-
 ```
 
 > Use this before re-parsing when a schema change requires a full rebuild.
+
+---
+
+### analyze
+
+AI-powered grounded analysis. Serialises the tool's structured metrics into compact JSON and calls the Anthropic API with a natural-language question. The model can only reference data that was provided — hallucinated statistics are minimised by design. Opt-in: requires an Anthropic API key.
+
+```
+./go-cs-metrics analyze player <steamid64> [--map <map>] [--since <date>] [--last <N>] <question>
+./go-cs-metrics analyze match  <hash-prefix> <question>
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--model` | `claude-haiku-4-5-20251001` | Anthropic model to use |
+| `--api-key` | `""` | Anthropic API key (falls back to `$ANTHROPIC_API_KEY`) |
+| `--map` *(player only)* | `""` | Filter to a specific map |
+| `--since` *(player only)* | `""` | Filter to matches on or after this date (`YYYY-MM-DD`) |
+| `--last` *(player only)* | `0` | Only use the N most recent matches |
+
+**Setup:** set `ANTHROPIC_API_KEY` in your environment, or pass `--api-key sk-ant-...`.
+
+**Examples:**
+
+```sh
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Player analysis
+./go-cs-metrics analyze player 76561198XXXXXXXXX "what's my biggest weakness?"
+./go-cs-metrics analyze player 76561198XXXXXXXXX --map nuke "how do I perform on nuke CT vs T?"
+./go-cs-metrics analyze player 76561198XXXXXXXXX --last 5 "has my aim improved recently?"
+
+# Match analysis
+./go-cs-metrics analyze match a3f9c2 "why did we lose this match?"
+```
+
+The response is clearly labelled as AI interpretation and streamed directly to the terminal.
 
 ---
 

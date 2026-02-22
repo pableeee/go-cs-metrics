@@ -40,6 +40,8 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `trend <steamid64>` | Chronological per-match performance trend (KPR/ADR/KAST% + TTK/TTD/CS%) |
 | `sql <query>` | Run an arbitrary SQL query against the metrics database; prints results as a table |
 | `drop [--force]` | Delete the metrics database file; requires `--force` to actually delete |
+| `analyze player <steamid64> <question>` | AI-powered grounded analysis of a player's aggregate stats (requires `ANTHROPIC_API_KEY`) |
+| `analyze match <hash-prefix> <question>` | AI-powered grounded analysis of a single match (requires `ANTHROPIC_API_KEY`) |
 
 All commands share `--db` to point at an alternate database and `--silent` / `-s` to suppress column legends (verbose output is on by default).
 
