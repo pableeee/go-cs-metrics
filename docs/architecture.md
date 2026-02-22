@@ -321,7 +321,20 @@ csmetrics drop [--force]
 
 All commands also accept `--silent` / `-s` (persistent flag on root). When set, the one-line column legend printed before each table is suppressed. Verbose output (legends) is shown by default; section titles (`--- Name ---`) are always printed regardless of `--silent`.
 
-**Output order** for `parse` and `show`:
+**Output order** for `parse` (single file):
+0. Timing line — `  parse: Xs  aggregate: Xs  total: Xs` printed immediately after processing, before the tables
+1. Match summary (map, date, score, hash)
+2. Player table — K/A/D, ADR, KAST%, role, entries, trades, flash assists, effective flashes, xhair median
+3. Per-side breakdown — K/A/D, ADR, KAST%, entry/trade counts split by CT and T halves
+4. Duel table — W/L counts, median exposure win/loss ms, hits/kill, first-hit HS%, pre-shot correction
+5. AWP table — AWP deaths with dry%/repeek%/isolated%
+6. FHHS table — first-hit HS rate by (weapon, distance bin) with Wilson 95% CI and sample flags; priority bins marked with `*` and summarised below the table
+7. Weapon table — per-weapon kills, HS%, damage, hits
+8. Aim timing — median TTK, median TTD, one-tap%
+
+**Bulk mode** (`parse` with multiple files or `--dir`): full tables are suppressed. Each demo prints a one-line status including map, date, score, player count, round count, and `(parse Xs  agg Xs  total Xs)` timing.
+
+**Output order** for `show`:
 1. Match summary (map, date, score, hash)
 2. Player table — K/A/D, ADR, KAST%, role, entries, trades, flash assists, effective flashes, xhair median
 3. Per-side breakdown — K/A/D, ADR, KAST%, entry/trade counts split by CT and T halves

@@ -132,7 +132,9 @@ Parse one or more `.dem` files, aggregate all metrics, and store the results. If
 ./go-cs-metrics parse [<demo.dem>...] [--dir <directory>] [flags]
 ```
 
-**Bulk mode** — triggered when more than one demo is provided (via multiple args or `--dir`). Full tables are suppressed; a compact status line is printed per demo instead, followed by a stored/skipped/failed summary.
+**Bulk mode** — triggered when more than one demo is provided (via multiple args or `--dir`). Full tables are suppressed; a compact status line is printed per demo instead, followed by a stored/skipped/failed summary. Parse and aggregate elapsed times are included in the status line.
+
+**Timing** — after each successfully processed demo, elapsed times for the parse and aggregate stages (and their total) are printed. In single mode this appears as a line before the tables; in bulk mode it is appended to the per-demo status line.
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -168,6 +170,9 @@ Parse one or more `.dem` files, aggregate all metrics, and store the results. If
 ```
 
 ```
+Parsing match.dem...
+  parse: 4.2s  aggregate: 312ms  total: 4.512s
+
 Map: de_mirage  |  Date: 2026-02-20  |  Type: Competitive  |  Score: CT 13 – T 7  |  Hash: a3f9c2d81b40
 
  ┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -177,6 +182,13 @@ Map: de_mirage  |  Date: 2026-02-20  |  Type: Competitive  |  Score: CT 13 – T
  ├────┼────────────┼──────┼───┼───┼───┼──────┼─────┼───────┼───────┼─────────┼─────────┼─────────┼───┤
  │ > │ YourName   │ CT   │ 18│  4│ 12│ 1.50 │ 44% │ 87.3  │  73%  │       3 │       2 │       4 │...│
  ...
+```
+
+Bulk mode status line (includes timing):
+
+```
+[1/3] match1.dem
+  stored: de_mirage  2024-11-01  13–5  10 players  18 rounds  (parse 4.2s  agg 312ms  total 4.512s)
 ```
 
 ---
