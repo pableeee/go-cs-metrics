@@ -174,7 +174,6 @@ func runParse(cmd *cobra.Command, args []string) error {
 		report.PrintPlayerTable(matchStats, playerSteamID)
 		report.PrintDuelTable(os.Stdout, matchStats, playerSteamID)
 		report.PrintAWPTable(os.Stdout, matchStats, playerSteamID)
-		report.PrintFHHSTable(os.Stdout, duelSegs, matchStats, playerSteamID)
 		report.PrintWeaponTable(os.Stdout, weaponStats, matchStats, playerSteamID)
 		report.PrintAimTimingTable(os.Stdout, matchStats, playerSteamID)
 	}
@@ -218,17 +217,12 @@ func showByHash(db *storage.DB, hash string) error {
 	if err != nil {
 		return err
 	}
-	duelSegs, err := db.GetPlayerDuelSegments(hash)
-	if err != nil {
-		return err
-	}
 	report.PrintMatchSummary(os.Stdout, *demo)
 	report.PrintPlayerRosterTable(os.Stdout, stats)
 	report.PrintPlayerTable(stats, playerSteamID)
 	report.PrintPlayerSideTable(os.Stdout, sideStats, playerSteamID)
 	report.PrintDuelTable(os.Stdout, stats, playerSteamID)
 	report.PrintAWPTable(os.Stdout, stats, playerSteamID)
-	report.PrintFHHSTable(os.Stdout, duelSegs, stats, playerSteamID)
 	report.PrintWeaponTable(os.Stdout, weaponStats, stats, playerSteamID)
 	report.PrintAimTimingTable(os.Stdout, stats, playerSteamID)
 	return nil

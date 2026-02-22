@@ -154,9 +154,10 @@ Parse one or more `.dem` files, aggregate all metrics, and store the results. If
 3. **Per-side breakdown** — K/A/D, K/D, ADR, KAST%, entry/trade counts split by CT and T halves
 4. **Duel engine** — duel wins/losses, median exposure time on wins and losses, median hits-to-kill, first-bullet HS rate, pre-shot correction angle and % under 2°
 5. **AWP death classifier** — total AWP deaths, % dry-peek, % re-peek, % isolated
-6. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample flags (OK/LOW/VERY_LOW), priority bins marked `*`
-7. **Weapon breakdown** — per-weapon kills, HS%, assists, deaths, damage, hits, damage-per-hit (filtered to `--player` if specified)
-8. **Aim timing** — median TTK, median TTD, one-tap%, counter-strafe%
+6. **Weapon breakdown** — per-weapon kills, HS%, assists, deaths, damage, hits, damage-per-hit (filtered to `--player` if specified)
+7. **Aim timing** — median TTK, median TTD, one-tap%, counter-strafe%
+
+> **Note:** FHHS (first-hit headshot rate by weapon × distance) is only shown in the `player` command where cross-match sample sizes are large enough to be meaningful.
 
 **Examples:**
 
