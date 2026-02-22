@@ -110,6 +110,27 @@ func runExport(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("query qualifying demos: %w", err)
 	}
 	if len(demos) == 0 {
+		// Run a diagnostic query to explain why: show per-player demo counts
+		// without the quorum filter so the user knows what data exists.
+		counts, diagErr := db.PlayerDemoCounts(steamIDs, since)
+		if diagErr == nil {
+			if len(counts) == 0 {
+				fmt.Fprintf(os.Stderr, "hint: none of the %d roster players appear in any demo in the last %d days — parse more demos first\n",
+					len(steamIDs), exportSince)
+			} else {
+				fmt.Fprintf(os.Stderr, "Per-player demo counts (last %d days, no quorum filter):\n", exportSince)
+				for _, c := range counts {
+					fmt.Fprintf(os.Stderr, "  %-20s  %d demo(s)\n", c.Name, c.Count)
+				}
+				if counts[0].Count < exportQuorum {
+					fmt.Fprintf(os.Stderr, "hint: most active roster player has only %d demo(s); try --quorum 1 or parse more team demos\n",
+						counts[0].Count)
+				} else {
+					fmt.Fprintf(os.Stderr, "hint: players exist individually but no single demo has %d+ of them together; try --quorum %d\n",
+						exportQuorum, exportQuorum-1)
+				}
+			}
+		}
 		return fmt.Errorf("no qualifying demos found in the last %d days with quorum=%d", exportSince, exportQuorum)
 	}
 	fmt.Fprintf(os.Stderr, "Found %d qualifying demos\n", len(demos))

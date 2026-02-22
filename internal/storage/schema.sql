@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS demos (
     ct_score    INTEGER NOT NULL DEFAULT 0,
     t_score     INTEGER NOT NULL DEFAULT 0,
     tier        TEXT NOT NULL DEFAULT '',
-    is_baseline INTEGER NOT NULL DEFAULT 0
+    is_baseline INTEGER NOT NULL DEFAULT 0,
+    event_id    TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS player_match_stats (
@@ -106,3 +107,12 @@ CREATE TABLE IF NOT EXISTS player_duel_segments (
     median_expo_win_ms REAL    NOT NULL DEFAULT 0,
     UNIQUE(demo_hash, steam_id, weapon_bucket, distance_bin)
 );
+
+-- Indexes for common query patterns (safe to apply to existing databases).
+CREATE INDEX IF NOT EXISTS idx_demos_match_date       ON demos(match_date);
+CREATE INDEX IF NOT EXISTS idx_pms_steam_id           ON player_match_stats(steam_id);
+CREATE INDEX IF NOT EXISTS idx_pms_demo_hash          ON player_match_stats(demo_hash);
+CREATE INDEX IF NOT EXISTS idx_prs_steam_id           ON player_round_stats(steam_id);
+CREATE INDEX IF NOT EXISTS idx_prs_demo_hash          ON player_round_stats(demo_hash);
+CREATE INDEX IF NOT EXISTS idx_pds_steam_id           ON player_duel_segments(steam_id);
+CREATE INDEX IF NOT EXISTS idx_pds_demo_hash          ON player_duel_segments(demo_hash);

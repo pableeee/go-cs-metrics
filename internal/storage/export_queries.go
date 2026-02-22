@@ -98,14 +98,14 @@ func (db *DB) MapWinOutcomes(steamIDs []string, demoHashes []string) ([]WinOutco
 		args = append(args, h)
 	}
 
-	// Order by rounds_played DESC so the first row per demo is the anchor player
-	// (the one who played the most rounds and thus has the most reliable outcome data).
+	// Order by rounds_played DESC, steam_id ASC so the anchor player is deterministic
+	// when two roster players have equal rounds_played in a demo.
 	query := fmt.Sprintf(`
 		SELECT demo_hash, rounds_won, rounds_played
 		FROM player_match_stats
 		WHERE steam_id IN (%s)
 		  AND demo_hash IN (%s)
-		ORDER BY rounds_played DESC`,
+		ORDER BY rounds_played DESC, steam_id ASC`,
 		idPH, hashPH)
 
 	rows, err := db.conn.Query(query, args...)
@@ -209,6 +209,54 @@ func (db *DB) RosterMatchTotals(steamIDs []string, demoHashes []string) ([]Playe
 			return nil, err
 		}
 		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// PlayerDemoCount holds how many demos a single roster player appears in.
+type PlayerDemoCount struct {
+	SteamID string
+	Name    string
+	Count   int
+}
+
+// PlayerDemoCounts returns, for each steam ID in the roster, the number of demos
+// they appear in within the since window — without any quorum filter. Used to
+// produce diagnostic output when QualifyingDemos returns empty.
+func (db *DB) PlayerDemoCounts(steamIDs []string, since time.Time) ([]PlayerDemoCount, error) {
+	if len(steamIDs) == 0 {
+		return nil, nil
+	}
+	ph := placeholders(len(steamIDs))
+	args := make([]interface{}, 0, len(steamIDs)+1)
+	for _, id := range steamIDs {
+		args = append(args, id)
+	}
+	args = append(args, since.Format("2006-01-02"))
+
+	query := fmt.Sprintf(`
+		SELECT p.steam_id, MAX(p.name), COUNT(DISTINCT p.demo_hash)
+		FROM player_match_stats p
+		JOIN demos d ON d.hash = p.demo_hash
+		WHERE p.steam_id IN (%s)
+		  AND d.match_date >= ?
+		GROUP BY p.steam_id
+		ORDER BY COUNT(DISTINCT p.demo_hash) DESC`,
+		ph)
+
+	rows, err := db.conn.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PlayerDemoCount
+	for rows.Next() {
+		var c PlayerDemoCount
+		if err := rows.Scan(&c.SteamID, &c.Name, &c.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
 	}
 	return out, rows.Err()
 }

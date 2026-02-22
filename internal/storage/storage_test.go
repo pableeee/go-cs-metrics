@@ -207,6 +207,21 @@ func TestMapNameNormalization(t *testing.T) {
 	}
 }
 
+func TestNormalizeMapName(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"de_mirage", "Mirage"},
+		{"de_dust2", "Dust2"},
+		{"Mirage", "Mirage"},   // already normalized — idempotent
+		{"Ancient", "Ancient"}, // already normalized — idempotent
+		{"de_", "de_"},         // stripping leaves empty — original preserved
+	}
+	for _, tc := range cases {
+		if got := normalizeMapName(tc.in); got != tc.want {
+			t.Errorf("normalizeMapName(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestInsertIdempotency(t *testing.T) {
 	db := openMemDB(t)
 

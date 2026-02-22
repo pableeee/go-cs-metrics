@@ -37,12 +37,14 @@ func (db *DB) InsertDemo(summary model.MatchSummary) error {
 // normalizeMapName converts a CS2 map identifier to the title-case name used
 // throughout the pipeline (e.g. "de_mirage" → "Mirage", "de_dust2" → "Dust2").
 // The function is idempotent: already-normalized names are returned unchanged.
+// If stripping "de_" would produce an empty string (e.g. input is literally "de_"),
+// the original name is returned unchanged to avoid storing an empty map name.
 func normalizeMapName(name string) string {
-	name = strings.TrimPrefix(name, "de_")
-	if len(name) == 0 {
+	trimmed := strings.TrimPrefix(name, "de_")
+	if len(trimmed) == 0 {
 		return name
 	}
-	return strings.ToUpper(name[:1]) + name[1:]
+	return strings.ToUpper(trimmed[:1]) + trimmed[1:]
 }
 
 // InsertPlayerMatchStats bulk-inserts player match stats in a transaction.

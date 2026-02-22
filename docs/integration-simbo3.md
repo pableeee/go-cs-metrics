@@ -145,6 +145,24 @@ Found 34 qualifying demos
 Wrote navi.json
 ```
 
+When no qualifying demos are found, the tool runs a follow-up diagnostic query and prints per-player demo counts alongside a targeted hint so you know how to fix it:
+
+```
+Querying demos for 5 players since 2025-11-23 (quorum=3)...
+Per-player demo counts (last 90 days, no quorum filter):
+  s1mple                3 demo(s)
+  b1t                   2 demo(s)
+  electronic            2 demo(s)
+hint: players exist individually but no single demo has 3+ of them together; try --quorum 2
+Error: no qualifying demos found in the last 90 days with quorum=3
+```
+
+If none of the roster players appear at all:
+
+```
+hint: none of the 5 roster players appear in any demo in the last 90 days — parse more demos first
+```
+
 ### 4. Run the simulator
 
 ```sh
@@ -216,3 +234,7 @@ go run ./cmd/simbo3/ run --teamA "$OUT_A" --teamB "$OUT_B"
 - **Stale exports** — check `latest_match_date` in the JSON before simulating. If the
   most recent qualifying demo is more than a few weeks old, re-parse newer demos and
   re-export before running a prediction.
+- **simbo3 JSON validation** — simbo3 validates team files on load and will error on
+  malformed input: exactly 5 entries are required in `players_rating2_3m` (the exporter
+  always pads to 5 with `1.00`), `matches_3m` must not be negative, and ratings outside
+  `[0.3, 2.5]` produce a warning but are not fatal.
