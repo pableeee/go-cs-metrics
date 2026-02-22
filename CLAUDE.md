@@ -31,7 +31,7 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 
 | Command | Description |
 |---------|-------------|
-| `parse <demo.dem>` | Parse + store a demo; print all tables |
+| `parse [<demo.dem>...] [--dir <dir>]` | Parse + store one or more demos; bulk mode prints compact status per demo |
 | `list` | List all stored demos |
 | `show <hash-prefix>` | Re-display a stored demo's tables |
 | `fetch` | Download and ingest FACEIT baseline demos |

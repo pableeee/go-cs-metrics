@@ -130,11 +130,13 @@ All commands share two global flags:
 
 ### parse
 
-Parse a `.dem` file, aggregate all metrics, and store the results. If the demo was already parsed (same SHA-256 hash), the cached results are shown instead.
+Parse one or more `.dem` files, aggregate all metrics, and store the results. If a demo was already parsed (same SHA-256 hash), the cached results are shown (single mode) or the file is skipped (bulk mode).
 
 ```
-./go-cs-metrics parse <demo.dem> [flags]
+./go-cs-metrics parse [<demo.dem>...] [--dir <directory>] [flags]
 ```
+
+**Bulk mode** — triggered when more than one demo is provided (via multiple args or `--dir`). Full tables are suppressed; a compact status line is printed per demo instead, followed by a stored/skipped/failed summary.
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -142,6 +144,7 @@ Parse a `.dem` file, aggregate all metrics, and store the results. If the demo w
 | `--type` | `Competitive` | Match type label stored in the database (e.g. `FACEIT`, `Scrim`) |
 | `--tier` | `""` | Tier label for baseline comparisons (e.g. `faceit-5`, `premier-10k`) |
 | `--baseline` | `false` | Mark this demo as a baseline reference match |
+| `--dir` | `""` | Directory containing `.dem` files to parse in bulk (all `*.dem` files inside) |
 
 **Output tables:**
 
@@ -154,10 +157,17 @@ Parse a `.dem` file, aggregate all metrics, and store the results. If the demo w
 7. **Weapon breakdown** — per-weapon kills, HS%, assists, deaths, damage, hits, damage-per-hit (filtered to `--player` if specified)
 8. **Aim timing & movement** — median TTK, median TTD, counter-strafe %
 
-**Example:**
+**Examples:**
 
 ```sh
+# Single demo with focus player
 ./go-cs-metrics parse match.dem --player 76561198XXXXXXXXX --type Competitive
+
+# Bulk: parse entire CS2 replays folder
+./go-cs-metrics parse --dir '/path/to/csgo/replays' --player 76561198XXXXXXXXX
+
+# Bulk: shell glob (multiple positional args)
+./go-cs-metrics parse /replays/match730_*.dem
 ```
 
 ```
@@ -797,5 +807,6 @@ go test ./internal/aggregator/... -run TestTradeKill -v
 - ~~**Round context**~~ — done (`POST_PLT` and `CLUTCH_1vN` flags in `rounds` drill-down).
 - ~~**Player filters**~~ — done (`--map`, `--since`, `--last` on the `player` command).
 - ~~**Raw SQL access**~~ — done (`sql` command for ad-hoc queries against the SQLite DB).
+- ~~**Bulk demo parsing**~~ — done (`parse --dir` and multi-file args with compact bulk output).
 - **Percentile comparison**: given a tier corpus, automatically show where your stats land (p25 / p50 / p75).
 - **Local web UI**: lightweight browser-based dashboard for non-terminal users.
