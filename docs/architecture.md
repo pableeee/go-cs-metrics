@@ -14,8 +14,8 @@ go-cs-metrics/
 ├── cmd/
 │   ├── root.go                      # root cobra command, --db flag
 │   ├── parse.go                     # "parse <demo.dem>" — full pipeline
-│   ├── fetch.go                     # "fetch" — ingest FACEIT demos via API
-│   ├── fetchmm.go                   # "fetch-mm" — ingest Valve MM/Premier demos via Steam share codes
+│   ├── fetch.go                     # "fetch" — FACEIT demo download (non-functional, not registered; see docs/demo-download-automation.md)
+│   ├── fetchmm.go                   # "fetch-mm" — Valve MM share code walker (non-functional download; not registered)
 │   ├── list.go                      # "list" — tabulate stored demos
 │   ├── show.go                      # "show <hash-prefix>" — replay stored match
 │   ├── player.go                    # "player <steamid64>..." — cross-match aggregate
@@ -312,8 +312,6 @@ Subcommands, all accessed via a persistent `--db` flag on the root command:
 csmetrics parse [<demo.dem>...] [--dir <dir>] [--player <steamid64>] [--type Label] [--tier Label] [--baseline]
 csmetrics list
 csmetrics show <hash-prefix> [--player <steamid64>]
-csmetrics fetch [flags]
-csmetrics fetch-mm --steam-id <SteamID64> [--auth-code <code>] [--share-code <code>] [--count N] [--map <name>] [--tier label]
 csmetrics player <steamid64> [<steamid64>...] [--map <name>] [--since <date>] [--last <N>]
 csmetrics rounds <hash-prefix> <steamid64>
 csmetrics trend <steamid64>
@@ -389,7 +387,7 @@ Tests use an in-memory SQLite database (`:memory:`). Each test opens a fresh dat
 
 ## Known Limitations and Future Work
 
-- ~~**Match date**: Stored as `time.Now()` at parse time.~~ Now uses `os.Stat(path).ModTime()` — CS2 writes the demo file when the match ends, so mtime is a reliable proxy. Falls back to today if stat fails. FACEIT-fetched demos still use the `started_at` API timestamp (more authoritative).
+- ~~**Match date**: Stored as `time.Now()` at parse time.~~ Now uses `os.Stat(path).ModTime()` — CS2 writes the demo file when the match ends, so mtime is a reliable proxy. Falls back to today if stat fails.
 - ~~**Demo file read**: Two sequential passes (hash, then parse). Could be made single-pass with `io.TeeReader`.~~ (still open — acceptable for current use)
 - ~~**Flash tracking**: Only partially used.~~ Effective flashes (blinded enemy killed by team within 1.5 s) are now tracked. Average blind duration and per-enemy flash counts remain unimplemented.
 - **No composite rating**: `PlayerMatchStats` has all the ingredients for a composite score but none is computed yet. The label should be "Composite Rating (beta)" when added, not "HLTV Rating", until validation against known matches is complete.

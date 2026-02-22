@@ -1,5 +1,10 @@
 // Package cmd implements the CLI commands for csmetrics, including demo parsing,
-// listing, showing, FACEIT fetching, and cross-match player analysis.
+// listing, showing, and cross-match player analysis.
+//
+// NOTE: fetch.go and fetchmm.go contain code for automated demo download from
+// FACEIT and Valve MM respectively. Both are currently non-functional due to
+// platform authentication changes (see docs/demo-download-automation.md) and
+// are NOT registered as CLI commands. The code is preserved for future work.
 package cmd
 
 import (
@@ -44,8 +49,8 @@ func init() {
 	rootCmd.AddCommand(parseCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(showCmd)
-	rootCmd.AddCommand(fetchCmd)
-	rootCmd.AddCommand(fetchMMCmd)
+	// fetchCmd and fetchMMCmd are intentionally not registered — both are
+	// non-functional due to platform auth changes. See docs/demo-download-automation.md.
 	rootCmd.AddCommand(playerCmd)
 	rootCmd.AddCommand(roundsCmd)
 	rootCmd.AddCommand(trendCmd)

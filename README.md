@@ -14,8 +14,6 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
   - [parse](#parse)
   - [list](#list)
   - [show](#show)
-  - [fetch](#fetch)
-  - [fetch-mm](#fetch-mm)
   - [player](#player)
   - [rounds](#rounds)
   - [trend](#trend)
@@ -33,9 +31,6 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
   - [Flash Quality](#flash-quality)
   - [Weapon Breakdown](#weapon-breakdown)
 - [Baseline Comparisons](#baseline-comparisons)
-  - [FACEIT API Key](#faceit-api-key)
-  - [Steam API Key](#steam-api-key)
-  - [Fetching Baseline Demos](#fetching-baseline-demos)
   - [Tier Tags](#tier-tags)
 - [Database](#database)
 - [Architecture](#architecture)
@@ -60,8 +55,6 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
 - **Per-weapon breakdown** — kills, HS%, assists, deaths, damage, hits, damage-per-hit per weapon per player.
 - **Idempotent ingestion** — demos are SHA-256 hashed; re-parsing the same file is a no-op.
 - **SQLite storage** — portable single-file database at `~/.csmetrics/metrics.db`; no server required.
-- **FACEIT baseline fetching** — download demos from any FACEIT player's match history, tag them by tier, and build a reference corpus to compare yourself against.
-- **Steam MM / Premier fetching** — download your own Valve Matchmaking and Premier demos via the Steam share code chain (`fetch-mm` command); no third-party platform required.
 - **Focus mode** — any output command accepts `--player <SteamID64>` to highlight your row and filter weapon tables to your stats only.
 
 ---
@@ -69,7 +62,7 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
 ## Prerequisites
 
 - **Go 1.24+**
-- A CS2 `.dem` file; a FACEIT API key for FACEIT demo fetching; or a Steam Web API key + game auth code for Valve MM / Premier demo fetching
+- A CS2 `.dem` file (download manually from Refrag, cs-demo-manager, or CS2's Watch menu)
 
 ---
 
@@ -106,14 +99,10 @@ The binary is named `go-cs-metrics` (or `csmetrics` if you install via `go insta
 # 4. Re-inspect a stored match by its hash prefix
 ./go-cs-metrics show a3f9c2 --player 76561198XXXXXXXXX
 
-# 5. Fetch FACEIT baselines
-./go-cs-metrics fetch --player <your-nickname> --count 10 --tier faceit-2
-./go-cs-metrics fetch --player <level5-nickname> --level 5 --map de_mirage --count 20 --tier faceit-5
-
-# 6. Cross-match analysis for a player (all stored demos)
+# 5. Cross-match analysis for a player (all stored demos)
 ./go-cs-metrics player 76561198XXXXXXXXX
 
-# 7. Compare two players side-by-side
+# 6. Compare two players side-by-side
 ./go-cs-metrics player 76561198XXXXXXXXX 76561198012345678
 ```
 
@@ -231,126 +220,6 @@ Display the full stats for a previously stored match by its hash prefix (at leas
 ```
 
 Outputs the same four tables as `parse`.
-
----
-
-### fetch
-
-Download demos from a FACEIT player's recent match history, parse them, and store them with a tier tag as baseline reference data. Requires a FACEIT Data API v4 key (see [FACEIT API Key](#faceit-api-key)).
-
-```
-./go-cs-metrics fetch --player <nickname|SteamID64> [flags]
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--player` | *(required)* | FACEIT nickname **or** Steam ID64 to use as the match source |
-| `--map` | `""` | Only ingest matches played on this map (e.g. `de_mirage`) |
-| `--level` | `0` | Only ingest matches at this FACEIT skill level (1–10) |
-| `--count` | `10` | Number of matches to ingest |
-| `--tier` | auto | Tier label stored in DB. Defaults to `faceit-N` when `--level` is set, `faceit` otherwise |
-
-The command fetches up to 5× `--count` matches from the player's history to allow for map/level filtering, downloads and decompresses each `.dem.gz`, parses it, and stores it with `is_baseline=1`.
-
-**Examples:**
-
-```sh
-# Your own recent matches
-./go-cs-metrics fetch --player <your-nickname> --count 15 --tier faceit-2
-
-# Level 5 baseline on Mirage (point at any level-5 seed player)
-./go-cs-metrics fetch --player <nickname> --level 5 --map de_mirage --count 20
-
-# Level 8 baseline, any map
-./go-cs-metrics fetch --player <nickname> --level 8 --count 20 --tier faceit-8
-```
-
-**Progress output:**
-
-```
-Player: somePlayer  level=5  ELO=1247  region=EU
-[1/10] 1-abc123  map=de_mirage       level=5  date=2026-02-15
-  stored: 10 players, 24 rounds
-[2/10] 1-def456  map=de_inferno      level=5  date=2026-02-14
-  stored: 10 players, 29 rounds
-[3/10] 1-ghi789  map=de_ancient      level=5  date=2026-02-14  [skip — map filter]
-...
-
-Done: 10/10 matches ingested (tier="faceit-5", is_baseline=true)
-```
-
----
-
-### fetch-mm
-
-Download your own Valve Matchmaking and Premier demos using the Steam share code chain. Does not require FACEIT or any third-party platform — only a free Steam Web API key and a game authentication code from your Steam account settings.
-
-```
-./go-cs-metrics fetch-mm --steam-id <SteamID64> [flags]
-```
-
-| Flag | Default | Env override | Description |
-|------|---------|--------------|-------------|
-| `--steam-id` | *(required)* | `STEAM_ID` | Your Steam ID64 (e.g. `76561198012345678`) |
-| `--auth-code` | *(required)* | `STEAM_AUTH_CODE` | Game auth code — **Steam Settings → Account → Game Details** — format `AAAA-BBBBB-CCCC` |
-| `--share-code` | *(auto)* | `STEAM_SHARE_CODE` | Starting match share code (`CSGO-XXXXX-XXXXX-XXXXX-XXXXX`); required on first run, omit afterwards |
-| `--count` | `10` | | Number of matches to ingest |
-| `--map` | `""` | | Only ingest matches on this map (e.g. `de_mirage`) |
-| `--tier` | `mm` | | Tier label stored in DB |
-
-**Credentials setup:**
-
-```sh
-mkdir -p ~/.csmetrics
-
-# Steam Web API key — free from https://steamcommunity.com/dev/apikey
-echo "your-steam-web-api-key" > ~/.csmetrics/steam_api_key
-chmod 600 ~/.csmetrics/steam_api_key
-
-# Or use environment variables
-export STEAM_API_KEY=your-key
-export STEAM_AUTH_CODE=AAAA-BBBBB-CCCC
-```
-
-**How to get your starting share code:**
-- In CS2: Watch → Your Matches → right-click any match → Copy Share Code
-- Or from Refrag, csgostats.gg, or Leetify match detail pages
-
-The tool saves the last processed code to `~/.csmetrics/mm_last_code` so subsequent runs pick up automatically where they left off.
-
-**Examples:**
-
-```sh
-# First run — provide a recent share code as anchor
-./go-cs-metrics fetch-mm --steam-id 76561198012345678 \
-  --share-code CSGO-XXXXX-XXXXX-XXXXX-XXXXX --count 10
-
-# Subsequent runs — auto-resumes from last processed match
-./go-cs-metrics fetch-mm --steam-id 76561198012345678 --count 10
-
-# Filter to Mirage only
-./go-cs-metrics fetch-mm --steam-id 76561198012345678 --map de_mirage --count 5
-```
-
-**Progress output:**
-
-```
-Fetching up to 10 match(es) from share code chain…
-[1/10] code=CSGO-AAAAA-BBBBB-CCCCC-DDDDD  matchID=12345678901234567
-  resolving replay server… ok
-  stored: map=de_mirage  players=10  rounds=24
-[2/10] code=CSGO-EEEEE-FFFFF-GGGGG-HHHHH  matchID=12345678901234568
-  resolving replay server… ok
-  stored: map=de_inferno  players=10  rounds=30
-...
-
-Done: 10/10 matches ingested (tier="mm")
-```
-
-**Notes:**
-- Demos are hosted by Valve for ~30 days after the match. Older matches will fail the replay server probe.
-- The share code chain runs oldest → newest. The first run only sees matches *newer* than your provided share code.
-- Rate limits: the command pauses 1 second between Steam API calls to respect Valve's limits.
 
 ---
 
@@ -727,114 +596,6 @@ Per player, per weapon (accessed via `show --player`):
 
 ---
 
-## Baseline Comparisons
-
-The database stores a `tier` label and `is_baseline` flag on every demo. This enables future queries comparing your metrics against a reference population at any skill level.
-
-### FACEIT API Key
-
-Register at [developers.faceit.com](https://developers.faceit.com) and create a server-side API key. Then store it in one of two ways:
-
-**Environment variable** (add to `~/.zshrc` or `~/.bashrc`):
-```sh
-export FACEIT_API_KEY=your-key-here
-```
-
-**File** (read automatically, takes lower priority than the env var):
-```sh
-mkdir -p ~/.csmetrics
-echo "your-key-here" > ~/.csmetrics/faceit_api_key
-chmod 600 ~/.csmetrics/faceit_api_key
-```
-
-The `fetch` command checks `FACEIT_API_KEY` first, then falls back to `~/.csmetrics/faceit_api_key`.
-
----
-
-### Steam API Key
-
-Required for the `fetch-mm` command. Get a free key at [steamcommunity.com/dev/apikey](https://steamcommunity.com/dev/apikey).
-
-**Environment variable:**
-```sh
-export STEAM_API_KEY=your-key-here
-```
-
-**File** (takes lower priority than env var):
-```sh
-echo "your-key-here" > ~/.csmetrics/steam_api_key
-chmod 600 ~/.csmetrics/steam_api_key
-```
-
-You also need a **Game Authentication Code** (not the same as your API key):
-1. Open Steam → Settings → Account → Game Details
-2. Click "View" next to "Game Authentication Code"
-3. The code is in `AAAA-BBBBB-CCCC` format — it does not expire unless manually revoked
-
-Store it as `STEAM_AUTH_CODE` env var or pass it via `--auth-code`.
-
----
-
-### Fetching Baseline Demos
-
-The strategy is to collect match demos from players at each skill tier you want to compare against. Since FACEIT skill levels map roughly to:
-
-| FACEIT Level | ELO Range | CS2 Premier (approx) |
-|-------------|-----------|----------------------|
-| 1–2 | < 801 | < 8 000 |
-| 3–4 | 801–1 100 | 8 000–12 000 |
-| 5–6 | 1 101–1 500 | 12 000–16 000 |
-| 7–8 | 1 501–2 100 | 16 000–20 000 |
-| 9–10 | 2 100+ | 20 000+ |
-
-A recommended baseline corpus (per map you care about):
-
-```sh
-# Your own tier
-./go-cs-metrics fetch --player <your-nickname> --count 20 --tier faceit-2
-
-# One step above
-./go-cs-metrics fetch --player <level4-seed> --level 4 --map de_mirage --count 20
-
-# Aspirational
-./go-cs-metrics fetch --player <level7-seed> --level 7 --map de_mirage --count 20
-./go-cs-metrics fetch --player <level7-seed> --level 7 --map de_inferno --count 20
-```
-
-To find seed players at a given level: check FACEIT leaderboards, ask in community Discord servers, or look at opponents from your own match history.
-
----
-
-### Tier Tags
-
-Any demo — whether fetched automatically or parsed manually — can carry a tier tag:
-
-```sh
-# Manually tag a demo as a baseline for Premier ~10k
-./go-cs-metrics parse match.dem --tier premier-10k --baseline
-
-# Tag a downloaded FACEIT demo at level 6
-./go-cs-metrics parse faceit_match.dem --tier faceit-6 --baseline
-```
-
-Demos without a `--baseline` flag have `is_baseline=0` and represent your own personal matches. The separation lets you query:
-```sql
--- Your stats on Mirage
-SELECT * FROM player_match_stats
-JOIN demos ON demos.hash = player_match_stats.demo_hash
-WHERE demos.is_baseline = 0 AND demos.map_name = 'de_mirage'
-AND player_match_stats.steam_id = '76561198XXXXXXXXX';
-
--- Level-5 player pool on Mirage for comparison
-SELECT AVG(kills), AVG(total_damage / rounds_played) AS avg_adr
-FROM player_match_stats
-JOIN demos ON demos.hash = player_match_stats.demo_hash
-WHERE demos.is_baseline = 1 AND demos.tier = 'faceit-5'
-AND demos.map_name = 'de_mirage';
-```
-
----
-
 ## Database
 
 Default location: `~/.csmetrics/metrics.db` (SQLite, WAL mode, foreign keys on).
@@ -898,14 +659,10 @@ Schema migrations run automatically at startup via `ALTER TABLE ... ADD COLUMN` 
                │
                ▼
 ┌──────────────────────────────┐
-│  report (internal/report)    │  terminal tables via
-│  cmd/{parse,show,list,fetch, │  tablewriter, focus highlighting
-│      player,rounds,trend,sql}│
-└──────────────────────────────┘
-
-FACEIT baseline path:
-  fetch cmd → internal/faceit/client → FACEIT Data API v4
-            → download + gzip decompress → same parser/aggregator/storage
+│  report (internal/report)           │  terminal tables via
+│  cmd/{parse,show,list,player,rounds, │  tablewriter, focus highlighting
+│      trend,sql,analyze}             │
+└─────────────────────────────────────┘
 ```
 
 **Package layout:**
@@ -918,7 +675,6 @@ FACEIT baseline path:
 │   ├── parse.go     # parse command
 │   ├── list.go      # list command
 │   ├── show.go      # show command
-│   ├── fetch.go     # fetch command (FACEIT baseline download)
 │   ├── player.go    # player command (cross-match aggregate report, --map/--since/--last)
 │   ├── rounds.go    # rounds command (per-round drill-down)
 │   ├── trend.go     # trend command (chronological per-match trend)
@@ -930,7 +686,8 @@ FACEIT baseline path:
 │   ├── aggregator/  # multi-pass metric aggregation
 │   ├── storage/     # SQLite schema + queries
 │   ├── report/      # terminal table rendering
-│   └── faceit/      # FACEIT Data API v4 client
+│   ├── faceit/      # FACEIT Data API v4 client (non-functional, preserved for future work)
+│   └── steam/       # Steam share code decoder + Web API client (non-functional, preserved for future work)
 └── Makefile
 ```
 
@@ -990,11 +747,10 @@ go test ./internal/aggregator/... -run TestTradeKill -v
 
 ### Current limitations
 
-- **Match date**: Uses the demo file's modification time (`os.Stat` mtime), which reflects when CS2 wrote the demo to disk (end of match). FACEIT-fetched demos use the match's `started_at` API timestamp.
+- **Match date**: Uses the demo file's modification time (`os.Stat` mtime), which reflects when CS2 wrote the demo to disk (end of match).
 - **Crosshair placement**: Uses server-side `m_bSpottedByMask` as a proxy for first-sight. This may fire slightly before the player's client renders the enemy. Values should be treated as directional, not absolute.
 - **Schema changes**: New columns are added automatically at startup via `ALTER TABLE ... ADD COLUMN ... DEFAULT 0/''`. Existing demos default to `0` for new integer columns (e.g. `rounds_won`, `won_round`) — re-parse demos to get accurate values for newly added metrics. A full DB rebuild is only required if a column type or table structure changes.
-- **Demo availability**: FACEIT demo URLs are time-limited and may expire. Download soon after a match is played.
-- **South America region**: The FACEIT player pool at specific levels is smaller than EU/NA; fetching large baseline corpora may require pulling from multiple regions.
+- **Automated demo download**: Both FACEIT and Valve MM automated download are non-functional due to platform authentication changes. See `docs/demo-download-automation.md` for details and a path forward.
 
 ### Planned
 
