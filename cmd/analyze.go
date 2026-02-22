@@ -22,6 +22,7 @@ from a demo-parsing tool and a question from the player.
 Rules:
 - Answer ONLY from the data provided. Never invent or estimate statistics.
 - Always cite specific numbers when making a claim.
+- If a metric is flagged in "low_confidence", explicitly note the caveat when citing it.
 - If the data is insufficient to answer confidently, say so explicitly.
 - Be concise and actionable — focus on what the player can actually improve.
 - Avoid generic CS2 advice unless it directly explains a pattern in the data.
@@ -30,17 +31,20 @@ Metrics glossary:
 - ADR: Avg Damage per Round. Typical range 60–90. <60 is low.
 - KAST%: % rounds with Kill/Assist/Survival/Trade. Good: >70%.
 - K/D: Kills ÷ deaths. 1.0 is break-even.
-- TTK (ms): Your first shot to kill. Lower = faster finishing.
-- TTD (ms): Enemy's first shot to your death. Higher = harder to kill.
-- One-tap kills: kills in a single hit (one bullet to kill).
-- Crosshair placement (°): Median deviation at first sight of enemy. Lower = better pre-aim.
-- Correction (°): Aim adjustment needed before first hit. Lower = less flicking.
-- Counter-strafe %: % of kills taken while nearly stationary. Higher = better shot discipline.
+- TTK (ms): Your first shot to kill, multi-hit kills only. Lower = faster finishing.
+- TTD (ms): Enemy's first shot to your death, multi-hit only. Higher = harder to kill.
+- One-tap kills: kills where one bullet was enough; shown as % of total kills.
+- Sight deviation (°): Crosshair-to-enemy-head angle at first sight. Lower = better pre-aim.
+- Correction (°): Aim adjustment from first-sight to first shot fired. Lower = less flicking.
+- Counter-strafe %: % of shots fired while nearly stationary. Higher = better shot discipline.
 - Opening K/D: first kill/death of the round — high strategic value.
 - Effective flashes: blinded enemy died to your team within 1.5s of your flash.
 - AWP dry peek: you died to AWP while initiating the peek (not pre-aimed).
 - AWP repeek: died to AWP when enemy re-peeked your position.
-- 1vN clutch W/A: won/attempted clutch situations when last alive vs N enemies.`
+- 1vN clutch W/A: won/attempted clutch situations when last alive vs N enemies.
+- FHHS: first-hit headshot rate — % of winning duels where the first bullet hit the head.
+  confidence tags: high=30+ duels, medium=10–29, low=<10 (treat low with caution).
+- buy_profile: your avg kills/damage/KAST split by round economy (full/force/half/eco).`
 
 var (
 	analyzeModel  string
@@ -104,17 +108,56 @@ func runAnalyzePlayer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no data found for SteamID64 %d (after filters)", id)
 	}
 
+	// Build a set of filtered demo hashes for downstream filtering.
+	keep := make(map[string]struct{}, len(stats))
+	for _, s := range stats {
+		keep[s.DemoHash] = struct{}{}
+	}
+
 	agg := buildAggregate(stats)
 	mapSideAggs := buildMapSideAggregates(stats)
+
+	// Duel segments — load all, filter to kept hashes, then merge.
+	allSegs, err := db.GetAllPlayerDuelSegments(id)
+	if err != nil {
+		return fmt.Errorf("query duel segments: %w", err)
+	}
+	var filteredSegs []model.PlayerDuelSegment
+	for _, seg := range allSegs {
+		if _, ok := keep[seg.DemoHash]; ok {
+			filteredSegs = append(filteredSegs, seg)
+		}
+	}
+	mergedSegs := mergeSegments(id, filteredSegs)
+
+	// Weapon stats — load per-demo and aggregate across filtered demos.
+	var allWeaponStats []model.PlayerWeaponStats
+	for _, s := range stats {
+		ws, err := db.GetPlayerWeaponStats(s.DemoHash)
+		if err != nil {
+			return fmt.Errorf("query weapon stats for %s: %w", s.DemoHash, err)
+		}
+		for _, w := range ws {
+			if w.SteamID == id {
+				allWeaponStats = append(allWeaponStats, w)
+			}
+		}
+	}
+
+	// Round stats — load per-demo for buy profile.
+	var allRoundStats []model.PlayerRoundStats
+	for _, s := range stats {
+		rs, err := db.GetPlayerRoundStats(s.DemoHash, id)
+		if err != nil {
+			return fmt.Errorf("query round stats for %s: %w", s.DemoHash, err)
+		}
+		allRoundStats = append(allRoundStats, rs...)
+	}
 
 	// Aggregate clutch stats across filtered matches.
 	clutchByMatch, err := db.GetPlayerClutchStatsByMatch(id)
 	if err != nil {
 		return fmt.Errorf("query clutch: %w", err)
-	}
-	keep := make(map[string]struct{}, len(stats))
-	for _, s := range stats {
-		keep[s.DemoHash] = struct{}{}
 	}
 	var aggClutch model.PlayerClutchMatchStats
 	aggClutch.SteamID = id
@@ -133,7 +176,7 @@ func runAnalyzePlayer(cmd *cobra.Command, args []string) error {
 		"since": analyzePlayerSince,
 		"last":  analyzePlayerLast,
 	}
-	contextJSON, err := buildPlayerContext(agg, mapSideAggs, &aggClutch, filters)
+	contextJSON, err := buildPlayerContext(agg, mapSideAggs, &aggClutch, filters, stats, mergedSegs, allWeaponStats, allRoundStats)
 	if err != nil {
 		return fmt.Errorf("build context: %w", err)
 	}
@@ -172,15 +215,24 @@ func runAnalyzeMatch(cmd *cobra.Command, args []string) error {
 	return callAnthropic(cmd.Context(), analyzeAPIKey, analyzeModel, contextJSON, question)
 }
 
-// buildPlayerContext serialises aggregated player data into compact JSON.
-func buildPlayerContext(agg model.PlayerAggregate, mapSideAggs []model.PlayerMapSideAggregate, clutch *model.PlayerClutchMatchStats, filters map[string]interface{}) (string, error) {
+// buildPlayerContext serialises all available player data into compact JSON.
+func buildPlayerContext(
+	agg model.PlayerAggregate,
+	mapSideAggs []model.PlayerMapSideAggregate,
+	clutch *model.PlayerClutchMatchStats,
+	filters map[string]interface{},
+	stats []model.PlayerMatchStats,
+	mergedSegs []model.PlayerDuelSegment,
+	weaponStats []model.PlayerWeaponStats,
+	roundStats []model.PlayerRoundStats,
+) (string, error) {
 	type mapSideEntry struct {
-		Map      string  `json:"map"`
-		Side     string  `json:"side"`
-		Matches  int     `json:"matches"`
-		KD       float64 `json:"kd"`
-		ADR      float64 `json:"adr"`
-		KASTPct  float64 `json:"kast_pct"`
+		Map     string  `json:"map"`
+		Side    string  `json:"side"`
+		Matches int     `json:"matches"`
+		KD      float64 `json:"kd"`
+		ADR     float64 `json:"adr"`
+		KASTPct float64 `json:"kast_pct"`
 	}
 	mapSide := make([]mapSideEntry, 0, len(mapSideAggs))
 	for _, ms := range mapSideAggs {
@@ -192,6 +244,29 @@ func buildPlayerContext(agg model.PlayerAggregate, mapSideAggs []model.PlayerMap
 			ADR:     round2(ms.ADR()),
 			KASTPct: round2(ms.KASTPct()),
 		})
+	}
+
+	oneTapPct := 0.0
+	if agg.Kills > 0 {
+		oneTapPct = round2(float64(agg.OneTapKills) / float64(agg.Kills) * 100)
+	}
+
+	aimSection := map[string]interface{}{
+		"median_ttk_ms":       round2(agg.AvgTTKMs),
+		"median_ttd_ms":       round2(agg.AvgTTDMs),
+		"one_tap_kills":       agg.OneTapKills,
+		"one_tap_pct":         oneTapPct,
+		"median_correction_deg": round2(agg.AvgCorrectionDeg),
+		"counter_strafe_pct":  round2(agg.AvgCounterStrafePct),
+	}
+	if agg.AvgTTKMs == 0 {
+		aimSection["median_ttk_ms"] = nil
+	}
+	if agg.AvgTTDMs == 0 {
+		aimSection["median_ttd_ms"] = nil
+	}
+	if agg.AvgCorrectionDeg == 0 {
+		aimSection["median_correction_deg"] = nil
 	}
 
 	doc := map[string]interface{}{
@@ -222,45 +297,242 @@ func buildPlayerContext(agg model.PlayerAggregate, mapSideAggs []model.PlayerMap
 			"assists":   agg.FlashAssists,
 			"effective": agg.EffectiveFlashes,
 		},
-		"aim": map[string]interface{}{
-			"median_ttk_ms":        round2(agg.AvgTTKMs),
-			"median_ttd_ms":        round2(agg.AvgTTDMs),
-			"one_tap_kills":        agg.OneTapKills,
-			"crosshair_median_deg": round2(agg.AvgCorrectionDeg),
-			"median_correction_deg": round2(agg.AvgCorrectionDeg),
-			"counter_strafe_pct":   round2(agg.AvgCounterStrafePct),
-		},
+		"aim": aimSection,
 		"awp_deaths": map[string]interface{}{
 			"total":    agg.AWPDeaths,
 			"dry":      agg.AWPDeathsDry,
 			"repeek":   agg.AWPDeathsRePeek,
 			"isolated": agg.AWPDeathsIsolated,
 		},
-		"clutch":   clutchSummary(clutch),
-		"map_side": mapSide,
+		"clutch":      clutchSummary(clutch),
+		"map_side":    mapSide,
+		"trend":       buildTrendContext(stats),
+		"fhhs":        buildFHHSContext(mergedSegs),
+		"weapons":     buildWeaponContext(weaponStats),
+		"buy_profile": buildBuyProfile(roundStats),
+		"low_confidence": buildLowConfidence(agg, clutch, mergedSegs),
 	}
 
 	b, err := json.Marshal(doc)
 	return string(b), err
 }
 
+// buildTrendContext produces a chronological per-match summary for trend analysis.
+func buildTrendContext(stats []model.PlayerMatchStats) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(stats))
+	for _, s := range stats {
+		entry := map[string]interface{}{
+			"date":     s.MatchDate,
+			"map":      strings.TrimPrefix(s.MapName, "de_"),
+			"side":     s.Team.String(),
+			"kd":       round2(s.KDRatio()),
+			"adr":      round2(s.ADR()),
+			"kast_pct": round2(s.KASTPct()),
+			"kills":    s.Kills,
+			"deaths":   s.Deaths,
+			"opening_k": s.OpeningKills,
+			"opening_d": s.OpeningDeaths,
+		}
+		if s.MedianTTKMs > 0 {
+			entry["ttk_ms"] = round2(s.MedianTTKMs)
+		}
+		if s.MedianTTDMs > 0 {
+			entry["ttd_ms"] = round2(s.MedianTTDMs)
+		}
+		if s.CounterStrafePercent > 0 {
+			entry["cs_pct"] = round2(s.CounterStrafePercent)
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// buildFHHSContext converts merged duel segments into a context-friendly slice,
+// annotating each with a confidence level based on duel count.
+func buildFHHSContext(segs []model.PlayerDuelSegment) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(segs))
+	for _, seg := range segs {
+		fhhsPct := 0.0
+		if seg.FirstHitCount > 0 {
+			fhhsPct = round2(float64(seg.FirstHitHSCount) / float64(seg.FirstHitCount) * 100)
+		}
+		confidence := "high"
+		if seg.DuelCount < 10 {
+			confidence = "low"
+		} else if seg.DuelCount < 30 {
+			confidence = "medium"
+		}
+		entry := map[string]interface{}{
+			"weapon":     seg.WeaponBucket,
+			"distance":   seg.DistanceBin,
+			"duels":      seg.DuelCount,
+			"fhhs_pct":   fhhsPct,
+			"confidence": confidence,
+		}
+		if seg.MedianSightDeg > 0 {
+			entry["sight_deg"] = round2(seg.MedianSightDeg)
+		}
+		if seg.MedianCorrDeg > 0 {
+			entry["correction_deg"] = round2(seg.MedianCorrDeg)
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// buildWeaponContext aggregates weapon stats across all filtered matches.
+func buildWeaponContext(stats []model.PlayerWeaponStats) []map[string]interface{} {
+	type accum struct {
+		kills, hsKills, assists, deaths, damage, hits int
+	}
+	m := make(map[string]*accum)
+	for _, w := range stats {
+		if m[w.Weapon] == nil {
+			m[w.Weapon] = &accum{}
+		}
+		a := m[w.Weapon]
+		a.kills += w.Kills
+		a.hsKills += w.HeadshotKills
+		a.assists += w.Assists
+		a.deaths += w.Deaths
+		a.damage += w.Damage
+		a.hits += w.Hits
+	}
+
+	// Sort by kills descending.
+	type entry struct {
+		weapon string
+		a      *accum
+	}
+	entries := make([]entry, 0, len(m))
+	for weapon, a := range m {
+		if a.kills > 0 || a.damage > 0 {
+			entries = append(entries, entry{weapon, a})
+		}
+	}
+	// Insertion-sort by kills desc (small slice, good enough).
+	for i := 1; i < len(entries); i++ {
+		for j := i; j > 0 && entries[j].a.kills > entries[j-1].a.kills; j-- {
+			entries[j], entries[j-1] = entries[j-1], entries[j]
+		}
+	}
+
+	out := make([]map[string]interface{}, 0, len(entries))
+	for _, e := range entries {
+		hsPct := 0.0
+		if e.a.kills > 0 {
+			hsPct = round2(float64(e.a.hsKills) / float64(e.a.kills) * 100)
+		}
+		avgDmg := 0.0
+		if e.a.hits > 0 {
+			avgDmg = round2(float64(e.a.damage) / float64(e.a.hits))
+		}
+		out = append(out, map[string]interface{}{
+			"weapon":          e.weapon,
+			"kills":           e.a.kills,
+			"hs_pct":          hsPct,
+			"assists":         e.a.assists,
+			"deaths":          e.a.deaths,
+			"damage":          e.a.damage,
+			"hits":            e.a.hits,
+			"avg_dmg_per_hit": avgDmg,
+		})
+	}
+	return out
+}
+
+// buildBuyProfile summarises performance by buy type (full/force/half/eco).
+func buildBuyProfile(rounds []model.PlayerRoundStats) map[string]interface{} {
+	type accum struct {
+		count, kills, damage, kastCount int
+	}
+	m := map[string]*accum{
+		"full":  {},
+		"force": {},
+		"half":  {},
+		"eco":   {},
+	}
+	for _, r := range rounds {
+		a := m[r.BuyType]
+		if a == nil {
+			continue
+		}
+		a.count++
+		a.kills += r.Kills
+		a.damage += r.Damage
+		if r.KASTEarned {
+			a.kastCount++
+		}
+	}
+	out := make(map[string]interface{}, 4)
+	for buyType, a := range m {
+		if a.count == 0 {
+			continue
+		}
+		out[buyType] = map[string]interface{}{
+			"rounds":     a.count,
+			"avg_kills":  round2(float64(a.kills) / float64(a.count)),
+			"avg_damage": round2(float64(a.damage) / float64(a.count)),
+			"kast_pct":   round2(float64(a.kastCount) / float64(a.count) * 100),
+		}
+	}
+	return out
+}
+
+// buildLowConfidence returns a list of human-readable strings describing metrics
+// that have too few samples to be reliably interpreted.
+func buildLowConfidence(agg model.PlayerAggregate, clutch *model.PlayerClutchMatchStats, segs []model.PlayerDuelSegment) []string {
+	var warnings []string
+
+	if clutch != nil {
+		for i := 1; i <= 5; i++ {
+			if a := clutch.Attempts[i]; a > 0 && a < 5 {
+				warnings = append(warnings, fmt.Sprintf("clutch_1v%d: only %d attempt(s) — win rate unreliable", i, a))
+			}
+		}
+	}
+
+	if agg.AWPDeaths > 0 && agg.AWPDeaths < 10 {
+		warnings = append(warnings, fmt.Sprintf("awp_deaths: only %d total — dry/repeek/isolated %% unreliable", agg.AWPDeaths))
+	}
+
+	if agg.AvgTTKMs == 0 {
+		warnings = append(warnings, "median_ttk_ms: no multi-hit kill data available")
+	}
+	if agg.AvgTTDMs == 0 {
+		warnings = append(warnings, "median_ttd_ms: no multi-hit death data available")
+	}
+	if agg.AvgCorrectionDeg == 0 {
+		warnings = append(warnings, "median_correction_deg: no first-sight duel data available")
+	}
+
+	for _, seg := range segs {
+		if seg.DuelCount < 10 {
+			warnings = append(warnings, fmt.Sprintf("fhhs_%s_%s: only %d duel(s) — treat with caution",
+				strings.ToLower(seg.WeaponBucket), strings.ReplaceAll(seg.DistanceBin, " ", "_"), seg.DuelCount))
+		}
+	}
+
+	return warnings
+}
+
 // buildMatchContext serialises a single match into compact JSON.
 func buildMatchContext(demo *model.MatchSummary, stats []model.PlayerMatchStats, clutch map[uint64]*model.PlayerClutchMatchStats) (string, error) {
 	type playerEntry struct {
-		Name      string  `json:"name"`
-		Role      string  `json:"role"`
-		KD        float64 `json:"kd"`
-		ADR       float64 `json:"adr"`
-		KASTPct   float64 `json:"kast_pct"`
-		Kills     int     `json:"kills"`
-		Assists   int     `json:"assists"`
-		Deaths    int     `json:"deaths"`
-		HSPct     float64 `json:"hs_pct"`
-		OpeningK  int     `json:"opening_k"`
-		OpeningD  int     `json:"opening_d"`
-		TradeK    int     `json:"trade_k"`
-		TradeD    int     `json:"trade_d"`
-		Clutch    map[string]string `json:"clutch"`
+		Name     string            `json:"name"`
+		Role     string            `json:"role"`
+		KD       float64           `json:"kd"`
+		ADR      float64           `json:"adr"`
+		KASTPct  float64           `json:"kast_pct"`
+		Kills    int               `json:"kills"`
+		Assists  int               `json:"assists"`
+		Deaths   int               `json:"deaths"`
+		HSPct    float64           `json:"hs_pct"`
+		OpeningK int               `json:"opening_k"`
+		OpeningD int               `json:"opening_d"`
+		TradeK   int               `json:"trade_k"`
+		TradeD   int               `json:"trade_d"`
+		Clutch   map[string]string `json:"clutch"`
 	}
 
 	players := make([]playerEntry, 0, len(stats))
@@ -334,7 +606,6 @@ func clutchStr(wins, attempts int) string {
 
 // round2 rounds a float64 to 2 decimal places.
 func round2(v float64) float64 {
-	// Use integer arithmetic to avoid floating-point drift.
 	return float64(int(v*100+0.5)) / 100
 }
 
@@ -376,7 +647,6 @@ func callAnthropic(ctx context.Context, apiKey, modelID, dataJSON, question stri
 	fmt.Fprintln(os.Stdout, "\n─────────────────────────────────────────────────────")
 
 	if err := stream.Err(); err != nil {
-		// Provide a cleaner error message for common API errors.
 		errStr := err.Error()
 		if strings.Contains(errStr, "401") || strings.Contains(errStr, "authentication") {
 			return fmt.Errorf("API authentication failed — check your API key")
