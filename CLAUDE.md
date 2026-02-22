@@ -80,7 +80,7 @@ Core types (all in `internal/model/model.go`):
 
 ## Documentation Rule
 
-Every new feature must be reflected in the relevant docs files (`README.md`, `docs/architecture.md`). When adding a command, flag, metric, or output table, update those files as part of the same change.
+**Every change — bug fix, feature, refactor, or behavioural tweak — must be reflected in ALL relevant docs files before the work is considered done.** This includes `README.md`, `docs/architecture.md`, and any other file under `docs/` that covers the modified area. When adding or changing a command, flag, metric, output table, or pipeline behaviour, update those files as part of the same change. Do not commit code changes without the corresponding doc updates.
 
 ## Key Validation Rules
 
