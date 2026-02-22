@@ -139,7 +139,16 @@ func doFetchMM(db *storage.DB, steamID, authCode, apiKey, startCode, mapFilter s
 			continue
 		}
 
-		fmt.Printf("[%d/%d] code=%s  matchID=%d\n", ingested+1, count, currentCode, sc.MatchID)
+		// Lower 32 bits of matchID encode the Unix timestamp of the match.
+		matchTS := time.Unix(int64(sc.MatchID&0xFFFFFFFF), 0).UTC()
+		matchDate := matchTS.Format("2006-01-02")
+
+		fmt.Printf("[%d/%d] code=%s  matchID=%d  date=%s\n",
+			ingested+1, count, currentCode, sc.MatchID, matchDate)
+
+		if time.Since(matchTS) > 32*24*time.Hour {
+			fmt.Fprintf(os.Stderr, "  [warn] match is older than 32 days — demo has likely expired\n")
+		}
 
 		fmt.Printf("  resolving replay server…")
 		replayURL, err := steam.ResolveReplayURL(sc)
@@ -191,7 +200,7 @@ func doFetchMM(db *storage.DB, steamID, authCode, apiKey, startCode, mapFilter s
 		summary := model.MatchSummary{
 			DemoHash:  raw.DemoHash,
 			MapName:   raw.MapName,
-			MatchDate: time.Unix(int64(sc.MatchID>>32), 0).UTC().Format("2006-01-02"),
+			MatchDate: matchDate,
 			MatchType: "MM",
 			Tickrate:  raw.Tickrate,
 			CTScore:   ctScore,

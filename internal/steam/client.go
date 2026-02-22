@@ -45,17 +45,18 @@ func (c *Client) NextShareCode(steamID, authCode, knownCode string) (string, err
 	}
 	defer resp.Body.Close()
 
+	body, _ := io.ReadAll(resp.Body)
+
 	switch resp.StatusCode {
-	case http.StatusOK:
-		// handled below
-	case http.StatusPreconditionFailed: // 412 — chain exhausted
+	case http.StatusOK, http.StatusAccepted: // 200 or 202
+		// handled below — 202 is returned when the chain is at its tip
+	case http.StatusPreconditionFailed: // 412 — chain exhausted (documented)
 		return "", nil
 	case http.StatusForbidden: // 403 — bad auth code
 		return "", fmt.Errorf("steam: invalid auth code — generate one at Steam Settings → Account → Game Details")
 	case http.StatusServiceUnavailable: // 503 — rate limited
 		return "", fmt.Errorf("steam: rate limited by Valve API, wait a moment and retry")
 	default:
-		body, _ := io.ReadAll(resp.Body)
 		snippet := string(body)
 		if len(snippet) > 200 {
 			snippet = snippet[:200]
@@ -63,7 +64,6 @@ func (c *Client) NextShareCode(steamID, authCode, knownCode string) (string, err
 		return "", fmt.Errorf("steam: HTTP %d: %s", resp.StatusCode, snippet)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
 	var result struct {
 		Result struct {
 			NextCode string `json:"nextcode"`
@@ -71,6 +71,11 @@ func (c *Client) NextShareCode(steamID, authCode, knownCode string) (string, err
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return "", fmt.Errorf("steam: decode response: %w", err)
+	}
+	// "n/a" is the API's way of saying no newer match exists (often returned
+	// alongside HTTP 202 instead of the documented 412).
+	if result.Result.NextCode == "" || result.Result.NextCode == "n/a" {
+		return "", nil
 	}
 	return result.Result.NextCode, nil
 }
