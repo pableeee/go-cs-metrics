@@ -293,9 +293,11 @@ func buildPlayerContext(
 			"kills":  agg.TradeKills,
 			"deaths": agg.TradeDeaths,
 		},
-		"flash": map[string]interface{}{
-			"assists":   agg.FlashAssists,
-			"effective": agg.EffectiveFlashes,
+		"utility": map[string]interface{}{
+			"flash_assists":     agg.FlashAssists,
+			"effective_flashes": agg.EffectiveFlashes,
+			"utility_damage":    sumUtilityDamage(stats),
+			"unused_utility":    sumUnusedUtility(stats),
 		},
 		"aim": aimSection,
 		"awp_deaths": map[string]interface{}{
@@ -309,7 +311,8 @@ func buildPlayerContext(
 		"trend":       buildTrendContext(stats),
 		"fhhs":        buildFHHSContext(mergedSegs),
 		"weapons":     buildWeaponContext(weaponStats),
-		"buy_profile": buildBuyProfile(roundStats),
+		"buy_profile":  buildBuyProfile(roundStats),
+		"post_plant":   buildPostPlantProfile(roundStats),
 		"low_confidence": buildLowConfidence(agg, clutch, mergedSegs),
 	}
 
@@ -477,6 +480,59 @@ func buildBuyProfile(rounds []model.PlayerRoundStats) map[string]interface{} {
 		}
 	}
 	return out
+}
+
+// sumUtilityDamage sums UtilityDamage across all filtered matches.
+func sumUtilityDamage(stats []model.PlayerMatchStats) int {
+	total := 0
+	for _, s := range stats {
+		total += s.UtilityDamage
+	}
+	return total
+}
+
+// sumUnusedUtility sums UnusedUtility across all filtered matches.
+func sumUnusedUtility(stats []model.PlayerMatchStats) int {
+	total := 0
+	for _, s := range stats {
+		total += s.UnusedUtility
+	}
+	return total
+}
+
+// buildPostPlantProfile summarises performance in post-plant vs. non-post-plant rounds.
+func buildPostPlantProfile(rounds []model.PlayerRoundStats) map[string]interface{} {
+	type accum struct {
+		count, kills, damage, kastCount int
+	}
+	var pp, nonPP accum
+	for _, r := range rounds {
+		a := &nonPP
+		if r.IsPostPlant {
+			a = &pp
+		}
+		a.count++
+		a.kills += r.Kills
+		a.damage += r.Damage
+		if r.KASTEarned {
+			a.kastCount++
+		}
+	}
+	summarise := func(a accum) map[string]interface{} {
+		if a.count == 0 {
+			return nil
+		}
+		return map[string]interface{}{
+			"rounds":     a.count,
+			"avg_kills":  round2(float64(a.kills) / float64(a.count)),
+			"avg_damage": round2(float64(a.damage) / float64(a.count)),
+			"kast_pct":   round2(float64(a.kastCount) / float64(a.count) * 100),
+		}
+	}
+	return map[string]interface{}{
+		"post_plant":     summarise(pp),
+		"non_post_plant": summarise(nonPP),
+	}
 }
 
 // buildLowConfidence returns a list of human-readable strings describing metrics
