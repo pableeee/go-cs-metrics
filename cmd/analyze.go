@@ -276,23 +276,27 @@ func buildPlayerContext(
 		"matches_analyzed": agg.Matches,
 		"filters":          filters,
 		"overview": map[string]interface{}{
-			"role":     agg.Role,
-			"kd":       round2(agg.KDRatio()),
-			"hs_pct":   round2(agg.HSPercent()),
-			"adr":      round2(agg.ADR()),
-			"kast_pct": round2(agg.KASTPct()),
-			"kills":    agg.Kills,
-			"assists":  agg.Assists,
-			"deaths":   agg.Deaths,
-			"rounds":   agg.RoundsPlayed,
+			"role":       agg.Role,
+			"kd":         round2(agg.KDRatio()),
+			"hs_pct":     round2(agg.HSPercent()),
+			"adr":        round2(agg.ADR()),
+			"kast_pct":   round2(agg.KASTPct()),
+			"kills":      agg.Kills,
+			"assists":    agg.Assists,
+			"deaths":     agg.Deaths,
+			"rounds":     agg.RoundsPlayed,
+			"rounds_won": agg.RoundsWon,
+			"win_rate":   round2(float64(agg.RoundsWon) / float64(max(agg.RoundsPlayed, 1)) * 100),
 		},
 		"opening": map[string]interface{}{
 			"kills":  agg.OpeningKills,
 			"deaths": agg.OpeningDeaths,
 		},
 		"trades": map[string]interface{}{
-			"kills":  agg.TradeKills,
-			"deaths": agg.TradeDeaths,
+			"kills":                     agg.TradeKills,
+			"deaths":                    agg.TradeDeaths,
+			"median_trade_kill_delay_ms":  round2(agg.AvgTradeKillDelayMs),
+			"median_trade_death_delay_ms": round2(agg.AvgTradeDeathDelayMs),
 		},
 		"utility": map[string]interface{}{
 			"flash_assists":     agg.FlashAssists,
@@ -326,14 +330,16 @@ func buildTrendContext(stats []model.PlayerMatchStats) []map[string]interface{} 
 	out := make([]map[string]interface{}, 0, len(stats))
 	for _, s := range stats {
 		entry := map[string]interface{}{
-			"date":     s.MatchDate,
-			"map":      strings.TrimPrefix(s.MapName, "de_"),
-			"side":     s.Team.String(),
-			"kd":       round2(s.KDRatio()),
-			"adr":      round2(s.ADR()),
-			"kast_pct": round2(s.KASTPct()),
-			"kills":    s.Kills,
-			"deaths":   s.Deaths,
+			"date":      s.MatchDate,
+			"map":       strings.TrimPrefix(s.MapName, "de_"),
+			"side":      s.Team.String(),
+			"kd":        round2(s.KDRatio()),
+			"adr":       round2(s.ADR()),
+			"kast_pct":  round2(s.KASTPct()),
+			"kills":     s.Kills,
+			"deaths":    s.Deaths,
+			"rounds":    s.RoundsPlayed,
+			"rounds_won": s.RoundsWon,
 			"opening_k": s.OpeningKills,
 			"opening_d": s.OpeningDeaths,
 		}
@@ -448,7 +454,7 @@ func buildWeaponContext(stats []model.PlayerWeaponStats) []map[string]interface{
 // buildBuyProfile summarises performance by buy type (full/force/half/eco).
 func buildBuyProfile(rounds []model.PlayerRoundStats) map[string]interface{} {
 	type accum struct {
-		count, kills, damage, kastCount int
+		count, kills, damage, kastCount, wonCount int
 	}
 	m := map[string]*accum{
 		"full":  {},
@@ -467,6 +473,9 @@ func buildBuyProfile(rounds []model.PlayerRoundStats) map[string]interface{} {
 		if r.KASTEarned {
 			a.kastCount++
 		}
+		if r.WonRound {
+			a.wonCount++
+		}
 	}
 	out := make(map[string]interface{}, 4)
 	for buyType, a := range m {
@@ -478,6 +487,7 @@ func buildBuyProfile(rounds []model.PlayerRoundStats) map[string]interface{} {
 			"avg_kills":  round2(float64(a.kills) / float64(a.count)),
 			"avg_damage": round2(float64(a.damage) / float64(a.count)),
 			"kast_pct":   round2(float64(a.kastCount) / float64(a.count) * 100),
+			"win_rate":   round2(float64(a.wonCount) / float64(a.count) * 100),
 		}
 	}
 	return out
@@ -504,7 +514,7 @@ func sumUnusedUtility(stats []model.PlayerMatchStats) int {
 // buildPostPlantProfile summarises performance in post-plant vs. non-post-plant rounds.
 func buildPostPlantProfile(rounds []model.PlayerRoundStats) map[string]interface{} {
 	type accum struct {
-		count, kills, damage, kastCount int
+		count, kills, damage, kastCount, wonCount int
 	}
 	var pp, nonPP accum
 	for _, r := range rounds {
@@ -518,6 +528,9 @@ func buildPostPlantProfile(rounds []model.PlayerRoundStats) map[string]interface
 		if r.KASTEarned {
 			a.kastCount++
 		}
+		if r.WonRound {
+			a.wonCount++
+		}
 	}
 	summarise := func(a accum) map[string]interface{} {
 		if a.count == 0 {
@@ -528,6 +541,7 @@ func buildPostPlantProfile(rounds []model.PlayerRoundStats) map[string]interface
 			"avg_kills":  round2(float64(a.kills) / float64(a.count)),
 			"avg_damage": round2(float64(a.damage) / float64(a.count)),
 			"kast_pct":   round2(float64(a.kastCount) / float64(a.count) * 100),
+			"win_rate":   round2(float64(a.wonCount) / float64(a.count) * 100),
 		}
 	}
 	return map[string]interface{}{

@@ -190,6 +190,8 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 	var expoWinN, expoLossN, corrN, hitsN int
 	var ttkSum, ttdSum, csSum float64
 	var ttkN, ttdN, csN int
+	var tradeKillDelaySum, tradeDeathDelaySum float64
+	var tradeKillDelayN, tradeDeathDelayN int
 	roleCounts := make(map[string]int)
 
 	for _, s := range stats {
@@ -206,6 +208,7 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 		agg.OpeningDeaths += s.OpeningDeaths
 		agg.TradeKills += s.TradeKills
 		agg.TradeDeaths += s.TradeDeaths
+		agg.RoundsWon += s.RoundsWon
 		agg.DuelWins += s.DuelWins
 		agg.DuelLosses += s.DuelLosses
 		agg.AWPDeaths += s.AWPDeaths
@@ -242,6 +245,14 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 			csSum += s.CounterStrafePercent
 			csN++
 		}
+		if s.MedianTradeKillDelayMs > 0 {
+			tradeKillDelaySum += s.MedianTradeKillDelayMs
+			tradeKillDelayN++
+		}
+		if s.MedianTradeDeathDelayMs > 0 {
+			tradeDeathDelaySum += s.MedianTradeDeathDelayMs
+			tradeDeathDelayN++
+		}
 		role := s.Role
 		if role == "" {
 			role = "Rifler"
@@ -269,6 +280,12 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 	}
 	if csN > 0 {
 		agg.AvgCounterStrafePct = csSum / float64(csN)
+	}
+	if tradeKillDelayN > 0 {
+		agg.AvgTradeKillDelayMs = tradeKillDelaySum / float64(tradeKillDelayN)
+	}
+	if tradeDeathDelayN > 0 {
+		agg.AvgTradeDeathDelayMs = tradeDeathDelaySum / float64(tradeDeathDelayN)
 	}
 	// Most common role across matches.
 	bestRole, bestCount := "Rifler", 0

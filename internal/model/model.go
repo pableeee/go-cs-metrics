@@ -199,6 +199,11 @@ type PlayerMatchStats struct {
 	MedianTTDMs           float64 // median ms enemy's first shot → death, multi-hit only (victim POV)
 	OneTapKills           int     // kills where the first shot in the 3s window was the kill shot
 	CounterStrafePercent  float64 // % of shots fired while horizontal speed ≤ 34 u/s
+
+	// Round outcome and trade timing
+	RoundsWon               int     // rounds where player's team won
+	MedianTradeKillDelayMs  float64 // median ms from teammate's death to player's trade kill
+	MedianTradeDeathDelayMs float64 // median ms from player's death to teammate's trade kill
 }
 
 // KDRatio returns the kill-to-death ratio. If deaths is 0, kills is returned.
@@ -263,6 +268,7 @@ type PlayerRoundStats struct {
 	IsPostPlant      bool // bomb was planted at some point this round
 	IsInClutch       bool // player was last alive on their team with ≥1 enemy alive
 	ClutchEnemyCount int  // max enemies alive when player entered clutch (0 if not clutch)
+	WonRound         bool // player's team won this round
 }
 
 // PlayerClutchMatchStats holds per-match clutch attempt/win counts broken down
@@ -353,6 +359,11 @@ type PlayerAggregate struct {
 	AvgTTDMs               float64
 	OneTapKills            int
 	AvgCounterStrafePct    float64
+
+	// Round outcome and trade timing
+	RoundsWon                  int
+	AvgTradeKillDelayMs        float64
+	AvgTradeDeathDelayMs       float64
 }
 
 // KDRatio returns the aggregate kill-to-death ratio across all matches.

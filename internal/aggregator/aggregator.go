@@ -111,8 +111,10 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 
 	type annotatedKill struct {
 		model.RawKill
-		isTradeKill  bool // this kill trades a previous enemy kill
-		isTradeDeath bool // this kill will be traded (victim traded the killer)
+		isTradeKill          bool // this kill trades a previous enemy kill
+		isTradeDeath         bool // this kill will be traded (victim traded the killer)
+		tradeKillDelayTicks  int  // ticks from the traded kill to this kill
+		tradeDeathDelayTicks int  // ticks from this kill to when the killer was traded
 	}
 
 	// Group kills by round, sort each group by tick ascending.
@@ -143,6 +145,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 				// prev killed k.Victim's side; k.Killer now kills prev.Killer
 				if prev.KillerSteamID == k.VictimSteamID && prev.VictimTeam == k.KillerTeam {
 					k.isTradeKill = true
+					k.tradeKillDelayTicks = k.Tick - prev.Tick
 					break
 				}
 			}
@@ -156,8 +159,25 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 				// k killed someone; next kills k.Killer (teammate of k.Victim trades)
 				if next.VictimSteamID == k.KillerSteamID && next.KillerTeam == k.VictimTeam {
 					k.isTradeDeath = true
+					k.tradeDeathDelayTicks = next.Tick - k.Tick
 					break
 				}
+			}
+		}
+	}
+
+	// Collect per-player trade delay samples from the annotated kills.
+	tradeKillDelays  := make(map[uint64][]float64) // killerID → ms delays for their trade kills
+	tradeDeathDelays := make(map[uint64][]float64) // victimID → ms delays until their death was traded
+	for _, kills := range killsByRound {
+		for _, k := range kills {
+			if k.isTradeKill && k.tradeKillDelayTicks > 0 {
+				ms := float64(k.tradeKillDelayTicks) / raw.TicksPerSecond * 1000
+				tradeKillDelays[k.KillerSteamID] = append(tradeKillDelays[k.KillerSteamID], ms)
+			}
+			if k.isTradeDeath && k.tradeDeathDelayTicks > 0 {
+				ms := float64(k.tradeDeathDelayTicks) / raw.TicksPerSecond * 1000
+				tradeDeathDelays[k.VictimSteamID] = append(tradeDeathDelays[k.VictimSteamID], ms)
 			}
 		}
 	}
@@ -330,6 +350,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		tradeKills, tradeDeaths     int
 		kastRounds, roundsPlayed    int
 		unusedUtility               int
+		roundsWon                   int
 	}
 	matchAccums := make(map[uint64]*matchAccum)
 	for id := range playerSet {
@@ -440,18 +461,22 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			// KAST: Kill, Assist, Survive, or Traded.
 			rs.KASTEarned = rs.GotKill || rs.GotAssist || rs.Survived || rs.WasTraded
 
-			// Round context: post-plant and clutch.
+			// Round context: post-plant, clutch, and win/loss.
 			rs.IsPostPlant = round.BombPlantTick > 0
 			if ci, ok := clutchMap[playerID]; ok {
 				rs.IsInClutch = ci.isClutch
 				rs.ClutchEnemyCount = ci.enemyCount
 			}
+			rs.WonRound = round.WinnerTeam != model.TeamUnknown && round.WinnerTeam == rs.Team
 
 			allRoundStats = append(allRoundStats, rs)
 
 			// Accumulate match-level stats.
 			acc := matchAccums[playerID]
 			acc.roundsPlayed++
+			if rs.WonRound {
+				acc.roundsWon++
+			}
 			acc.kills += rs.Kills
 			acc.assists += rs.Assists
 			acc.totalDamage += rs.Damage
@@ -515,7 +540,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		if acc.roundsPlayed == 0 {
 			continue
 		}
-		matchStats = append(matchStats, model.PlayerMatchStats{
+		ms := model.PlayerMatchStats{
 			DemoHash:       raw.DemoHash,
 			SteamID:        playerID,
 			Name:           raw.PlayerNames[playerID],
@@ -534,7 +559,17 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			TradeDeaths:    acc.tradeDeaths,
 			KASTRounds:     acc.kastRounds,
 			UnusedUtility:  acc.unusedUtility,
-		})
+			RoundsWon:      acc.roundsWon,
+		}
+		if delays := tradeKillDelays[playerID]; len(delays) > 0 {
+			sort.Float64s(delays)
+			ms.MedianTradeKillDelayMs = median(delays)
+		}
+		if delays := tradeDeathDelays[playerID]; len(delays) > 0 {
+			sort.Float64s(delays)
+			ms.MedianTradeDeathDelayMs = median(delays)
+		}
+		matchStats = append(matchStats, ms)
 	}
 
 	// Sort by kills desc for stable output.
