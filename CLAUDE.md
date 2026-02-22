@@ -37,10 +37,11 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `fetch` | Download and ingest FACEIT baseline demos |
 | `player <steamid64>...` | Cross-match aggregate report for one or more players (`--map`, `--since`, `--last` filters) |
 | `rounds <hash-prefix> <steamid64>` | Per-round drill-down with buy type, flags (POST_PLT, CLUTCH_1vN) |
-| `trend <steamid64>` | Chronological per-match performance trend (KPR/ADR/KAST% + TTK/TTD) |
+| `trend <steamid64>` | Chronological per-match performance trend (KPR/ADR/KAST% + TTK/TTD/CS%) |
 | `sql <query>` | Run an arbitrary SQL query against the metrics database; prints results as a table |
+| `drop [--force]` | Delete the metrics database file; requires `--force` to actually delete |
 
-All commands share `--db` to point at an alternate database.
+All commands share `--db` to point at an alternate database and `--silent` / `-s` to suppress column legends (verbose output is on by default).
 
 ## Data Model
 
@@ -64,6 +65,7 @@ Core types (all in `internal/model/model.go`):
 8. Flash quality window (effective flashes within 1.5 s)
 9. Role classification (AWPer/Entry/Support/Rifler)
 10. TTK/TTD/one-tap kills (first shot fired → kill, 3 s rolling window)
+11. Counter-strafe % (shots fired at horizontal speed ≤ 34 u/s, via `e.Shooter.Velocity()` captured at WeaponFire time)
 
 ## Key Implementation Notes
 

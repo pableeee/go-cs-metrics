@@ -19,7 +19,9 @@ go-cs-metrics/
 │   ├── show.go                      # "show <hash-prefix>" — replay stored match
 │   ├── player.go                    # "player <steamid64>..." — cross-match aggregate
 │   ├── rounds.go                    # "rounds <hash> <steamid>" — per-round drill-down
-│   └── trend.go                     # "trend <steamid64>" — chronological per-match trend
+│   ├── trend.go                     # "trend <steamid64>" — chronological per-match trend
+│   ├── sql.go                       # "sql <query>" — ad-hoc SQL query
+│   └── drop.go                      # "drop [--force]" — delete the metrics database
 └── internal/
     ├── model/model.go               # all shared types; no external deps
     ├── parser/parser.go             # .dem → RawMatch
@@ -299,16 +301,18 @@ demos                         (hash PK, map, date, type, tickrate, ct_score, t_s
 Subcommands, all accessed via a persistent `--db` flag on the root command:
 
 ```
-csmetrics parse match.dem [--player <steamid64>] [--type Label] [--tier Label] [--baseline]
+csmetrics parse [<demo.dem>...] [--dir <dir>] [--player <steamid64>] [--type Label] [--tier Label] [--baseline]
 csmetrics list
 csmetrics show <hash-prefix> [--player <steamid64>]
 csmetrics fetch [flags]
-csmetrics player <steamid64> [<steamid64>...]
+csmetrics player <steamid64> [<steamid64>...] [--map <name>] [--since <date>] [--last <N>]
 csmetrics rounds <hash-prefix> <steamid64>
 csmetrics trend <steamid64>
+csmetrics sql "<query>"
+csmetrics drop [--force]
 ```
 
-All commands also accept `-v` / `--verbose` (persistent flag on root). When set, a one-line column legend is printed before each table. Section titles (`--- Name ---`) are always printed regardless of `-v`.
+All commands also accept `--silent` / `-s` (persistent flag on root). When set, the one-line column legend printed before each table is suppressed. Verbose output (legends) is shown by default; section titles (`--- Name ---`) are always printed regardless of `--silent`.
 
 **Output order** for `parse` and `show`:
 1. Match summary (map, date, score, hash)
@@ -383,7 +387,7 @@ Tests use an in-memory SQLite database (`:memory:`). Each test opens a fresh dat
 - ~~**Phase 2 metrics (crosshair placement)**~~: Crosshair placement (median angle, pitch/yaw split, pct under 5°) and pre-shot correction are now implemented.
 - ~~**Round context**~~: Post-plant (`IsPostPlant`) and clutch detection (`IsInClutch`, `ClutchEnemyCount`) are now implemented and shown as `POST_PLT`/`CLUTCH_1vN` flags in the `rounds` command.
 - ~~**Trend view**~~: The `trend` command shows chronological per-match KPR/ADR/KAST% and TTK/TTD/one-tap% tables.
-- ~~**Counter-strafe %**~~: Removed — lateral velocity at demo GOTV frame rate (32 Hz) is too noisy to be reliable; replaced by TTK/TTD/one-tap metrics.
+- ~~**Counter-strafe %**~~: Implemented. Player horizontal speed is captured at each `WeaponFire` event via `e.Shooter.Velocity()`; shots at ≤ 34 u/s (counter-strafed) are counted vs total shots per player to produce `CS%`. Shown in aim timing tables and `AVG_CS%` in the `player` command.
 - **Schema migrations**: The current schema is applied with `IF NOT EXISTS`, which is safe for initial creation but provides no migration path for adding columns. A versioned migration scheme (e.g. tracking schema version in a `meta` table) would be needed before the schema is considered stable. Currently, a DB rebuild (`rm metrics.db`) is required whenever the schema changes.
 - **No index on FK columns**: `demo_hash` columns in child tables are not indexed. Fine for current query patterns (always full-scan of a single demo's rows) but will degrade as the database grows.
 - **Distance bin for "unknown"**: Duels where the attacker had no weapon-fire event in the duel window (e.g., kill grenade, knife) or where the victim had no hit recorded are placed in the `"unknown"` distance bin. These are not surfaced as a quality warning in the current output.

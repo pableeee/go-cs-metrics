@@ -19,6 +19,7 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
   - [rounds](#rounds)
   - [trend](#trend)
   - [sql](#sql)
+  - [drop](#drop)
 - [Metric Definitions](#metric-definitions)
   - [General](#general)
   - [Entry Frags](#entry-frags)
@@ -119,11 +120,11 @@ All commands share two global flags:
 | Flag | Description |
 |------|-------------|
 | `--db <path>` | Path to SQLite database (default: `~/.csmetrics/metrics.db`) |
-| `-v` / `--verbose` | Print a one-line explanation of each table's columns before rendering it |
+| `-s` / `--silent` | Hide metric explanations printed before each table (verbose output is shown by default) |
 
 ```sh
 ./go-cs-metrics --db /custom/path/metrics.db <command>
-./go-cs-metrics -v player 76561198XXXXXXXXX
+./go-cs-metrics -s player 76561198XXXXXXXXX
 ```
 
 ---
@@ -380,6 +381,29 @@ Chronological per-match performance trend for a single player. Shows two tables 
  2026-01-15  | inferno | 26 | 22 | 3 | 11 | 2.00 | 0.85 |  97.1 |  77%
  ...
 ```
+
+---
+
+### drop
+
+Permanently delete the metrics database file. All stored demo data is lost; re-parse your demos to rebuild.
+
+```
+./go-cs-metrics drop [--force]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--force` / `-f` | `false` | Skip the confirmation prompt and delete immediately |
+
+Without `--force`, the command prints the database path and exits safely. Add `--force` to actually delete:
+
+```sh
+./go-cs-metrics drop --force
+# Deleted: /home/user/.csmetrics/metrics.db
+```
+
+> Use this before re-parsing when a schema change requires a full rebuild.
 
 ---
 
@@ -802,7 +826,7 @@ go test ./internal/aggregator/... -run TestTradeKill -v
 - ~~**Buy type**~~ — done (eco/half/force/full per round from equipment value).
 - ~~**Drill-down**~~ — done (`rounds` command shows per-round detail with buy type and flags).
 - ~~**TTK/TTD**~~ — done (median ms from first hit to kill/death).
-- **Counter-strafe %** — detect shots fired while counter-strafing (horizontal speed ≤ 34 u/s); requires `WeaponFire` + player velocity data.
+- ~~**Counter-strafe %**~~ — done. Shots fired at horizontal speed ≤ 34 u/s (≈ stopped/counter-strafed); shown as `CS%` in aim timing tables and `AVG_CS%` in the `player` command.
 - ~~**Trend view**~~ — done (`trend` command, chronological KPR/ADR/KAST% and TTK/TTD tables per match).
 - ~~**Round context**~~ — done (`POST_PLT` and `CLUTCH_1vN` flags in `rounds` drill-down).
 - ~~**Player filters**~~ — done (`--map`, `--since`, `--last` on the `player` command).
