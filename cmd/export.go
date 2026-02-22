@@ -30,10 +30,20 @@ type rosterFile struct {
 }
 
 // simbo3TeamStats is the top-level JSON schema expected by cs2-pro-match-simulator.
+//
+// players_rating2_3m and matches_3m use the "_3m" naming convention from HLTV's
+// standard 3-month rolling window. The actual window is recorded in window_days;
+// the field names are kept as-is for compatibility with simbo3, which ignores
+// the provenance fields (generated_at, window_days, latest_match_date, demo_count)
+// via standard JSON unmarshalling.
 type simbo3TeamStats struct {
 	Team              string                    `json:"team"`
 	PlayersRating2_3m []float64                 `json:"players_rating2_3m"`
 	Maps              map[string]simbo3MapStats `json:"maps"`
+	GeneratedAt       string                    `json:"generated_at"`
+	WindowDays        int                       `json:"window_days"`
+	LatestMatchDate   string                    `json:"latest_match_date"`
+	DemoCount         int                       `json:"demo_count"`
 }
 
 // simbo3MapStats is the per-map block within the simbo3 team JSON.
@@ -105,12 +115,11 @@ func runExport(_ *cobra.Command, _ []string) error {
 	fmt.Fprintf(os.Stderr, "Found %d qualifying demos\n", len(demos))
 
 	// Group demo hashes by map name and collect all hashes for the rating query.
-	// Normalize map names from CS2 format (de_mirage) to simbo3 format (Mirage).
+	// Map names are already normalized at storage time (e.g. "Mirage" not "de_mirage").
 	byMap := make(map[string][]string)
 	allHashes := make([]string, 0, len(demos))
 	for _, d := range demos {
-		name := normalizeMapName(d.MapName)
-		byMap[name] = append(byMap[name], d.Hash)
+		byMap[d.MapName] = append(byMap[d.MapName], d.Hash)
 		allHashes = append(allHashes, d.Hash)
 	}
 
@@ -177,6 +186,15 @@ func runExport(_ *cobra.Command, _ []string) error {
 		Team:              teamName,
 		PlayersRating2_3m: ratings,
 		Maps:              maps,
+		GeneratedAt:       time.Now().UTC().Format(time.RFC3339),
+		WindowDays:        exportSince,
+		LatestMatchDate:   demos[0].MatchDate,
+		DemoCount:         len(demos),
+	}
+	if exportSince != 90 {
+		fmt.Fprintf(os.Stderr,
+			"note: window_days=%d — players_rating2_3m and matches_3m use the conventional _3m names but cover your %d-day window\n",
+			exportSince, exportSince)
 	}
 
 	data, err := json.MarshalIndent(out, "", "  ")
@@ -266,14 +284,4 @@ func buildRatings(totals []storage.PlayerTotals) []float64 {
 
 func roundTo2dp(v float64) float64 {
 	return math.Round(v*100) / 100
-}
-
-// normalizeMapName converts CS2 map identifiers to the title-case names used by
-// simbo3 (e.g. "de_mirage" → "Mirage", "de_dust2" → "Dust2").
-func normalizeMapName(name string) string {
-	name = strings.TrimPrefix(name, "de_")
-	if len(name) == 0 {
-		return name
-	}
-	return strings.ToUpper(name[:1]) + name[1:]
 }

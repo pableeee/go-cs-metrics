@@ -143,7 +143,7 @@ Parse one or more `.dem` files, aggregate all metrics, and store the results. If
 |------|---------|-------------|
 | `--player` | `0` | SteamID64 of the player to highlight in output tables |
 | `--type` | `Competitive` | Match type label stored in the database (e.g. `FACEIT`, `Scrim`) |
-| `--tier` | `""` | Tier label for baseline comparisons (e.g. `faceit-5`, `premier-10k`) |
+| `--tier` | `""` | Tier label for baseline comparisons (e.g. `faceit-5`, `premier-10k`); auto-detected from an `event.json` sidecar in the demo directory if present |
 | `--baseline` | `false` | Mark this demo as a baseline reference match |
 | `--dir` | `""` | Directory containing `.dem` files to parse in bulk (all `*.dem` files inside) |
 
@@ -206,11 +206,13 @@ List all demos stored in the database, ordered by match date (newest first).
 
 **Output columns:** hash prefix, map, date, type, CT–T score, tickrate.
 
+Map names are stored in normalized title-case form (e.g. `Mirage`, not `de_mirage`).
+
 ```
-HASH            MAP           DATE        TYPE          SCORE   TICK
-──────────────  ────────────  ──────────  ────────────  ──────  ────
-a3f9c2d81b40    de_mirage     2026-02-20  Competitive   13-7    128
-b7e1a4f03c22    de_inferno    2026-02-18  FACEIT        16-14   64
+HASH            MAP       DATE        TYPE          SCORE   TICK
+──────────────  ────────  ──────────  ────────────  ──────  ────
+a3f9c2d81b40    Mirage    2026-02-20  Competitive   13-7    128
+b7e1a4f03c22    Inferno   2026-02-18  FACEIT        16-14   64
 ...
 ```
 
@@ -338,7 +340,7 @@ Per-round drill-down table for one player in one match. Shows side, buy type, ki
 ```
 
 ```
-=== PlayerName — de_mirage — 25 rounds ===
+=== PlayerName — Mirage — 25 rounds ===
 
  RD | SIDE | BUY   | K | A | DMG | KAST | FLAGS
   1 | CT   | full  | 2 | 0 | 150 | ✓    | OPEN_K
@@ -376,8 +378,8 @@ Chronological per-match performance trend for a single player. Shows two tables 
 ```
 --- Performance Trend ---
  DATE        | MAP     | RD | K  | A | D  | K/D  | KPR  | ADR   | KAST%
- 2026-01-10  | mirage  | 24 | 18 | 5 | 14 | 1.29 | 0.75 |  82.3 |  71%
- 2026-01-15  | inferno | 26 | 22 | 3 | 11 | 2.00 | 0.85 |  97.1 |  77%
+ 2026-01-10  | Mirage  | 24 | 18 | 5 | 14 | 1.29 | 0.75 |  82.3 |  71%
+ 2026-01-15  | Inferno | 26 | 22 | 3 | 11 | 2.00 | 0.85 |  97.1 |  77%
  ...
 ```
 
@@ -477,7 +479,7 @@ The query is passed as a single argument (quote it in the shell if it contains s
 
 | Table | Key columns |
 |-------|-------------|
-| `demos` | `hash`, `map_name`, `match_date`, `match_type`, `ct_score`, `t_score`, `tier`, `is_baseline` |
+| `demos` | `hash`, `map_name`, `match_date`, `match_type`, `ct_score`, `t_score`, `tier`, `is_baseline`, `event_id` |
 | `player_match_stats` | `demo_hash`, `steam_id` (TEXT), `name`, `kills`, `assists`, `deaths`, `total_damage`, `rounds_played`, `kast_rounds`, `role`, `median_ttk_ms`, `median_ttd_ms`, … |
 | `player_round_stats` | `demo_hash`, `steam_id` (TEXT), `round_number`, `team`, `kills`, `damage`, `buy_type`, `is_post_plant`, `is_in_clutch`, `clutch_enemy_count`, … |
 | `player_weapon_stats` | `demo_hash`, `steam_id` (TEXT), `weapon`, `kills`, `headshot_kills`, `damage`, `hits` |
@@ -541,6 +543,26 @@ Impact  = 2.13*KPR + 0.42*APR − 0.41
 
 The top 5 players by rounds played are selected. Fewer than 5 are padded with `1.00`.
 
+**Output JSON structure:**
+
+```json
+{
+  "team": "NaVi",
+  "players_rating2_3m": [1.19, 1.12, 1.08, 1.03, 0.97],
+  "maps": {
+    "Mirage": { "map_win_pct": 0.67, "ct_round_win_pct": 0.56, "t_round_win_pct": 0.52, "matches_3m": 18 }
+  },
+  "generated_at": "2026-02-22T10:00:00Z",
+  "window_days": 90,
+  "latest_match_date": "2026-02-20",
+  "demo_count": 34
+}
+```
+
+`generated_at` and `window_days` record when and over what period the file was produced. `latest_match_date` is the most recent match in the qualifying sample — useful for detecting stale exports. `demo_count` is the total number of qualifying demos used.
+
+> **Note:** `players_rating2_3m` and `matches_3m` use HLTV's conventional `_3m` naming regardless of `--since`. The actual window is captured in `window_days`. A warning is printed to stderr when `--since` is not 90.
+
 **Example — inline roster:**
 
 ```sh
@@ -591,9 +613,9 @@ No flags. Output sections:
 
 --- Maps ---
 
- MAP          | MATCHES | CT WINS | T WINS | CT WIN%
- de_mirage    |      12 |       8 |      4 |    67%
- de_inferno   |       8 |       5 |      3 |    63%
+ MAP      | MATCHES | CT WINS | T WINS | CT WIN%
+ Mirage  |      12 |       8 |      4 |    67%
+ Inferno |       8 |       5 |      3 |    63%
  ...
 
 --- Most Active Players ---
@@ -660,10 +682,20 @@ Found 34 qualifying demos
 Wrote navi.json
 ```
 
+**Checking export freshness:**
+
+The output JSON includes `latest_match_date` and `demo_count` so you can quickly verify the data covers a recent period before running a simulation:
+
+```sh
+jq '{latest: .latest_match_date, demos: .demo_count, window: .window_days}' navi.json
+# { "latest": "2026-02-20", "demos": 34, "window": 90 }
+```
+
 **Key caveats:**
 - Rating 2.0 is a *proxy* — the official HLTV formula is proprietary. Expect ±0.05–0.10 deviation.
 - The tool has no concept of team names; you must supply rosters as SteamID lists.
 - Lower `--quorum` if few demos exist (but watch for noisy stats with small samples).
+- Check `latest_match_date` in the JSON before simulating — a stale export will produce predictions based on outdated form.
 
 ---
 
@@ -802,14 +834,15 @@ Default location: `~/.csmetrics/metrics.db` (SQLite, WAL mode, foreign keys on).
 | Column | Type | Description |
 |--------|------|-------------|
 | `hash` | TEXT PK | SHA-256 of the raw `.dem` file |
-| `map_name` | TEXT | e.g. `de_mirage` |
-| `match_date` | TEXT | ISO 8601 date (parse date, not embedded match time) |
+| `map_name` | TEXT | Normalized title-case name, e.g. `Mirage` (stored without `de_` prefix) |
+| `match_date` | TEXT | ISO 8601 date (demo file mtime — set by CS2 at match end) |
 | `match_type` | TEXT | e.g. `Competitive`, `FACEIT`, `Scrim` |
 | `tickrate` | REAL | Demo tickrate (64 or 128) |
 | `ct_score` | INTEGER | Rounds won by CT |
 | `t_score` | INTEGER | Rounds won by T |
-| `tier` | TEXT | Skill tier label (e.g. `faceit-5`) |
+| `tier` | TEXT | Skill tier label (e.g. `faceit-5`); auto-populated from `event.json` sidecar if present |
 | `is_baseline` | INTEGER | 1 if reference corpus, 0 if personal match |
+| `event_id` | TEXT | Event identifier from `event.json` sidecar (e.g. `iem_cologne_2025`); empty if unknown |
 
 **`player_match_stats`** — one row per player per demo, with all aggregated metrics (36 columns). Unique on `(demo_hash, steam_id)`.
 

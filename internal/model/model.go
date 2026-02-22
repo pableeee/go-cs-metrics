@@ -508,6 +508,7 @@ type MatchSummary struct {
 	Tickrate   float64
 	CTScore    int
 	TScore     int
-	Tier       string // e.g. "faceit-5", "faceit-8"; empty for personal matches
+	Tier       string // e.g. "pro", "semi-pro", "faceit-5"; empty for personal matches
 	IsBaseline bool   // true for reference corpus demos
+	EventID    string // event identifier from demoget (e.g. "iem_cologne_2025"); empty if unknown
 }

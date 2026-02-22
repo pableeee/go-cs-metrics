@@ -282,7 +282,7 @@ Additionally, the **frame-walk loop** inspects `m_bSpottedByMask` transitions ev
 Six tables:
 
 ```
-demos                         (hash PK, map, date, type, tickrate, ct_score, t_score, tier, is_baseline)
+demos                         (hash PK, map_name, date, type, tickrate, ct_score, t_score, tier, is_baseline, event_id)
   │
   ├── player_match_stats       (demo_hash FK, steam_id, ~35 aggregated metric columns)
   │                            UNIQUE(demo_hash, steam_id)
@@ -300,7 +300,13 @@ demos                         (hash PK, map, date, type, tickrate, ct_score, t_s
                                UNIQUE(demo_hash, steam_id, weapon_bucket, distance_bin)
 ```
 
-`demos` also carries `tier TEXT` (e.g. `"faceit-5"`) and `is_baseline INTEGER` for cross-demo comparison purposes. All tables use `CREATE TABLE IF NOT EXISTS`; schema migration is not yet versioned.
+**`demos` column notes:**
+- `map_name` is normalized to title-case at storage time — the `de_` prefix is stripped and the first letter is uppercased (e.g. raw `de_mirage` → stored as `Mirage`). All query commands show normalized names.
+- `tier` (e.g. `"faceit-5"`) is auto-populated from an `event.json` sidecar written by `cs-demo-downloader` if present in the demo directory; the `--tier` flag overrides it.
+- `event_id` is populated from the same sidecar (e.g. `"iem_cologne_2025"`); empty string if unknown.
+- `is_baseline INTEGER` — 1 for reference corpus demos, 0 for personal matches.
+
+All tables use `CREATE TABLE IF NOT EXISTS`; new columns are added at startup via `ALTER TABLE ... ADD COLUMN ... DEFAULT` migrations (duplicate-column errors silently ignored).
 
 ---
 
@@ -404,6 +410,7 @@ Tests use an in-memory SQLite database (`:memory:`). Each test opens a fresh dat
 | `TestGetDemoByPrefix` | Prefix lookup; negative case returns nil, not error |
 | `TestPlayerMatchStatsRoundTrip` | Full insert + query round-trip; field-level assertions |
 | `TestInsertIdempotency` | Second `InsertDemo` with same hash does not error |
+| `TestMapNameNormalization` | `de_`-prefixed raw names are stored and read back as normalized title-case; idempotent (already-normalized names unchanged) |
 
 ---
 

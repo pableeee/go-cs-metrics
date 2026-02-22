@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -58,6 +59,32 @@ func init() {
 	parseCmd.Flags().StringVar(&parseDir, "dir", "", "directory containing .dem files to parse in bulk")
 }
 
+// demoMeta holds the event metadata written by cs-demo-downloader into event.json
+// alongside each event's demo files.
+type demoMeta struct {
+	EventID   string `json:"event_id"`
+	EventName string `json:"event_name"`
+	Tier      string `json:"tier"`
+}
+
+// loadDemoMeta reads event.json from dir. Returns nil without error if the file
+// is absent (the normal case for demos not managed by demoget).
+func loadDemoMeta(dir string) *demoMeta {
+	if dir == "" {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "event.json"))
+	if err != nil {
+		return nil
+	}
+	var m demoMeta
+	if err := json.Unmarshal(data, &m); err != nil {
+		fmt.Fprintf(os.Stderr, "warn: parse event.json in %s: %v\n", dir, err)
+		return nil
+	}
+	return &m
+}
+
 // runParse parses one or more demo files, aggregates metrics, stores them in
 // the database, and prints report tables. When more than one demo is provided
 // (via args or --dir), full tables are suppressed and a brief status line is
@@ -78,6 +105,28 @@ func runParse(cmd *cobra.Command, args []string) error {
 	}
 	if len(paths) == 0 {
 		return fmt.Errorf("no demo files specified; provide file args or --dir")
+	}
+
+	// Load event metadata from the event.json sidecar written by demoget.
+	// --dir is the canonical location; fall back to the directory of the first file.
+	metaDir := parseDir
+	if metaDir == "" {
+		metaDir = filepath.Dir(paths[0])
+	}
+	meta := loadDemoMeta(metaDir)
+
+	// Effective tier: flag takes precedence, sidecar fills the gap, empty is fine.
+	effectiveTier := parseTier
+	effectiveEventID := ""
+	if meta != nil {
+		if effectiveTier == "" {
+			effectiveTier = meta.Tier
+		}
+		effectiveEventID = meta.EventID
+		if meta.EventID != "" {
+			fmt.Fprintf(os.Stderr, "Event: %s (%s), tier=%q\n",
+				meta.EventName, meta.EventID, meta.Tier)
+		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
@@ -146,8 +195,9 @@ func runParse(cmd *cobra.Command, args []string) error {
 			Tickrate:   raw.Tickrate,
 			CTScore:    ctScore,
 			TScore:     tScore,
-			Tier:       parseTier,
+			Tier:       effectiveTier,
 			IsBaseline: parseBaseline,
+			EventID:    effectiveEventID,
 		}
 
 		if err := db.InsertDemo(summary); err != nil {

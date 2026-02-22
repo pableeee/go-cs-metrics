@@ -6,10 +6,11 @@ import (
 	"time"
 )
 
-// DemoRef holds a demo hash and its map name, used by the simbo3 exporter.
+// DemoRef holds a demo hash, map name, and match date, used by the simbo3 exporter.
 type DemoRef struct {
-	Hash    string
-	MapName string
+	Hash      string
+	MapName   string
+	MatchDate string // "YYYY-MM-DD"
 }
 
 // WinOutcome captures round outcome data for a single demo.
@@ -53,7 +54,7 @@ func (db *DB) QualifyingDemos(steamIDs []string, since time.Time, quorum int) ([
 	args = append(args, since.Format("2006-01-02"))
 
 	query := fmt.Sprintf(`
-		SELECT d.hash, d.map_name
+		SELECT d.hash, d.map_name, d.match_date
 		FROM demos d
 		JOIN player_match_stats p ON p.demo_hash = d.hash
 		WHERE p.steam_id IN (%s)
@@ -72,7 +73,7 @@ func (db *DB) QualifyingDemos(steamIDs []string, since time.Time, quorum int) ([
 	var out []DemoRef
 	for rows.Next() {
 		var r DemoRef
-		if err := rows.Scan(&r.Hash, &r.MapName); err != nil {
+		if err := rows.Scan(&r.Hash, &r.MapName, &r.MatchDate); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

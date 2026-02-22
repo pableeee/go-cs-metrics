@@ -161,6 +161,52 @@ func TestPlayerMatchStatsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMapNameNormalization(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want string
+	}{
+		{"de_mirage", "Mirage"},
+		{"de_ancient", "Ancient"},
+		{"de_inferno", "Inferno"},
+		{"de_nuke", "Nuke"},
+		{"de_anubis", "Anubis"},
+		{"de_vertigo", "Vertigo"},
+		{"de_overpass", "Overpass"},
+		{"de_dust2", "Dust2"},
+		// Idempotent: already-normalized names are unchanged.
+		{"Mirage", "Mirage"},
+		{"Ancient", "Ancient"},
+	}
+
+	db := openMemDB(t)
+	for _, tc := range cases {
+		t.Run(tc.raw, func(t *testing.T) {
+			hash := "hash_" + tc.raw
+			if err := db.InsertDemo(model.MatchSummary{
+				DemoHash:  hash,
+				MapName:   tc.raw,
+				MatchDate: "2025-01-01",
+				MatchType: "pro",
+				Tickrate:  128,
+			}); err != nil {
+				t.Fatalf("InsertDemo: %v", err)
+			}
+
+			demo, err := db.GetDemoByPrefix(hash)
+			if err != nil {
+				t.Fatalf("GetDemoByPrefix: %v", err)
+			}
+			if demo == nil {
+				t.Fatal("demo not found after insert")
+			}
+			if demo.MapName != tc.want {
+				t.Errorf("MapName: got %q, want %q", demo.MapName, tc.want)
+			}
+		})
+	}
+}
+
 func TestInsertIdempotency(t *testing.T) {
 	db := openMemDB(t)
 

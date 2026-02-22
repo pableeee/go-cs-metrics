@@ -23,6 +23,15 @@ workflow from raw demos to a match prediction.
 | `matches_3m` | Count of qualifying demos in the `--since` window |
 | `players_rating2_3m` | Rating 2.0 proxy (see below) |
 
+The output also includes provenance and freshness fields that simbo3 ignores (unrecognised fields are discarded by standard JSON unmarshalling):
+
+| Field | Description |
+|---|---|
+| `generated_at` | RFC3339 UTC timestamp of when the export was run |
+| `window_days` | Actual look-back window used (value of `--since`; `_3m` naming is kept for simbo3 compatibility even if the window differs from 90 days) |
+| `latest_match_date` | Date of the most recent qualifying demo in the sample (`YYYY-MM-DD`); use this to detect stale exports |
+| `demo_count` | Total number of qualifying demos included |
+
 ---
 
 ## Rating 2.0 proxy
@@ -57,6 +66,16 @@ cd ~/git/go-cs-metrics
 
 # Or parse individual files
 ./go-cs-metrics parse navi_vs_faze_mirage.dem navi_vs_faze_inferno.dem
+```
+
+If the demo directory contains an `event.json` sidecar (written automatically by `cs-demo-downloader`), the tier and event ID are read from it without any extra flags:
+
+```sh
+# Sidecar is present → tier and event_id populated automatically
+./go-cs-metrics parse --dir ~/demos/pro/iem_cologne_2025/
+
+# Override the auto-detected tier if needed
+./go-cs-metrics parse --dir ~/demos/pro/iem_cologne_2025/ --tier pro
 ```
 
 ### 2. Create roster files
@@ -194,3 +213,6 @@ go run ./cmd/simbo3/ run --teamA "$OUT_A" --teamB "$OUT_B"
   or PUGs where players were on different sides may skew stats. Parse only competitive
   or FACEIT demos for best accuracy.
 - **Draw handling** — draws (12–12 in MR12, 15–15 in MR15) are counted as 0.5 wins.
+- **Stale exports** — check `latest_match_date` in the JSON before simulating. If the
+  most recent qualifying demo is more than a few weeks old, re-parse newer demos and
+  re-export before running a prediction.
