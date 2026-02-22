@@ -47,6 +47,8 @@ func init() {
 	rootCmd.AddCommand(fetchCmd)
 	rootCmd.AddCommand(playerCmd)
 	rootCmd.AddCommand(roundsCmd)
+	rootCmd.AddCommand(trendCmd)
+	rootCmd.AddCommand(sqlCmd)
 }
 
 // mustUserHome returns the current user's home directory, falling back to "."

@@ -318,7 +318,7 @@ All commands also accept `-v` / `--verbose` (persistent flag on root). When set,
 5. AWP table — AWP deaths with dry%/repeek%/isolated%
 6. FHHS table — first-hit HS rate by (weapon, distance bin) with Wilson 95% CI and sample flags; priority bins marked with `*` and summarised below the table
 7. Weapon table — per-weapon kills, HS%, damage, hits
-8. Aim timing — median TTK, median TTD, counter-strafe %
+8. Aim timing — median TTK, median TTD, one-tap%
 
 **Output order** for `player <steamid64>...` (one block per player):
 1. Header line — name, SteamID64, match count
@@ -326,7 +326,7 @@ All commands also accept `-v` / `--verbose` (persistent flag on root). When set,
 3. Duel profile — wins/losses, avg exposure win/loss ms, avg hits-to-kill, avg pre-shot correction
 4. AWP breakdown — total AWP deaths, dry%/repeek%/isolated%
 5. Map & side split — K/D, HS%, ADR, KAST%, entry/trade counts broken down by map and CT/T side
-6. Aim timing aggregate — role, avg TTK, avg TTD, avg counter-strafe %
+6. Aim timing aggregate — role, avg TTK, avg TTD, one-tap%
 7. FHHS table — same format as parse/show but built from merged cross-demo segment counts (accurate aggregation)
 
 **Output for `rounds <hash-prefix> <steamid64>`**:

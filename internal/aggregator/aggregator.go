@@ -3,7 +3,7 @@
 // statistics. The passes run in order: trade annotation, opening kills,
 // per-round stats (with buy-type classification), match rollup, crosshair
 // placement, duel engine + FHHS segments, AWP death classification, flash
-// quality window, role classification, TTK/TTD, and counter-strafe %.
+// quality window, role classification, TTK/TTD and one-tap kills.
 package aggregator
 
 import (

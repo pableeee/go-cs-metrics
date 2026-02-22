@@ -47,7 +47,7 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
 - **Rich metric suite** — K/D/A, ADR, KAST, HS%, entry frags, trade kills/deaths, utility damage, unused utility, flash assists, flash quality, crosshair placement, duel engine (exposure time, hits-to-kill, pre-shot correction), AWP death classification.
 - **Role detection** — per-match heuristic label (AWPer / Entry / Support / Rifler) computed from kill distribution and opening/utility stats; shown in the player table.
 - **Buy type** — eco/half/force/full classification per player per round, derived from equipment value at freeze-end; used in drill-down tables.
-- **Aim timing & movement** — Median TTK (ms from first hit to kill), Median TTD (ms from first hit received to death), and Counter-Strafe % (shots fired while horizontal speed ≤ 34 u/s).
+- **Aim timing** — Median TTK (ms from first shot fired to kill), Median TTD (ms from enemy's first shot to your death), and one-tap kill percentage.
 - **FHHS breakdown** — first-hit headshot rate segmented by weapon bucket and distance bin, with Wilson 95% CI and automatic priority bin detection.
 - **Cross-match player analysis** — `player` command aggregates stats across all stored demos for one or more SteamID64s, producing a full overview + duel + AWP + FHHS + aim timing report per player.
 - **Per-round drill-down** — `rounds` command shows per-round side, buy type, K/A/damage, KAST, and tactical flags for one player in one match, with a buy profile summary.
@@ -155,7 +155,7 @@ Parse one or more `.dem` files, aggregate all metrics, and store the results. If
 5. **AWP death classifier** — total AWP deaths, % dry-peek, % re-peek, % isolated
 6. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample flags (OK/LOW/VERY_LOW), priority bins marked `*`
 7. **Weapon breakdown** — per-weapon kills, HS%, assists, deaths, damage, hits, damage-per-hit (filtered to `--player` if specified)
-8. **Aim timing & movement** — median TTK, median TTD, counter-strafe %
+8. **Aim timing** — median TTK, median TTD, one-tap%
 
 **Examples:**
 
@@ -293,7 +293,7 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 2. **Duel profile** — duel wins/losses, average exposure time (win and loss), average hits-to-kill, average pre-shot correction
 3. **AWP breakdown** — total AWP deaths with dry-peek %, re-peek %, and isolated %
 4. **Map & side split** — K/D, HS%, ADR, KAST%, entry/trade counts broken down by map and side (CT/T)
-5. **Aim timing & movement** — role, average TTK, average TTD, average counter-strafe %
+5. **Aim timing** — role, average TTK, average TTD, one-tap%
 6. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample quality flags, priority bins marked with `*`
 
 **Examples:**
@@ -802,7 +802,7 @@ go test ./internal/aggregator/... -run TestTradeKill -v
 - ~~**Buy type**~~ — done (eco/half/force/full per round from equipment value).
 - ~~**Drill-down**~~ — done (`rounds` command shows per-round detail with buy type and flags).
 - ~~**TTK/TTD**~~ — done (median ms from first hit to kill/death).
-- ~~**Counter-strafe %**~~ — done (shots at horizontal speed ≤ 34 u/s).
+- **Counter-strafe %** — detect shots fired while counter-strafing (horizontal speed ≤ 34 u/s); requires `WeaponFire` + player velocity data.
 - ~~**Trend view**~~ — done (`trend` command, chronological KPR/ADR/KAST% and TTK/TTD tables per match).
 - ~~**Round context**~~ — done (`POST_PLT` and `CLUTCH_1vN` flags in `rounds` drill-down).
 - ~~**Player filters**~~ — done (`--map`, `--since`, `--last` on the `player` command).

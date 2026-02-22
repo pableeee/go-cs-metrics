@@ -830,7 +830,7 @@ func PrintRoundDetailTable(w io.Writer, stats []model.PlayerRoundStats, playerNa
 	fmt.Fprintln(w)
 }
 
-// PrintPlayerAggregateAimTable prints TTK/TTD/CS% aggregated across all demos.
+// PrintPlayerAggregateAimTable prints TTK/TTD/one-tap stats aggregated across all demos.
 func PrintPlayerAggregateAimTable(w io.Writer, aggs []model.PlayerAggregate) {
 	hasData := false
 	for _, a := range aggs {

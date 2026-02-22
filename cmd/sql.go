@@ -73,6 +73,3 @@ func runSQL(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func init() {
-	rootCmd.AddCommand(sqlCmd)
-}
