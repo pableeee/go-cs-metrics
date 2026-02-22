@@ -80,25 +80,34 @@ func (c *Client) NextShareCode(steamID, authCode, knownCode string) (string, err
 	return result.Result.NextCode, nil
 }
 
+// ReplayURLPattern returns the URL template being probed for a share code
+// (with server number N=1 as a representative sample). Useful for manual debugging.
+func ReplayURLPattern(sc ShareCode) string {
+	return fmt.Sprintf("http://replay1.valve.net/730/%d_%d_%d.dem.bz2",
+		sc.MatchID, sc.ReservationID, sc.TVPort)
+}
+
 // ResolveReplayURL probes Valve's replay server fleet to find the download URL
 // for the given share code. Demos are hosted at:
 //
 //	http://replay{N}.valve.net/730/{matchID}_{reservationID}_{tvPort}.dem.bz2
 //
 // The server number N is not publicly derivable without Game Coordinator access,
-// so we probe servers 1–120 concurrently and return the first responding URL.
+// so we probe servers 1–150 concurrently. HEAD requests are avoided because some
+// Valve servers silently drop them; instead we use GET with Range: bytes=0-0
+// which downloads nothing but reliably exercises the request path.
 // Returns an error if no server has the file (demo may have expired).
 func ResolveReplayURL(sc ShareCode) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	found := make(chan string, 1)
 	var once sync.Once
 	var wg sync.WaitGroup
 
-	probeClient := &http.Client{Timeout: 6 * time.Second}
+	probeClient := &http.Client{Timeout: 8 * time.Second}
 
-	for n := 1; n <= 120; n++ {
+	for n := 1; n <= 150; n++ {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
@@ -106,31 +115,33 @@ func ResolveReplayURL(sc ShareCode) (string, error) {
 			u := fmt.Sprintf("http://replay%d.valve.net/730/%d_%d_%d.dem.bz2",
 				n, sc.MatchID, sc.ReservationID, sc.TVPort)
 
-			req, err := http.NewRequestWithContext(ctx, "HEAD", u, nil)
+			req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 			if err != nil {
 				return
 			}
+			// Request only the first byte so we don't download the demo here.
+			req.Header.Set("Range", "bytes=0-0")
 
 			resp, err := probeClient.Do(req)
 			if err != nil {
 				return
 			}
+			io.Copy(io.Discard, resp.Body) //nolint:errcheck
 			resp.Body.Close()
 
-			if resp.StatusCode == http.StatusOK {
+			// 200 OK or 206 Partial Content both mean the file exists.
+			if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusPartialContent {
 				once.Do(func() {
 					select {
 					case found <- u:
 					default:
 					}
-					cancel() // cancel all remaining probes
+					cancel()
 				})
 			}
 		}(n)
 	}
 
-	// Close the found channel once all goroutines have exited so the receive
-	// below unblocks even when no server responded.
 	go func() {
 		wg.Wait()
 		close(found)
@@ -138,7 +149,11 @@ func ResolveReplayURL(sc ShareCode) (string, error) {
 
 	u, ok := <-found
 	if !ok {
-		return "", fmt.Errorf("demo not found on any Valve replay server — it may have expired (demos are kept for ~30 days)")
+		sample := ReplayURLPattern(sc)
+		return "", fmt.Errorf("demo not found on any Valve replay server (servers 1–150)\n"+
+			"  Verify the URL format manually: curl -I %q\n"+
+			"  If curl returns 404 on all servers, the demo may have expired (kept ~30 days)",
+			sample)
 	}
 	return u, nil
 }
