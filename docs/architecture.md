@@ -142,9 +142,9 @@ First-hit headshot rate per segment is reported with a 95% Wilson score confiden
 
 ---
 
-## Aggregator: Ten-Pass Algorithm
+## Aggregator: Eleven-Pass Algorithm
 
-The aggregator makes ten sequential passes over the raw event data.
+The aggregator makes eleven sequential passes over the raw event data.
 
 ### Pass 1 — Trade annotation
 
@@ -239,6 +239,10 @@ For each kill, uses the weapon-fire index (`wfIdx`) to find the **first shot fir
 - Otherwise: `ms = (killTick − firstFiredTick) / tps * 1000`
   - `MedianTTKMs` (attacker): median ms from first shot to kill across all multi-hit kills.
   - `MedianTTDMs` (victim): median ms from enemy's first shot to victim's death.
+
+### Pass 11 — Counter-strafe %
+
+Scans `raw.WeaponFires` per player. Each shot where `HorizontalSpeed ≤ 34.0` u/s (captured at fire tick via `e.Shooter.Velocity()`) is counted as counter-strafed. `CounterStrafePercent = strafed / total * 100`. Utility/knife fires are excluded by the parser.
 
 ---
 

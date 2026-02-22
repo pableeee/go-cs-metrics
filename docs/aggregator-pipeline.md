@@ -7,7 +7,7 @@ The aggregator transforms a parsed `RawMatch` into four output slices:
 - `[]PlayerWeaponStats` — one row per player per weapon
 - `[]PlayerDuelSegment` — one row per (player, weapon bucket, distance bin)
 
-The pipeline runs 10 sequential passes over the raw event data. Each pass reads from the raw events and/or the output of earlier passes. No pass modifies raw input.
+The pipeline runs 11 sequential passes over the raw event data. Each pass reads from the raw events and/or the output of earlier passes. No pass modifies raw input.
 
 ---
 
@@ -199,3 +199,18 @@ All non-one-tap TTK samples per player are sorted and the median is taken. Same 
 
 ### Limitation
 `wfIdx` is keyed by `(shooterID, roundN)` — not by target. If a player fires at multiple enemies within the same 3-second window, the earliest shot in the window is used regardless of intended target. In practice this is a minor source of noise since most engagements resolve quickly.
+
+---
+
+## Pass 11 — Counter-strafe %
+
+**Input:** `raw.WeaponFires`
+**Output:** Updates `matchStats[i].CounterStrafePercent`
+
+For each player, all `RawWeaponFire` events are scanned. A shot is counted as counter-strafed if `HorizontalSpeed ≤ 34.0` Hammer units/s — approximately the threshold below which a player has sufficiently decelerated after releasing a strafe key for the engine to register maximum accuracy. `HorizontalSpeed` is captured in the parser at the exact WeaponFire tick via `e.Shooter.Velocity()`.
+
+```
+CounterStrafePercent = strafedShots / totalShots * 100
+```
+
+Utility and knife fires are excluded by the parser (not recorded in `raw.WeaponFires`), so only rifle/SMG/pistol/AWP shots contribute. Players with no weapon-fire events (e.g., spectators) receive 0%.

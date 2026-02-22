@@ -22,7 +22,7 @@ The processing pipeline has four stages:
 
 1. **Ingestion** — Accept a `.dem` file, compute its hash, and store it.
 2. **Parsing** — Convert the demo into structured, tick-based events (`RawMatch`).
-3. **Aggregation** — 10-pass algorithm producing `[]PlayerMatchStats`, `[]PlayerRoundStats`, `[]PlayerWeaponStats`, `[]PlayerDuelSegment`.
+3. **Aggregation** — 11-pass algorithm producing `[]PlayerMatchStats`, `[]PlayerRoundStats`, `[]PlayerWeaponStats`, `[]PlayerDuelSegment`.
 4. **Presentation** — CLI output via `tablewriter`; storage is SQLite.
 
 Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.csmetrics/metrics.db`.
@@ -53,7 +53,7 @@ Core types (all in `internal/model/model.go`):
 - **`PlayerDuelSegment`** — FHHS counts per (weapon_bucket, distance_bin) per demo
 - **`PlayerAggregate`** — cross-demo sums/averages used by the `player` command
 
-## Aggregator: 10 Passes
+## Aggregator: 11 Passes
 
 1. Trade annotation (backward + forward scan within 5 s window)
 2. Opening kills (first kill after `FreezeEndTick`)

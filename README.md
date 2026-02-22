@@ -156,7 +156,7 @@ Parse one or more `.dem` files, aggregate all metrics, and store the results. If
 5. **AWP death classifier** — total AWP deaths, % dry-peek, % re-peek, % isolated
 6. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample flags (OK/LOW/VERY_LOW), priority bins marked `*`
 7. **Weapon breakdown** — per-weapon kills, HS%, assists, deaths, damage, hits, damage-per-hit (filtered to `--player` if specified)
-8. **Aim timing** — median TTK, median TTD, one-tap%
+8. **Aim timing** — median TTK, median TTD, one-tap%, counter-strafe%
 
 **Examples:**
 
@@ -294,7 +294,7 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 2. **Duel profile** — duel wins/losses, average exposure time (win and loss), average hits-to-kill, average pre-shot correction
 3. **AWP breakdown** — total AWP deaths with dry-peek %, re-peek %, and isolated %
 4. **Map & side split** — K/D, HS%, ADR, KAST%, entry/trade counts broken down by map and side (CT/T)
-5. **Aim timing** — role, average TTK, average TTD, one-tap%
+5. **Aim timing** — role, average TTK, average TTD, one-tap%, average counter-strafe%
 6. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample quality flags, priority bins marked with `*`
 
 **Examples:**
@@ -366,7 +366,7 @@ Chronological per-match performance trend for a single player. Shows two tables 
 
 **Table 1 — Performance Trend:** DATE, MAP, RD (rounds), K, A, D, K/D, KPR (kills per round), ADR, KAST%
 
-**Table 2 — Aim Timing Trend** (only shown if TTK/TTD data exists): DATE, MAP, RD, MEDIAN_TTK, MEDIAN_TTD, ONE_TAP%
+**Table 2 — Aim Timing Trend** (only shown if TTK/TTD data exists): DATE, MAP, RD, MEDIAN_TTK, MEDIAN_TTD, ONE_TAP%, CS%
 
 **Example:**
 
