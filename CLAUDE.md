@@ -42,6 +42,7 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `drop [--force]` | Delete the metrics database file; requires `--force` to actually delete |
 | `analyze player <steamid64> <question>` | AI-powered grounded analysis of a player's aggregate stats (requires `ANTHROPIC_API_KEY`) |
 | `analyze match <hash-prefix> <question>` | AI-powered grounded analysis of a single match (requires `ANTHROPIC_API_KEY`) |
+| `export` | Export team stats as a simbo3-compatible JSON file (`--team`, `--players`, `--roster`, `--since`, `--quorum`, `--out`); see Integration section |
 
 All commands share `--db` to point at an alternate database and `--silent` / `-s` to suppress column legends (verbose output is on by default).
 
@@ -81,6 +82,24 @@ Core types (all in `internal/model/model.go`):
 ## Documentation Rule
 
 **Every change — bug fix, feature, refactor, or behavioural tweak — must be reflected in ALL relevant docs files before the work is considered done.** This includes `README.md`, `docs/architecture.md`, and any other file under `docs/` that covers the modified area. When adding or changing a command, flag, metric, output table, or pipeline behaviour, update those files as part of the same change. Do not commit code changes without the corresponding doc updates.
+
+## Integration with cs2-pro-match-simulator (simbo3)
+
+The `export` command bridges go-cs-metrics to
+[cs2-pro-match-simulator](https://github.com/pable/cs2-pro-match-simulator).
+
+New files added for this feature:
+- `internal/storage/export_queries.go` — `QualifyingDemos`, `MapWinOutcomes`, `RoundSideStats`, `RosterMatchTotals` query functions + supporting structs (`DemoRef`, `WinOutcome`, `SideStats`, `PlayerTotals`)
+- `cmd/export.go` — Cobra command, roster resolution, per-map stat aggregation, Rating 2.0 proxy computation, JSON output
+
+**Rating proxy** (community approximation of HLTV Rating 2.0):
+```
+Rating ≈ 0.0073*KAST% + 0.3591*KPR − 0.5329*DPR + 0.2372*Impact + 0.0032*ADR + 0.1587
+Impact  = 2.13*KPR + 0.42*APR − 0.41
+```
+Top 5 players by rounds_played are selected; extras padded with 1.00. **Not official HLTV math** — expect ±0.05–0.10 deviation.
+
+See `README.md` Integration section and `docs/integration.md` for full usage.
 
 ## Key Validation Rules
 

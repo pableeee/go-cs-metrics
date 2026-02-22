@@ -20,6 +20,8 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
   - [sql](#sql)
   - [drop](#drop)
   - [analyze](#analyze)
+  - [export](#export)
+- [Integration with simbo3](#integration-with-simbo3)
 - [Metric Definitions](#metric-definitions)
   - [General](#general)
   - [Entry Frags](#entry-frags)
@@ -481,6 +483,125 @@ The query is passed as a single argument (quote it in the shell if it contains s
   WHERE steam_id = '76561198XXXXXXXXX' AND is_in_clutch = 1
   ORDER BY demo_hash, round_number"
 ```
+
+---
+
+### export
+
+Export team aggregate stats as a JSON file in the format expected by
+[cs2-pro-match-simulator (simbo3)](https://github.com/pable/cs2-pro-match-simulator).
+Queries the database for a roster of SteamID64s and computes map win rates, CT/T round
+win rates, match counts, and HLTV Rating 2.0 proxy values — all derived from the parsed
+demo data.
+
+```
+./go-cs-metrics export [flags]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--team <name>` | `""` | Team name written into the output JSON (required) |
+| `--players <ids>` | `""` | Comma-separated SteamID64s (takes precedence over `--roster`) |
+| `--roster <file>` | `""` | JSON file `{"team":"...","players":["...",...]}` |
+| `--since <days>` | `90` | Look-back window in days |
+| `--quorum <n>` | `3` | Minimum roster players that must appear in a demo for it to be included |
+| `--out <file>` | `""` | Output path; defaults to stdout |
+
+A demo is included if at least `--quorum` players from the roster appear in
+`player_match_stats` for that demo within the `--since` window.
+
+**Rating proxy formula** (community approximation of HLTV Rating 2.0):
+
+```
+Rating ≈ 0.0073*KAST% + 0.3591*KPR − 0.5329*DPR + 0.2372*Impact + 0.0032*ADR + 0.1587
+Impact  = 2.13*KPR + 0.42*APR − 0.41
+```
+
+The top 5 players by rounds played are selected. Fewer than 5 are padded with `1.00`.
+
+**Example — inline roster:**
+
+```sh
+./go-cs-metrics export \
+  --team "NaVi" \
+  --players "76561198034202275,76561197992321696,76561198040577200,76561198121220486,76561198155383140" \
+  --since 90 \
+  --quorum 3 \
+  --out navi.json
+```
+
+**Example — roster file:**
+
+```sh
+# navi-roster.json
+# {"team": "Natus Vincere", "players": ["76561198034202275", ...]}
+
+./go-cs-metrics export --roster navi-roster.json --out navi.json
+```
+
+See [Integration with simbo3](#integration-with-simbo3) for the full workflow.
+
+---
+
+## Integration with simbo3
+
+`go-cs-metrics export` bridges this tool to
+[cs2-pro-match-simulator](https://github.com/pable/cs2-pro-match-simulator), which
+forecasts CS2 BO3 match outcomes via Monte Carlo simulation.
+
+**Full workflow:**
+
+```sh
+# 1. Parse demos for both teams (repeat for every match you have)
+./go-cs-metrics parse /path/to/navi_vs_faze.dem
+
+# 2. Export a simbo3-compatible JSON for each team
+./go-cs-metrics export \
+  --roster navi-roster.json \
+  --since 90 --quorum 3 \
+  --out navi.json
+
+./go-cs-metrics export \
+  --roster faze-roster.json \
+  --since 90 --quorum 3 \
+  --out faze.json
+
+# 3. Run the simulator
+cd ~/git/cs2-pro-match-simulator
+go run ./cmd/simbo3/ run --teamA navi.json --teamB faze.json
+```
+
+**Roster file format:**
+
+```json
+{
+  "team": "Natus Vincere",
+  "players": [
+    "76561198034202275",
+    "76561197992321696",
+    "76561198040577200",
+    "76561198121220486",
+    "76561198155383140"
+  ]
+}
+```
+
+**Diagnostic output** (goes to stderr, JSON to stdout or `--out`):
+
+```
+Querying demos for 5 players since 2025-11-23 (quorum=3)...
+Found 34 qualifying demos
+  Mirage        18 matches  win=0.67  CT=0.56  T=0.52
+  Inferno       14 matches  win=0.71  CT=0.58  T=0.54
+  s1mple              18 rounds  KPR=0.92 DPR=0.62 KAST=79%  ADR=91.3  → rating 1.19
+  ...
+Wrote navi.json
+```
+
+**Key caveats:**
+- Rating 2.0 is a *proxy* — the official HLTV formula is proprietary. Expect ±0.05–0.10 deviation.
+- The tool has no concept of team names; you must supply rosters as SteamID lists.
+- Lower `--quorum` if few demos exist (but watch for noisy stats with small samples).
 
 ---
 

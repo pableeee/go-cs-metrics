@@ -57,6 +57,7 @@ func init() {
 	rootCmd.AddCommand(sqlCmd)
 	rootCmd.AddCommand(dropCmd)
 	rootCmd.AddCommand(analyzeCmd)
+	rootCmd.AddCommand(exportCmd)
 }
 
 // mustUserHome returns the current user's home directory, falling back to "."
