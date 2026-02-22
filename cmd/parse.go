@@ -24,14 +24,29 @@ var (
 	parseTier string
 	// parseBaseline marks the demo as a baseline reference match when true.
 	parseBaseline bool
+	// parseDir is an optional directory path; all *.dem files inside are parsed.
+	parseDir string
 )
 
 // parseCmd is the cobra command for parsing a CS2 demo file and storing its metrics.
 var parseCmd = &cobra.Command{
-	Use:   "parse <demo.dem>",
-	Short: "Parse a CS2 demo file and store metrics",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runParse,
+	Use:   "parse [<demo.dem>...] [--dir <directory>]",
+	Short: "Parse one or more CS2 demo files and store metrics",
+	Long: `Parse CS2 demo files and store all metrics in the database.
+
+Single file:
+  parse match.dem
+
+Multiple files (shell glob):
+  parse /replays/*.dem
+
+Whole directory:
+  parse --dir /path/to/replays
+
+When more than one demo is provided, full tables are suppressed and a
+brief status line is printed per demo instead.`,
+	Args: cobra.ArbitraryArgs,
+	RunE: runParse,
 }
 
 func init() {
@@ -39,81 +54,135 @@ func init() {
 	parseCmd.Flags().StringVar(&matchType, "type", "Competitive", "match type label")
 	parseCmd.Flags().StringVar(&parseTier, "tier", "", "tier label for baseline comparisons (e.g. faceit-5)")
 	parseCmd.Flags().BoolVar(&parseBaseline, "baseline", false, "mark this demo as a baseline reference match")
+	parseCmd.Flags().StringVar(&parseDir, "dir", "", "directory containing .dem files to parse in bulk")
 }
 
-// runParse parses a demo file, aggregates metrics, stores them in the database,
-// and prints all report tables to stdout.
+// runParse parses one or more demo files, aggregates metrics, stores them in
+// the database, and prints report tables. When more than one demo is provided
+// (via args or --dir), full tables are suppressed and a brief status line is
+// printed per demo instead.
 func runParse(cmd *cobra.Command, args []string) error {
-	demoPath := args[0]
+	// Collect demo paths from positional args and --dir.
+	paths := append([]string(nil), args...)
+	if parseDir != "" {
+		entries, err := os.ReadDir(parseDir)
+		if err != nil {
+			return fmt.Errorf("read dir: %w", err)
+		}
+		for _, e := range entries {
+			if !e.IsDir() && filepath.Ext(e.Name()) == ".dem" {
+				paths = append(paths, filepath.Join(parseDir, e.Name()))
+			}
+		}
+	}
+	if len(paths) == 0 {
+		return fmt.Errorf("no demo files specified; provide file args or --dir")
+	}
 
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 		return fmt.Errorf("create db dir: %w", err)
 	}
-
 	db, err := storage.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("open storage: %w", err)
 	}
 	defer db.Close()
 
-	fmt.Fprintf(os.Stdout, "Parsing %s...\n", demoPath)
-	raw, err := parser.ParseDemo(demoPath, matchType)
-	if err != nil {
-		return fmt.Errorf("parse demo: %w", err)
+	bulk := len(paths) > 1
+	var stored, skipped, failed int
+
+	for i, demoPath := range paths {
+		if bulk {
+			fmt.Fprintf(os.Stdout, "[%d/%d] %s\n", i+1, len(paths), filepath.Base(demoPath))
+		} else {
+			fmt.Fprintf(os.Stdout, "Parsing %s...\n", demoPath)
+		}
+
+		raw, err := parser.ParseDemo(demoPath, matchType)
+		if err != nil {
+			if bulk {
+				fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+				failed++
+				continue
+			}
+			return fmt.Errorf("parse demo: %w", err)
+		}
+
+		exists, err := db.DemoExists(raw.DemoHash)
+		if err != nil {
+			return fmt.Errorf("check demo: %w", err)
+		}
+		if exists {
+			if bulk {
+				fmt.Fprintf(os.Stdout, "  already stored — skipped\n")
+				skipped++
+				continue
+			}
+			fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", raw.DemoHash[:12])
+			return showByHash(db, raw.DemoHash)
+		}
+
+		matchStats, roundStats, weaponStats, duelSegs, err := aggregator.Aggregate(raw)
+		if err != nil {
+			if bulk {
+				fmt.Fprintf(os.Stderr, "  aggregate error: %v\n", err)
+				failed++
+				continue
+			}
+			return fmt.Errorf("aggregate: %w", err)
+		}
+
+		ctScore, tScore := computeScore(raw.Rounds)
+		summary := model.MatchSummary{
+			DemoHash:   raw.DemoHash,
+			MapName:    raw.MapName,
+			MatchDate:  raw.MatchDate,
+			MatchType:  raw.MatchType,
+			Tickrate:   raw.Tickrate,
+			CTScore:    ctScore,
+			TScore:     tScore,
+			Tier:       parseTier,
+			IsBaseline: parseBaseline,
+		}
+
+		if err := db.InsertDemo(summary); err != nil {
+			return fmt.Errorf("insert demo: %w", err)
+		}
+		if err := db.InsertPlayerMatchStats(matchStats); err != nil {
+			return fmt.Errorf("insert player stats: %w", err)
+		}
+		if err := db.InsertPlayerRoundStats(roundStats); err != nil {
+			return fmt.Errorf("insert round stats: %w", err)
+		}
+		if err := db.InsertPlayerWeaponStats(weaponStats); err != nil {
+			return fmt.Errorf("insert weapon stats: %w", err)
+		}
+		if err := db.InsertPlayerDuelSegments(duelSegs); err != nil {
+			return fmt.Errorf("insert duel segments: %w", err)
+		}
+
+		if bulk {
+			fmt.Fprintf(os.Stdout, "  stored: %s  %s  %d–%d  %d players  %d rounds\n",
+				summary.MapName, summary.MatchDate, ctScore, tScore,
+				len(matchStats), len(raw.Rounds))
+			stored++
+			continue
+		}
+
+		report.PrintMatchSummary(os.Stdout, summary)
+		report.PrintPlayerRosterTable(os.Stdout, matchStats)
+		report.PrintPlayerTable(matchStats, playerSteamID)
+		report.PrintDuelTable(os.Stdout, matchStats, playerSteamID)
+		report.PrintAWPTable(os.Stdout, matchStats, playerSteamID)
+		report.PrintFHHSTable(os.Stdout, duelSegs, matchStats, playerSteamID)
+		report.PrintWeaponTable(os.Stdout, weaponStats, matchStats, playerSteamID)
+		report.PrintAimTimingTable(os.Stdout, matchStats, playerSteamID)
 	}
 
-	exists, err := db.DemoExists(raw.DemoHash)
-	if err != nil {
-		return fmt.Errorf("check demo: %w", err)
+	if bulk {
+		fmt.Fprintf(os.Stdout, "\nDone: %d stored, %d skipped, %d failed (total %d)\n",
+			stored, skipped, failed, len(paths))
 	}
-	if exists {
-		fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", raw.DemoHash[:12])
-		return showByHash(db, raw.DemoHash)
-	}
-
-	matchStats, roundStats, weaponStats, duelSegs, err := aggregator.Aggregate(raw)
-	if err != nil {
-		return fmt.Errorf("aggregate: %w", err)
-	}
-
-	// Compute CT/T scores from rounds.
-	ctScore, tScore := computeScore(raw.Rounds)
-	summary := model.MatchSummary{
-		DemoHash:   raw.DemoHash,
-		MapName:    raw.MapName,
-		MatchDate:  raw.MatchDate,
-		MatchType:  raw.MatchType,
-		Tickrate:   raw.Tickrate,
-		CTScore:    ctScore,
-		TScore:     tScore,
-		Tier:       parseTier,
-		IsBaseline: parseBaseline,
-	}
-
-	if err := db.InsertDemo(summary); err != nil {
-		return fmt.Errorf("insert demo: %w", err)
-	}
-	if err := db.InsertPlayerMatchStats(matchStats); err != nil {
-		return fmt.Errorf("insert player stats: %w", err)
-	}
-	if err := db.InsertPlayerRoundStats(roundStats); err != nil {
-		return fmt.Errorf("insert round stats: %w", err)
-	}
-	if err := db.InsertPlayerWeaponStats(weaponStats); err != nil {
-		return fmt.Errorf("insert weapon stats: %w", err)
-	}
-	if err := db.InsertPlayerDuelSegments(duelSegs); err != nil {
-		return fmt.Errorf("insert duel segments: %w", err)
-	}
-
-	report.PrintMatchSummary(os.Stdout, summary)
-	report.PrintPlayerRosterTable(os.Stdout, matchStats)
-	report.PrintPlayerTable(matchStats, playerSteamID)
-	report.PrintDuelTable(os.Stdout, matchStats, playerSteamID)
-	report.PrintAWPTable(os.Stdout, matchStats, playerSteamID)
-	report.PrintFHHSTable(os.Stdout, duelSegs, matchStats, playerSteamID)
-	report.PrintWeaponTable(os.Stdout, weaponStats, matchStats, playerSteamID)
-	report.PrintAimTimingTable(os.Stdout, matchStats, playerSteamID)
 	return nil
 }
 
