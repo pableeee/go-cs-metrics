@@ -42,8 +42,14 @@ func runTrend(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	clutchMap, err := db.GetPlayerClutchStatsByMatch(steamID)
+	if err != nil {
+		return fmt.Errorf("query clutch stats: %w", err)
+	}
+
 	report.PrintTrendTable(os.Stdout, stats)
 	report.PrintAimTrendTable(os.Stdout, stats)
+	report.PrintClutchTrendTable(os.Stdout, stats, clutchMap)
 	return nil
 }
 

@@ -524,6 +524,41 @@ func (db *DB) GetPlayerDuelSegments(demoHash string) ([]model.PlayerDuelSegment,
 	return out, rows.Err()
 }
 
+// GetPlayerClutchStatsByMatch returns per-match clutch attempt/win counts for a
+// given SteamID64, keyed by demo hash. No schema changes needed — reads existing
+// player_round_stats rows where is_in_clutch = 1.
+func (db *DB) GetPlayerClutchStatsByMatch(steamID uint64) (map[string]*model.PlayerClutchMatchStats, error) {
+	rows, err := db.conn.Query(`
+		SELECT demo_hash, clutch_enemy_count, survived, COUNT(*) AS cnt
+		FROM player_round_stats
+		WHERE steam_id = ? AND is_in_clutch = 1
+		GROUP BY demo_hash, clutch_enemy_count, survived`,
+		strconv.FormatUint(steamID, 10))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]*model.PlayerClutchMatchStats)
+	for rows.Next() {
+		var demoHash string
+		var enemyCount, survived, cnt int
+		if err := rows.Scan(&demoHash, &enemyCount, &survived, &cnt); err != nil {
+			return nil, err
+		}
+		if result[demoHash] == nil {
+			result[demoHash] = &model.PlayerClutchMatchStats{DemoHash: demoHash, SteamID: steamID}
+		}
+		if enemyCount >= 1 && enemyCount <= 5 {
+			result[demoHash].Attempts[enemyCount] += cnt
+			if survived == 1 {
+				result[demoHash].Wins[enemyCount] += cnt
+			}
+		}
+	}
+	return result, rows.Err()
+}
+
 // QueryRaw executes an arbitrary SQL query and returns the column names and
 // all row values as strings. NULL values are rendered as "NULL".
 func (db *DB) QueryRaw(query string) (cols []string, rows [][]string, err error) {

@@ -812,6 +812,69 @@ func PrintAimTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
 	table.Render()
 }
 
+// PrintClutchTrendTable prints a chronological per-match clutch breakdown for a player.
+// Each row shows W/A (wins/attempts) per enemy count (1v1–1v5) for matches that had
+// at least one clutch situation. Skips matches with no clutch data.
+func PrintClutchTrendTable(w io.Writer, stats []model.PlayerMatchStats, clutchMap map[string]*model.PlayerClutchMatchStats) {
+	hasData := false
+	for _, s := range stats {
+		if c := clutchMap[s.DemoHash]; c != nil && c.TotalAttempts() > 0 {
+			hasData = true
+			break
+		}
+	}
+	if !hasData {
+		return
+	}
+	printSection(w, "Clutch Trend",
+		"Per-match clutch situations in chronological order. W/A = wins/attempts per enemy count.\n"+
+			"Green = all won, yellow = partial, red = none won. TOTAL includes win rate %.")
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header("DATE", "MAP", "1v1", "1v2", "1v3", "1v4", "1v5", "TOTAL")
+
+	for _, s := range stats {
+		c := clutchMap[s.DemoHash]
+		if c == nil || c.TotalAttempts() == 0 {
+			continue
+		}
+		mapDisplay := strings.TrimPrefix(s.MapName, "de_")
+		cells := make([]string, 5)
+		for i := 1; i <= 5; i++ {
+			a := c.Attempts[i]
+			if a == 0 {
+				cells[i-1] = "—"
+				continue
+			}
+			wa := fmt.Sprintf("%d/%d", c.Wins[i], a)
+			switch {
+			case c.Wins[i] == a:
+				cells[i-1] = color.GreenString(wa)
+			case c.Wins[i] > 0:
+				cells[i-1] = color.YellowString(wa)
+			default:
+				cells[i-1] = color.RedString(wa)
+			}
+		}
+		totalA := c.TotalAttempts()
+		totalW := c.TotalWins()
+		pct := float64(totalW) / float64(totalA) * 100
+		totalStr := fmt.Sprintf("%d/%d (%.0f%%)", totalW, totalA, pct)
+		switch {
+		case totalW == totalA:
+			totalStr = color.GreenString(totalStr)
+		case totalW > 0:
+			totalStr = color.YellowString(totalStr)
+		default:
+			totalStr = color.RedString(totalStr)
+		}
+		table.Append(s.MatchDate, mapDisplay, cells[0], cells[1], cells[2], cells[3], cells[4], totalStr)
+	}
+	table.Render()
+}
+
 // PrintRoundDetailTable prints a per-round drill-down table for a single player in a match.
 func PrintRoundDetailTable(w io.Writer, stats []model.PlayerRoundStats, playerName, mapName string) {
 	if len(stats) == 0 {

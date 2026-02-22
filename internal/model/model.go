@@ -265,6 +265,34 @@ type PlayerRoundStats struct {
 	ClutchEnemyCount int  // max enemies alive when player entered clutch (0 if not clutch)
 }
 
+// PlayerClutchMatchStats holds per-match clutch attempt/win counts broken down
+// by enemy count (1v1 through 1v5) for a single player.
+type PlayerClutchMatchStats struct {
+	DemoHash string
+	SteamID  uint64
+	// Attempts[i] and Wins[i]: index 0 unused; 1–5 = 1v1 through 1v5.
+	Attempts [6]int
+	Wins     [6]int
+}
+
+// TotalAttempts returns the total number of clutch situations across all enemy counts.
+func (s *PlayerClutchMatchStats) TotalAttempts() int {
+	total := 0
+	for i := 1; i <= 5; i++ {
+		total += s.Attempts[i]
+	}
+	return total
+}
+
+// TotalWins returns the total number of clutches won across all enemy counts.
+func (s *PlayerClutchMatchStats) TotalWins() int {
+	total := 0
+	for i := 1; i <= 5; i++ {
+		total += s.Wins[i]
+	}
+	return total
+}
+
 // PlayerWeaponStats holds per-weapon kill/damage/hit breakdown for a single
 // player within a single demo.
 type PlayerWeaponStats struct {
