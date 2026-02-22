@@ -18,7 +18,8 @@ go-cs-metrics/
 │   ├── list.go                      # "list" — tabulate stored demos
 │   ├── show.go                      # "show <hash-prefix>" — replay stored match
 │   ├── player.go                    # "player <steamid64>..." — cross-match aggregate
-│   └── rounds.go                    # "rounds <hash> <steamid>" — per-round drill-down
+│   ├── rounds.go                    # "rounds <hash> <steamid>" — per-round drill-down
+│   └── trend.go                     # "trend <steamid64>" — chronological per-match trend
 └── internal/
     ├── model/model.go               # all shared types; no external deps
     ├── parser/parser.go             # .dem → RawMatch
@@ -66,8 +67,9 @@ All business logic lives under `internal/`. The `cmd/` layer is thin: it only wi
 [report]       PrintMatchSummary / PrintPlayerTable / PrintPlayerSideTable
                / PrintDuelTable / PrintAWPTable / PrintFHHSTable
                / PrintWeaponTable / PrintAimTimingTable → stdout
-               PrintRoundDetailTable (rounds command)
+               PrintRoundDetailTable (rounds command — with POST_PLT/CLUTCH_1vN flags)
                PrintPlayerAggregateAimTable (player command)
+               PrintTrendTable / PrintAimTrendTable (trend command)
 ```
 
 The parser and aggregator are intentionally decoupled by the `RawMatch` intermediate representation. This means:
@@ -138,9 +140,9 @@ First-hit headshot rate per segment is reported with a 95% Wilson score confiden
 
 ---
 
-## Aggregator: Eleven-Pass Algorithm
+## Aggregator: Ten-Pass Algorithm
 
-The aggregator makes eleven sequential passes over the raw event data.
+The aggregator makes ten sequential passes over the raw event data.
 
 ### Pass 1 — Trade annotation
 
@@ -173,6 +175,10 @@ For each round, the first kill whose tick is `≥ round.FreezeEndTick` is the op
 For every round, participating players are the union of those in `round.PlayerEndState` and those who appear in kills. Damage and utility damage are indexed by `(playerID, roundNumber)` maps built before the main loop.
 
 **Buy type classification**: equipment value at freeze-end (`PlayerEquipValues[playerID]`, snapshotted by the parser in the `RoundFreezetimeEnd` handler) is thresholded: ≥$4500 = full, ≥$2000 = force, ≥$1000 = half, <$1000 = eco. Stored as `BuyType` on `PlayerRoundStats`.
+
+**Post-plant flag**: `IsPostPlant = round.BombPlantTick > 0`. The parser captures the tick of the `BombPlanted` event in `RawRound.BombPlantTick`.
+
+**Clutch detection** (`computeClutch`): called once per round before the per-player loop. All round participants start alive; kills are processed in tick order, marking victims dead after each. After each death the alive counts per team are checked — if `myTeamAlive == 1 && enemyAlive >= 1` for a player, that player is in a clutch. `ClutchEnemyCount` records the maximum enemy-alive count seen during their clutch.
 
 ### Pass 4 — Match-level rollup
 
@@ -223,35 +229,35 @@ Assigns a heuristic role label to each player based on their match statistics:
 - **Support**: flash assists > 8% of rounds, or utility damage > 15/round
 - **Rifler**: default (none of the above thresholds met)
 
-### Pass 10 — TTK and TTD
+### Pass 10 — TTK, TTD, and one-tap kills
 
-For each kill, finds the earliest gun-damage tick from attacker→victim in that round (`firstGunDmgTick`). If that tick exists, `ms = (killTick - firstGunDmgTick) / tps * 1000`:
-- `MedianTTKMs` (attacker): median time from their first bullet hitting the victim to the kill.
-- `MedianTTDMs` (victim): median time from the attacker's first hit to the victim's death.
+For each kill, uses the weapon-fire index (`wfIdx`) to find the **first shot fired** by the killer within a 3-second rolling window before the kill tick (not the first damage tick — missed shots are included, matching external tools like Refrag).
 
-### Pass 11 — Counter-Strafe %
-
-Iterates all `RawWeaponFire` events. If `ShooterVelocity` (horizontal speed `sqrt(vx²+vy²)` snapshotted by the parser at fire tick) is ≤ 34 Hammer units/s, the shot is considered counter-strafe-disciplined. `CounterStrafePercent = still / total × 100` per player.
+- If `firstFiredTick == killTick`: one-tap. Counted in `OneTapKills`, excluded from TTK/TTD samples.
+- Otherwise: `ms = (killTick − firstFiredTick) / tps * 1000`
+  - `MedianTTKMs` (attacker): median ms from first shot to kill across all multi-hit kills.
+  - `MedianTTDMs` (victim): median ms from enemy's first shot to victim's death.
 
 ---
 
 ## Parser: Event Handling Notes
 
-The parser registers handlers for seven event types from `demoinfocs-golang`:
+The parser registers handlers for eight event types from `demoinfocs-golang`:
 
 | Event | Action |
 |-------|--------|
-| `RoundStart` | Increment round counter (skipped during warmup); record start tick; reset `currentEquipVals` |
+| `RoundStart` | Increment round counter (skipped during warmup); record start tick; reset `currentEquipVals` and `currentBombPlantTick` |
 | `RoundFreezetimeEnd` | Update freeze-end tick; snapshot equipment values (`EquipmentValueFreezeTimeEnd()`) per player into `currentEquipVals` |
-| `RoundEnd` | Snapshot all active players' end-states; attach `currentEquipVals` to `RawRound.PlayerEquipValues`; record round metadata |
+| `RoundEnd` | Snapshot all active players' end-states; attach `currentEquipVals` and `currentBombPlantTick` to `RawRound`; record round metadata |
+| `BombPlanted` | Record `p.CurrentFrame()` into `currentBombPlantTick`; used by Pass 3 to set `IsPostPlant` |
 | `Kill` | Append to kills slice; count nearby alive teammates for AWP kills (512-unit radius) |
 | `PlayerHurt` | Append to damages slice with hitgroup and victim position; skip self-damage |
 | `PlayerFlashed` | Append to flashes slice; skip zero-duration events |
-| `WeaponFire` | Append to weapon-fires slice with shooter position and horizontal velocity `sqrt(vx²+vy²)`; skip utility/knife/warmup |
+| `WeaponFire` | Append to weapon-fires slice with shooter position; skip utility/knife/warmup |
 
-**New parser captures (Phase 2):**
+**Parser captures:**
 - **Equipment value**: `pl.EquipmentValueFreezeTimeEnd()` — post-buy equipment value per player, snapshotted in the `RoundFreezetimeEnd` handler and stored in `RawRound.PlayerEquipValues`. Used by Pass 3 to classify buy type.
-- **Shooter velocity**: `e.Shooter.Velocity()` in the `WeaponFire` handler — horizontal component `sqrt(vx²+vy²)` stored in `RawWeaponFire.ShooterVelocity`. Used by Pass 11 to compute counter-strafe %.
+- **Bomb plant tick**: `p.CurrentFrame()` in the `BombPlanted` handler — stored in `RawRound.BombPlantTick`. Used by Pass 3 to set `IsPostPlant`.
 
 Additionally, the **frame-walk loop** inspects `m_bSpottedByMask` transitions every tick to emit `RawFirstSight` events — one per (observer, enemy, round) pair, recording crosshair deviation angles and absolute view angles.
 
@@ -271,7 +277,8 @@ demos                         (hash PK, map, date, type, tickrate, ct_score, t_s
   ├── player_match_stats       (demo_hash FK, steam_id, ~35 aggregated metric columns)
   │                            UNIQUE(demo_hash, steam_id)
   │
-  ├── player_round_stats       (demo_hash FK, steam_id, round_number, per-round flags)
+  ├── player_round_stats       (demo_hash FK, steam_id, round_number, per-round flags,
+  │                             is_post_plant, is_in_clutch, clutch_enemy_count)
   │                            UNIQUE(demo_hash, steam_id, round_number)
   │
   ├── player_weapon_stats      (demo_hash FK, steam_id, weapon, kills, hs_kills, damage, hits)
@@ -298,6 +305,7 @@ csmetrics show <hash-prefix> [--player <steamid64>]
 csmetrics fetch [flags]
 csmetrics player <steamid64> [<steamid64>...]
 csmetrics rounds <hash-prefix> <steamid64>
+csmetrics trend <steamid64>
 ```
 
 All commands also accept `-v` / `--verbose` (persistent flag on root). When set, a one-line column legend is printed before each table. Section titles (`--- Name ---`) are always printed regardless of `-v`.
@@ -322,7 +330,11 @@ All commands also accept `-v` / `--verbose` (persistent flag on root). When set,
 7. FHHS table — same format as parse/show but built from merged cross-demo segment counts (accurate aggregation)
 
 **Output for `rounds <hash-prefix> <steamid64>`**:
-Per-round table: round number, side, buy type, K/A/damage, KAST ✓/blank, tactical flags (OPEN_K/D, TRADE_K/D). Footer: buy profile summary (full/force/half/eco counts and percentages).
+Per-round table: round number, side, buy type, K/A/damage, KAST ✓/blank, tactical flags (OPEN_K/D, TRADE_K/D, POST_PLT, CLUTCH_1vN). Footer: buy profile summary (full/force/half/eco counts and percentages).
+
+**Output for `trend <steamid64>`**:
+1. Performance Trend — one row per match in ascending date order: DATE, MAP, RD, K, A, D, K/D, KPR, ADR, KAST%
+2. Aim Timing Trend — DATE, MAP, RD, MEDIAN_TTK, MEDIAN_TTD, ONE_TAP% (only rendered if any match has TTK/TTD/one-tap data)
 
 ---
 
@@ -369,6 +381,9 @@ Tests use an in-memory SQLite database (`:memory:`). Each test opens a fresh dat
 - ~~**Flash tracking**: Only partially used.~~ Effective flashes (blinded enemy killed by team within 1.5 s) are now tracked. Average blind duration and per-enemy flash counts remain unimplemented.
 - **No composite rating**: `PlayerMatchStats` has all the ingredients for a composite score but none is computed yet. The label should be "Composite Rating (beta)" when added, not "HLTV Rating", until validation against known matches is complete.
 - ~~**Phase 2 metrics (crosshair placement)**~~: Crosshair placement (median angle, pitch/yaw split, pct under 5°) and pre-shot correction are now implemented.
+- ~~**Round context**~~: Post-plant (`IsPostPlant`) and clutch detection (`IsInClutch`, `ClutchEnemyCount`) are now implemented and shown as `POST_PLT`/`CLUTCH_1vN` flags in the `rounds` command.
+- ~~**Trend view**~~: The `trend` command shows chronological per-match KPR/ADR/KAST% and TTK/TTD/one-tap% tables.
+- ~~**Counter-strafe %**~~: Removed — lateral velocity at demo GOTV frame rate (32 Hz) is too noisy to be reliable; replaced by TTK/TTD/one-tap metrics.
 - **Schema migrations**: The current schema is applied with `IF NOT EXISTS`, which is safe for initial creation but provides no migration path for adding columns. A versioned migration scheme (e.g. tracking schema version in a `meta` table) would be needed before the schema is considered stable. Currently, a DB rebuild (`rm metrics.db`) is required whenever the schema changes.
 - **No index on FK columns**: `demo_hash` columns in child tables are not indexed. Fine for current query patterns (always full-scan of a single demo's rows) but will degrade as the database grows.
 - **Distance bin for "unknown"**: Duels where the attacker had no weapon-fire event in the duel window (e.g., kill grenade, knife) or where the victim had no hit recorded are placed in the `"unknown"` distance bin. These are not surfaced as a quality warning in the current output.
