@@ -251,6 +251,8 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 | `--map <name>` | `""` | Only include matches on this map (e.g. `nuke`, `de_nuke`; prefix stripped, case-insensitive) |
 | `--since <date>` | `""` | Only include matches on or after this date (`YYYY-MM-DD`) |
 | `--last <N>` | `0` | Only use the N most recent matches (applied after map/since filters) |
+| `--top <N>` | `0` | Automatically append the top N players from the database by Rating 2.0 proxy; useful for comparing yourself against the strongest players in your demo set |
+| `--top-min <N>` | `3` | Minimum number of qualifying demos a player must have to be considered for `--top` ranking |
 
 **Output tables per player:**
 
@@ -267,6 +269,25 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 ./go-cs-metrics player 76561198XXXXXXXXX
 ./go-cs-metrics player 76561198XXXXXXXXX --map nuke
 ./go-cs-metrics player 76561198XXXXXXXXX --since 2026-01-01 --last 10
+
+# Compare yourself against the top 5 players in your demo set
+./go-cs-metrics player 76561198XXXXXXXXX --top 5
+
+# Same but restricted to nuke and at least 5 qualifying demos per player
+./go-cs-metrics player 76561198XXXXXXXXX --map nuke --top 5 --top-min 5
+```
+
+When `--top N` is used, the highest-rated players not already in the request are resolved from the database (same `--map`/`--since` filters applied; `--last` does not affect ranking), and a note is printed before the tables:
+
+```
+Top-5 by rating added: s1mple, NiKo, ZywOo, device, sh1ro
+```
+
+The **Rating 2.0 proxy** used for ranking (community approximation, not official HLTV math, expect ±0.05–0.10 deviation):
+
+```
+Impact = 2.13×KPR + 0.42×APR − 0.41
+Rating ≈ 0.0073×KAST% + 0.3591×KPR − 0.5329×DPR + 0.2372×Impact + 0.0032×ADR + 0.1587
 ```
 
 ```

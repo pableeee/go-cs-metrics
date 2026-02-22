@@ -15,9 +15,11 @@ import (
 )
 
 var (
-	playerMap   string
-	playerSince string
-	playerLast  int
+	playerMap    string
+	playerSince  string
+	playerLast   int
+	playerTop    int
+	playerTopMin int
 )
 
 // playerCmd is the cobra command for cross-match aggregate analysis of one or more players.
@@ -32,16 +34,52 @@ func init() {
 	playerCmd.Flags().StringVar(&playerMap, "map", "", "filter to a specific map (e.g. nuke, de_nuke)")
 	playerCmd.Flags().StringVar(&playerSince, "since", "", "filter to matches on or after this date (YYYY-MM-DD)")
 	playerCmd.Flags().IntVar(&playerLast, "last", 0, "only use the N most recent matches")
+	playerCmd.Flags().IntVar(&playerTop, "top", 0, "also include the top N players by Rating 2.0 proxy from the database")
+	playerCmd.Flags().IntVar(&playerTopMin, "top-min", 3, "minimum matches a player must have to appear in the top-N ranking")
 }
 
 // runPlayer loads all match data for each given SteamID64, builds cross-match
 // aggregates, and prints overview, duel, AWP, map/side, and FHHS tables.
+// With --top N, the top N players by Rating 2.0 proxy are appended automatically.
 func runPlayer(cmd *cobra.Command, args []string) error {
 	db, err := storage.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("open storage: %w", err)
 	}
 	defer db.Close()
+
+	// Build the ordered, deduplicated list of IDs to process.
+	// Explicit args come first; --top N appends the highest-rated players not already present.
+	allIDs := make([]string, 0, len(args))
+	seenIDs := make(map[string]struct{}, len(args))
+	for _, arg := range args {
+		if _, dup := seenIDs[arg]; !dup {
+			allIDs = append(allIDs, arg)
+			seenIDs[arg] = struct{}{}
+		}
+	}
+	if playerTop > 0 {
+		normMap := strings.TrimPrefix(strings.ToLower(playerMap), "de_")
+		topPlayers, err := db.GetTopPlayersByRating(playerTop+len(args), playerTopMin, normMap, playerSince)
+		if err != nil {
+			return fmt.Errorf("get top players by rating: %w", err)
+		}
+		var added []string
+		for _, tp := range topPlayers {
+			if _, dup := seenIDs[tp.SteamID]; dup {
+				continue
+			}
+			if len(added) >= playerTop {
+				break
+			}
+			allIDs = append(allIDs, tp.SteamID)
+			seenIDs[tp.SteamID] = struct{}{}
+			added = append(added, tp.Name)
+		}
+		if len(added) > 0 {
+			fmt.Fprintf(os.Stdout, "Top-%d by rating added: %s\n", playerTop, strings.Join(added, ", "))
+		}
+	}
 
 	type fhhsEntry struct {
 		name  string
@@ -55,7 +93,7 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 	var fhhsList   []fhhsEntry
 	var allClutch  []model.PlayerClutchMatchStats
 
-	for _, arg := range args {
+	for _, arg := range allIDs {
 		id, err := strconv.ParseUint(arg, 10, 64)
 		if err != nil {
 			return fmt.Errorf("invalid SteamID64 %q: %w", arg, err)

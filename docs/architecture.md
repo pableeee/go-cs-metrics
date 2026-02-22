@@ -312,7 +312,7 @@ Subcommands, all accessed via a persistent `--db` flag on the root command:
 csmetrics parse [<demo.dem>...] [--dir <dir>] [--player <steamid64>] [--type Label] [--tier Label] [--baseline]
 csmetrics list
 csmetrics show <hash-prefix> [--player <steamid64>]
-csmetrics player <steamid64> [<steamid64>...] [--map <name>] [--since <date>] [--last <N>]
+csmetrics player <steamid64> [<steamid64>...] [--map <name>] [--since <date>] [--last <N>] [--top <N>] [--top-min <N>]
 csmetrics rounds <hash-prefix> <steamid64>
 csmetrics trend <steamid64>
 csmetrics sql "<query>"
@@ -344,6 +344,8 @@ All commands also accept `--silent` / `-s` (persistent flag on root). When set, 
 6. FHHS table — first-hit HS rate by (weapon, distance bin) with Wilson 95% CI and sample flags; priority bins marked with `*` and summarised below the table
 7. Weapon table — per-weapon kills, HS%, damage, hits
 8. Aim timing — median TTK, median TTD, one-tap%
+
+**`--top N` ranking**: `GetTopPlayersByRating` aggregates raw integer stats per player via a single `GROUP BY steam_id` query (with optional `--map`/`--since` filters applied in SQL), then computes the Rating 2.0 proxy in Go, sorts descending, and returns the top N. Players already in the explicit arg list are skipped. `--last` is not applied to ranking (per-player recency windowing is too expensive for a bulk ranking query). The rating formula is the same as the `export` command.
 
 **Output order** for `player <steamid64>...` (one block per player):
 1. Header line — name, SteamID64, match count

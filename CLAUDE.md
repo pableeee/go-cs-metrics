@@ -35,7 +35,7 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `list` | List all stored demos |
 | `show <hash-prefix>` | Re-display a stored demo's tables |
 | `fetch` | Download and ingest FACEIT baseline demos |
-| `player <steamid64>...` | Cross-match aggregate report for one or more players (`--map`, `--since`, `--last` filters) |
+| `player <steamid64>...` | Cross-match aggregate report for one or more players (`--map`, `--since`, `--last` filters); `--top N` appends the top N players by Rating 2.0 proxy for comparison |
 | `rounds <hash-prefix> <steamid64>` | Per-round drill-down with buy type, flags (POST_PLT, CLUTCH_1vN); `--clutch`, `--post-plant`, `--side`, `--buy` filters |
 | `trend <steamid64>` | Chronological per-match performance trend (KPR/ADR/KAST% + TTK/TTD/CS%) |
 | `sql <query>` | Run an arbitrary SQL query against the metrics database; prints results as a table |

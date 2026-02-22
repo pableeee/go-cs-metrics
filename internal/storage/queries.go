@@ -3,7 +3,9 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/pable/go-cs-metrics/internal/model"
 )
@@ -19,15 +21,28 @@ func (db *DB) DemoExists(hash string) (bool, error) {
 }
 
 // InsertDemo inserts a demo record. Uses INSERT OR REPLACE for idempotency.
+// MapName is normalized to title-case (e.g. "de_mirage" → "Mirage") before storage
+// so all reads return a consistent name regardless of what the demo header contains.
 func (db *DB) InsertDemo(summary model.MatchSummary) error {
 	_, err := db.conn.Exec(`
-		INSERT OR REPLACE INTO demos(hash, map_name, match_date, match_type, tickrate, ct_score, t_score, tier, is_baseline)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		summary.DemoHash, summary.MapName, summary.MatchDate, summary.MatchType,
+		INSERT OR REPLACE INTO demos(hash, map_name, match_date, match_type, tickrate, ct_score, t_score, tier, is_baseline, event_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		summary.DemoHash, normalizeMapName(summary.MapName), summary.MatchDate, summary.MatchType,
 		summary.Tickrate, summary.CTScore, summary.TScore,
-		summary.Tier, boolInt(summary.IsBaseline),
+		summary.Tier, boolInt(summary.IsBaseline), summary.EventID,
 	)
 	return err
+}
+
+// normalizeMapName converts a CS2 map identifier to the title-case name used
+// throughout the pipeline (e.g. "de_mirage" → "Mirage", "de_dust2" → "Dust2").
+// The function is idempotent: already-normalized names are returned unchanged.
+func normalizeMapName(name string) string {
+	name = strings.TrimPrefix(name, "de_")
+	if len(name) == 0 {
+		return name
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
 }
 
 // InsertPlayerMatchStats bulk-inserts player match stats in a transaction.
@@ -128,7 +143,7 @@ func (db *DB) InsertPlayerRoundStats(stats []model.PlayerRoundStats) error {
 // ListDemos returns all stored match summaries ordered by match_date desc.
 func (db *DB) ListDemos() ([]model.MatchSummary, error) {
 	rows, err := db.conn.Query(`
-		SELECT hash, map_name, match_date, match_type, tickrate, ct_score, t_score, tier, is_baseline
+		SELECT hash, map_name, match_date, match_type, tickrate, ct_score, t_score, tier, is_baseline, event_id
 		FROM demos ORDER BY match_date DESC`)
 	if err != nil {
 		return nil, err
@@ -140,7 +155,7 @@ func (db *DB) ListDemos() ([]model.MatchSummary, error) {
 		var s model.MatchSummary
 		var isBaselineInt int
 		if err := rows.Scan(&s.DemoHash, &s.MapName, &s.MatchDate, &s.MatchType,
-			&s.Tickrate, &s.CTScore, &s.TScore, &s.Tier, &isBaselineInt); err != nil {
+			&s.Tickrate, &s.CTScore, &s.TScore, &s.Tier, &isBaselineInt, &s.EventID); err != nil {
 			return nil, err
 		}
 		s.IsBaseline = isBaselineInt != 0
@@ -154,10 +169,10 @@ func (db *DB) GetDemoByPrefix(prefix string) (*model.MatchSummary, error) {
 	var s model.MatchSummary
 	var isBaselineInt int
 	err := db.conn.QueryRow(`
-		SELECT hash, map_name, match_date, match_type, tickrate, ct_score, t_score, tier, is_baseline
+		SELECT hash, map_name, match_date, match_type, tickrate, ct_score, t_score, tier, is_baseline, event_id
 		FROM demos WHERE hash LIKE ? LIMIT 1`, prefix+"%").
 		Scan(&s.DemoHash, &s.MapName, &s.MatchDate, &s.MatchType,
-			&s.Tickrate, &s.CTScore, &s.TScore, &s.Tier, &isBaselineInt)
+			&s.Tickrate, &s.CTScore, &s.TScore, &s.Tier, &isBaselineInt, &s.EventID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -702,6 +717,109 @@ func (db *DB) GetTopPlayersByMatches(limit int) ([]PlayerFrequency, error) {
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// PlayerRatingRow holds a player's aggregated stats and computed rating proxy,
+// used for top-N ranking in the player command.
+type PlayerRatingRow struct {
+	SteamID string
+	Name    string
+	Rating  float64
+	Matches int
+}
+
+// ratingProxy computes the community approximation of HLTV Rating 2.0.
+//
+//	Impact = 2.13*KPR + 0.42*APR − 0.41
+//	Rating ≈ 0.0073*KAST% + 0.3591*KPR − 0.5329*DPR + 0.2372*Impact + 0.0032*ADR + 0.1587
+func ratingProxy(kills, assists, deaths, rounds, kastRounds, damage int) float64 {
+	if rounds == 0 {
+		return 0
+	}
+	kpr := float64(kills) / float64(rounds)
+	apr := float64(assists) / float64(rounds)
+	dpr := float64(deaths) / float64(rounds)
+	kast := 100.0 * float64(kastRounds) / float64(rounds)
+	adr := float64(damage) / float64(rounds)
+	impact := 2.13*kpr + 0.42*apr - 0.41
+	return 0.0073*kast + 0.3591*kpr - 0.5329*dpr + 0.2372*impact + 0.0032*adr + 0.1587
+}
+
+// GetTopPlayersByRating returns up to limit players ranked by the Rating 2.0 proxy,
+// computed from aggregated match stats across the filtered demo set. mapFilter must
+// be de_-stripped and lowercased (e.g. "mirage"); since is a YYYY-MM-DD cutoff.
+// Players with fewer than minMatches qualifying demos are excluded.
+func (db *DB) GetTopPlayersByRating(limit, minMatches int, mapFilter, since string) ([]PlayerRatingRow, error) {
+	conds := ""
+	args := []any{}
+	if mapFilter != "" {
+		conds += " AND LOWER(REPLACE(d.map_name, 'de_', '')) = ?"
+		args = append(args, mapFilter)
+	}
+	if since != "" {
+		conds += " AND d.match_date >= ?"
+		args = append(args, since)
+	}
+
+	rows, err := db.conn.Query(`
+		SELECT p.steam_id, p.name,
+		       SUM(p.kills), SUM(p.assists), SUM(p.deaths),
+		       SUM(p.rounds_played), SUM(p.kast_rounds), SUM(p.total_damage),
+		       COUNT(DISTINCT p.demo_hash)
+		FROM player_match_stats p
+		JOIN demos d ON d.hash = p.demo_hash
+		WHERE 1=1`+conds+`
+		GROUP BY p.steam_id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		steamID string
+		name    string
+		kills   int
+		assists int
+		deaths  int
+		rounds  int
+		kast    int
+		damage  int
+		matches int
+	}
+	var candidates []candidate
+	for rows.Next() {
+		var c candidate
+		if err := rows.Scan(&c.steamID, &c.name,
+			&c.kills, &c.assists, &c.deaths,
+			&c.rounds, &c.kast, &c.damage, &c.matches); err != nil {
+			return nil, err
+		}
+		if c.matches >= minMatches {
+			candidates = append(candidates, c)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	type rated struct {
+		candidate
+		rating float64
+	}
+	ranked := make([]rated, len(candidates))
+	for i, c := range candidates {
+		ranked[i] = rated{c, ratingProxy(c.kills, c.assists, c.deaths, c.rounds, c.kast, c.damage)}
+	}
+	sort.Slice(ranked, func(i, j int) bool { return ranked[i].rating > ranked[j].rating })
+
+	out := make([]PlayerRatingRow, 0, limit)
+	for _, r := range ranked {
+		if len(out) >= limit {
+			break
+		}
+		out = append(out, PlayerRatingRow{SteamID: r.steamID, Name: r.name, Rating: r.rating, Matches: r.matches})
+	}
+	return out, nil
 }
 
 // GetMatchTypeCounts returns the number of demos per match type, ordered by count desc.
