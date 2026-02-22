@@ -34,7 +34,7 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `parse [<demo.dem>...] [--dir <dir>]` | Parse + store one or more demos; bulk mode prints compact status per demo |
 | `list` | List all stored demos |
 | `show <hash-prefix>` | Re-display a stored demo's tables |
-| `fetch` | Download and ingest FACEIT baseline demos |
+| `fetch` | *(disabled — not registered as a CLI command; non-functional due to platform auth changes; see `docs/demo-download-automation.md`)* |
 | `player <steamid64>...` | Cross-match aggregate report for one or more players (`--map`, `--since`, `--last` filters); `--top N` appends the top N players by Rating 2.0 proxy for comparison |
 | `rounds <hash-prefix> <steamid64>` | Per-round drill-down with buy type, flags (POST_PLT, CLUTCH_1vN); `--clutch`, `--post-plant`, `--side`, `--buy` filters |
 | `trend <steamid64>` | Chronological per-match performance trend (KPR/ADR/KAST% + TTK/TTD/CS%) |
@@ -100,7 +100,7 @@ Impact  = 2.13*KPR + 0.42*APR − 0.41
 ```
 Top 5 players by rounds_played are selected; extras padded with 1.00. **Not official HLTV math** — expect ±0.05–0.10 deviation.
 
-See `README.md` Integration section and `docs/integration.md` for full usage.
+See `README.md` Integration section and `docs/integration-simbo3.md` for full usage.
 
 ## Key Validation Rules
 

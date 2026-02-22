@@ -33,6 +33,7 @@ go-cs-metrics/
     │   ├── schema.sql               # embedded SQL (go:embed)
     │   ├── storage.go               # DB open / schema apply
     │   ├── queries.go               # insert / query helpers
+    │   ├── export_queries.go        # export command queries (QualifyingDemos, MapWinOutcomes, RoundSideStats, RosterMatchTotals, PlayerDemoCounts)
     │   └── storage_test.go          # round-trip tests against :memory:
     ├── steam/
     │   ├── sharecode.go             # base-57 CS2 share code decoder (matchID + reservationID + tvPort)
@@ -306,7 +307,7 @@ demos                         (hash PK, map_name, date, type, tickrate, ct_score
 - `event_id` is populated from the same sidecar (e.g. `"iem_cologne_2025"`); empty string if unknown.
 - `is_baseline INTEGER` — 1 for reference corpus demos, 0 for personal matches.
 
-All tables use `CREATE TABLE IF NOT EXISTS`; new columns are added at startup via `ALTER TABLE ... ADD COLUMN ... DEFAULT` migrations (duplicate-column errors silently ignored).
+All tables use `CREATE TABLE IF NOT EXISTS`; new columns are added at startup via `ALTER TABLE ... ADD COLUMN ... DEFAULT` migrations (duplicate-column errors silently ignored). Indexes on frequently queried columns (`demos.match_date`; `steam_id` and `demo_hash` on all three child stats tables) are declared with `CREATE INDEX IF NOT EXISTS` in schema.sql — safe for both fresh and existing databases.
 
 ---
 
@@ -331,36 +332,37 @@ All commands also accept `--silent` / `-s` (persistent flag on root). When set, 
 **Output order** for `parse` (single file):
 0. Timing line — `  parse: Xs  aggregate: Xs  total: Xs` printed immediately after processing, before the tables
 1. Match summary (map, date, score, hash)
-2. Player table — K/A/D, ADR, KAST%, role, entries, trades, flash assists, effective flashes, xhair median
-3. Per-side breakdown — K/A/D, ADR, KAST%, entry/trade counts split by CT and T halves
+2. Player roster — compact name → SteamID64 listing
+3. Player table — K/A/D, ADR, KAST%, role, entries, trades, flash assists, effective flashes, xhair median
 4. Duel table — W/L counts, median exposure win/loss ms, hits/kill, first-hit HS%, pre-shot correction
 5. AWP table — AWP deaths with dry%/repeek%/isolated%
-6. FHHS table — first-hit HS rate by (weapon, distance bin) with Wilson 95% CI and sample flags; priority bins marked with `*` and summarised below the table
-7. Weapon table — per-weapon kills, HS%, damage, hits
-8. Aim timing — median TTK, median TTD, one-tap%
+6. Weapon table — per-weapon kills, HS%, damage, hits
+7. Aim timing — median TTK, median TTD, one-tap%
+8. Clutch table — 1v1–1v5 attempt/win counts per player
 
 **Bulk mode** (`parse` with multiple files or `--dir`): full tables are suppressed. Each demo prints a one-line status including map, date, score, player count, round count, and `(parse Xs  agg Xs  total Xs)` timing.
 
 **Output order** for `show`:
 1. Match summary (map, date, score, hash)
-2. Player table — K/A/D, ADR, KAST%, role, entries, trades, flash assists, effective flashes, xhair median
-3. Per-side breakdown — K/A/D, ADR, KAST%, entry/trade counts split by CT and T halves
-4. Duel table — W/L counts, median exposure win/loss ms, hits/kill, first-hit HS%, pre-shot correction
-5. AWP table — AWP deaths with dry%/repeek%/isolated%
-6. FHHS table — first-hit HS rate by (weapon, distance bin) with Wilson 95% CI and sample flags; priority bins marked with `*` and summarised below the table
+2. Player roster — compact name → SteamID64 listing
+3. Player table — K/A/D, ADR, KAST%, role, entries, trades, flash assists, effective flashes, xhair median
+4. Per-side breakdown — K/A/D, ADR, KAST%, entry/trade counts split by CT and T halves
+5. Duel table — W/L counts, median exposure win/loss ms, hits/kill, first-hit HS%, pre-shot correction
+6. AWP table — AWP deaths with dry%/repeek%/isolated%
 7. Weapon table — per-weapon kills, HS%, damage, hits
 8. Aim timing — median TTK, median TTD, one-tap%
+9. Clutch table — 1v1–1v5 attempt/win counts per player
 
 **`--top N` ranking**: `GetTopPlayersByRating` aggregates raw integer stats per player via a single `GROUP BY steam_id` query (with optional `--map`/`--since` filters applied in SQL), then computes the Rating 2.0 proxy in Go, sorts descending, and returns the top N. Players already in the explicit arg list are skipped. `--last` is not applied to ranking (per-player recency windowing is too expensive for a bulk ranking query). The rating formula is the same as the `export` command.
 
-**Output order** for `player <steamid64>...` (one block per player):
-1. Header line — name, SteamID64, match count
-2. Overview table — K/A/D, K/D, HS%, ADR, KAST%, entry kills/deaths, trade kills/deaths, flash assists, effective flashes
-3. Duel profile — wins/losses, avg exposure win/loss ms, avg hits-to-kill, avg pre-shot correction
-4. AWP breakdown — total AWP deaths, dry%/repeek%/isolated%
-5. Map & side split — K/D, HS%, ADR, KAST%, entry/trade counts broken down by map and CT/T side
-6. Aim timing aggregate — role, avg TTK, avg TTD, one-tap%
-7. FHHS table — same format as parse/show but built from merged cross-demo segment counts (accurate aggregation)
+**Output order** for `player <steamid64>...` (all players as rows in combined tables):
+1. Overview table — K/A/D, K/D, HS%, ADR, KAST%, entry kills/deaths, trade kills/deaths, flash assists, effective flashes
+2. Duel profile — wins/losses, avg exposure win/loss ms, avg hits-to-kill, avg pre-shot correction
+3. AWP breakdown — total AWP deaths, dry%/repeek%/isolated%
+4. Map & side split — K/D, HS%, ADR, KAST%, entry/trade counts broken down by map and CT/T side
+5. Aim timing aggregate — role, avg TTK, avg TTD, one-tap%
+6. Clutch aggregate — 1v1–1v5 attempt/win counts per player
+7. FHHS table — per-player; built from merged cross-demo segment counts (not printed by parse/show)
 
 **Output for `rounds <hash-prefix> <steamid64>`**:
 Per-round table: round number, side, buy type, K/A/damage, KAST ✓/blank, tactical flags (OPEN_K/D, TRADE_K/D, POST_PLT, CLUTCH_1vN). Footer: buy profile summary (full/force/half/eco counts and percentages).
@@ -411,6 +413,7 @@ Tests use an in-memory SQLite database (`:memory:`). Each test opens a fresh dat
 | `TestPlayerMatchStatsRoundTrip` | Full insert + query round-trip; field-level assertions |
 | `TestInsertIdempotency` | Second `InsertDemo` with same hash does not error |
 | `TestMapNameNormalization` | `de_`-prefixed raw names are stored and read back as normalized title-case; idempotent (already-normalized names unchanged) |
+| `TestNormalizeMapName` | Unit-tests `normalizeMapName()` directly, including the edge case where stripping `de_` leaves an empty string (original name is preserved) |
 
 ---
 
@@ -425,7 +428,7 @@ Tests use an in-memory SQLite database (`:memory:`). Each test opens a fresh dat
 - ~~**Trend view**~~: The `trend` command shows chronological per-match KPR/ADR/KAST% and TTK/TTD/one-tap% tables.
 - ~~**Counter-strafe %**~~: Implemented. Player horizontal speed is captured at each `WeaponFire` event via `e.Shooter.Velocity()`; shots at ≤ 34 u/s (counter-strafed) are counted vs total shots per player to produce `CS%`. Shown in aim timing tables and `AVG_CS%` in the `player` command.
 - **Schema migrations**: The current schema is applied with `IF NOT EXISTS`, which is safe for initial creation but provides no migration path for adding columns. A versioned migration scheme (e.g. tracking schema version in a `meta` table) would be needed before the schema is considered stable. Currently, a DB rebuild (`rm metrics.db`) is required whenever the schema changes.
-- **No index on FK columns**: `demo_hash` columns in child tables are not indexed. Fine for current query patterns (always full-scan of a single demo's rows) but will degrade as the database grows.
+- ~~**No index on FK columns**: `demo_hash` columns in child tables are not indexed. Fine for current query patterns (always full-scan of a single demo's rows) but will degrade as the database grows.~~ Fixed: indexes on `demo_hash` and `steam_id` in all child tables (plus `match_date` on `demos`) are now declared in schema.sql with `CREATE INDEX IF NOT EXISTS`.
 - **Distance bin for "unknown"**: Duels where the attacker had no weapon-fire event in the duel window (e.g., kill grenade, knife) or where the victim had no hit recorded are placed in the `"unknown"` distance bin. These are not surfaced as a quality warning in the current output.
 - **FHHS for losing duels**: `PlayerDuelSegment` only accumulates data from duels the player *won* (had a sight of the victim before the kill). FHHS for duels the player lost is not yet computed.
 - **Movement state segmentation** (standing/walking/running at first shot): Not implemented. Spec'd as a future extension in `docs/iteration-2.md`.

@@ -150,14 +150,15 @@ Parse one or more `.dem` files, aggregate all metrics, and store the results. If
 **Output tables:**
 
 1. **Match summary** — map, date, type, score, hash prefix
-2. **Player stats** — K/A/D, K/D, HS%, ADR, KAST%, role, entry kills/deaths, trade kills/deaths, flash assists, effective flashes, utility damage, crosshair median angle
-3. **Per-side breakdown** — K/A/D, K/D, ADR, KAST%, entry/trade counts split by CT and T halves
+2. **Player roster** — compact name → SteamID64 listing (one row per player)
+3. **Player stats** — K/A/D, K/D, HS%, ADR, KAST%, role, entry kills/deaths, trade kills/deaths, flash assists, effective flashes, utility damage, crosshair median angle
 4. **Duel engine** — duel wins/losses, median exposure time on wins and losses, median hits-to-kill, first-bullet HS rate, pre-shot correction angle and % under 2°
 5. **AWP death classifier** — total AWP deaths, % dry-peek, % re-peek, % isolated
 6. **Weapon breakdown** — per-weapon kills, HS%, assists, deaths, damage, hits, damage-per-hit (filtered to `--player` if specified)
 7. **Aim timing** — median TTK, median TTD, one-tap%, counter-strafe%
+8. **Clutch** — 1v1–1v5 attempt/win counts per player
 
-> **Note:** FHHS (first-hit headshot rate by weapon × distance) is only shown in the `player` command where cross-match sample sizes are large enough to be meaningful.
+> **Note:** Per-side (CT/T) breakdown is available via `show` but not `parse`. FHHS (first-hit headshot rate by weapon × distance) is only shown in the `player` command where cross-match sample sizes are large enough to be meaningful.
 
 **Examples:**
 
@@ -191,7 +192,7 @@ Bulk mode status line (includes timing):
 
 ```
 [1/3] match1.dem
-  stored: de_mirage  2024-11-01  13–5  10 players  18 rounds  (parse 4.2s  agg 312ms  total 4.512s)
+  stored: Mirage  2024-11-01  13–5  10 players  18 rounds  (parse 4.2s  agg 312ms  total 4.512s)
 ```
 
 ---
@@ -236,7 +237,7 @@ Display the full stats for a previously stored match by its hash prefix (at leas
 ./go-cs-metrics show a3f9c2 --player 76561198XXXXXXXXX
 ```
 
-Outputs the same four tables as `parse`.
+Outputs the same tables as `parse` with one addition: a **per-side breakdown** (K/A/D, ADR, KAST%, entry/trade counts for CT and T halves separately) is inserted after the player stats table.
 
 ---
 
@@ -256,14 +257,15 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 | `--top <N>` | `0` | Automatically append the top N players from the database by Rating 2.0 proxy; useful for comparing yourself against the strongest players in your demo set |
 | `--top-min <N>` | `3` | Minimum number of qualifying demos a player must have to be considered for `--top` ranking |
 
-**Output tables per player:**
+**Output tables** (all requested players appear as rows in the same combined tables):
 
 1. **Overview** — matches played, K/A/D, K/D, HS%, ADR, KAST%, entry kills/deaths, trade kills/deaths, flash assists, effective flashes
 2. **Duel profile** — duel wins/losses, average exposure time (win and loss), average hits-to-kill, average pre-shot correction
 3. **AWP breakdown** — total AWP deaths with dry-peek %, re-peek %, and isolated %
 4. **Map & side split** — K/D, HS%, ADR, KAST%, entry/trade counts broken down by map and side (CT/T)
 5. **Aim timing** — role, average TTK, average TTD, one-tap%, average counter-strafe%
-6. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample quality flags, priority bins marked with `*`
+6. **Clutch** — 1v1–1v5 attempt/win counts per player
+7. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample quality flags, priority bins marked with `*` (one table per player)
 
 **Examples:**
 
@@ -682,6 +684,18 @@ Found 34 qualifying demos
 Wrote navi.json
 ```
 
+When no qualifying demos are found, a follow-up diagnostic query prints per-player demo counts with a targeted hint:
+
+```
+Querying demos for 5 players since 2025-11-23 (quorum=3)...
+Per-player demo counts (last 90 days, no quorum filter):
+  s1mple                3 demo(s)
+  b1t                   2 demo(s)
+  electronic            2 demo(s)
+hint: players exist individually but no single demo has 3+ of them together; try --quorum 2
+Error: no qualifying demos found in the last 90 days with quorum=3
+```
+
 **Checking export freshness:**
 
 The output JSON includes `latest_match_date` and `demo_count` so you can quickly verify the data covers a recent period before running a simulation:
@@ -850,7 +864,7 @@ Default location: `~/.csmetrics/metrics.db` (SQLite, WAL mode, foreign keys on).
 
 **`player_weapon_stats`** — one row per player per weapon per demo. Unique on `(demo_hash, steam_id, weapon)`.
 
-Schema migrations run automatically at startup via `ALTER TABLE ... ADD COLUMN` statements (errors on duplicate columns are silently ignored).
+Schema migrations run automatically at startup via `ALTER TABLE ... ADD COLUMN` statements (errors on duplicate columns are silently ignored). Performance indexes on commonly queried columns (`match_date`, `steam_id`, `demo_hash`) are created via `CREATE INDEX IF NOT EXISTS` in the base schema — safe to apply against existing databases.
 
 ---
 
@@ -956,7 +970,7 @@ make all
 Unit tests live alongside their packages:
 
 - `internal/aggregator/aggregator_test.go` — trade logic, KAST, opening kill detection
-- `internal/storage/storage_test.go` — round-trip insert/query
+- `internal/storage/storage_test.go` — round-trip insert/query, map name normalization
 
 Run a single test:
 ```sh
