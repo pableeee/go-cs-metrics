@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/charmbracelet/glamour"
 	"github.com/spf13/cobra"
 
 	"github.com/pable/go-cs-metrics/internal/model"
@@ -678,8 +679,6 @@ func callAnthropic(ctx context.Context, apiKey, modelID, dataJSON, question stri
 
 	userMsg := fmt.Sprintf("DATA:\n%s\n\nQUESTION: %s", dataJSON, question)
 
-	fmt.Fprintln(os.Stdout, "\n─── AI Analysis ─────────────────────────────────────")
-
 	stream := client.Messages.NewStreaming(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.Model(modelID),
 		MaxTokens: 1024,
@@ -691,17 +690,21 @@ func callAnthropic(ctx context.Context, apiKey, modelID, dataJSON, question stri
 		},
 	})
 
+	// Buffer the full response before rendering so glamour can process the
+	// complete markdown document (it needs the full text for proper formatting).
+	fmt.Fprintln(os.Stdout, "\n─── AI Analysis ──────────────────────────────────────")
+	fmt.Fprintln(os.Stdout, "  Waiting for response...")
+
+	var buf strings.Builder
 	for stream.Next() {
 		evt := stream.Current()
 		if evt.Type == "content_block_delta" {
 			delta := evt.AsContentBlockDelta()
 			if delta.Delta.Type == "text_delta" {
-				fmt.Fprint(os.Stdout, delta.Delta.AsTextDelta().Text)
+				buf.WriteString(delta.Delta.AsTextDelta().Text)
 			}
 		}
 	}
-	fmt.Fprintln(os.Stdout, "\n─────────────────────────────────────────────────────")
-
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "401") || strings.Contains(errStr, "authentication") {
@@ -709,5 +712,24 @@ func callAnthropic(ctx context.Context, apiKey, modelID, dataJSON, question stri
 		}
 		return fmt.Errorf("streaming error: %w", err)
 	}
+
+	renderer, err := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(100),
+	)
+	if err != nil {
+		// Fallback to plain text if glamour fails to initialise.
+		fmt.Fprintln(os.Stdout, buf.String())
+		fmt.Fprintln(os.Stdout, "──────────────────────────────────────────────────────")
+		return nil
+	}
+
+	rendered, err := renderer.Render(buf.String())
+	if err != nil {
+		fmt.Fprintln(os.Stdout, buf.String())
+	} else {
+		fmt.Fprint(os.Stdout, rendered)
+	}
+	fmt.Fprintln(os.Stdout, "──────────────────────────────────────────────────────")
 	return nil
 }
