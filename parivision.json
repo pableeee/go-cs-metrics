@@ -1,0 +1,40 @@
+{
+  "team": "Parivision",
+  "players_rating2_3m": [
+    1.22,
+    1.14,
+    1.08,
+    1.04,
+    0.92
+  ],
+  "maps": {
+    "Ancient": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.29,
+      "t_round_win_pct": 0.33,
+      "matches_3m": 2
+    },
+    "Anubis": {
+      "map_win_pct": 1,
+      "ct_round_win_pct": 0.59,
+      "t_round_win_pct": 0.5,
+      "matches_3m": 1
+    },
+    "Dust2": {
+      "map_win_pct": 0.67,
+      "ct_round_win_pct": 0.63,
+      "t_round_win_pct": 0.38,
+      "matches_3m": 3
+    },
+    "Overpass": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.58,
+      "t_round_win_pct": 0.33,
+      "matches_3m": 1
+    }
+  },
+  "generated_at": "2026-02-23T15:23:58Z",
+  "window_days": 56,
+  "latest_match_date": "2026-02-01",
+  "demo_count": 7
+}

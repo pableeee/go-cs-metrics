@@ -6,8 +6,8 @@
     "team_a_roster": "rosters/aurora.json",
     "team_b_roster": "rosters/furia.json",
     "maps": [
-      {"map": "Dust2",  "picker": "A"},
-      {"map": "Mirage", "picker": "B"}
+      {"map": "Dust2",  "picker": "A", "a_start_ct": true},
+      {"map": "Mirage", "picker": "B", "a_start_ct": true}
     ],
     "a_won_series": false
   },
@@ -18,8 +18,8 @@
     "team_a_roster": "rosters/g2.json",
     "team_b_roster": "rosters/mouz.json",
     "maps": [
-      {"map": "Overpass", "picker": "B"},
-      {"map": "Dust2",    "picker": "A"}
+      {"map": "Overpass", "picker": "B", "a_start_ct": true},
+      {"map": "Dust2",    "picker": "A", "a_start_ct": false}
     ],
     "a_won_series": false
   },
@@ -30,9 +30,9 @@
     "team_a_roster": "rosters/spirit.json",
     "team_b_roster": "rosters/furia.json",
     "maps": [
-      {"map": "Mirage", "picker": "B"},
-      {"map": "Dust2",  "picker": "A"},
-      {"map": "Nuke",   "picker": "D"}
+      {"map": "Mirage", "picker": "B", "a_start_ct": true},
+      {"map": "Dust2",  "picker": "A", "a_start_ct": true},
+      {"map": "Nuke",   "picker": "D", "a_start_ct": true}
     ],
     "a_won_series": false
   },
@@ -43,8 +43,8 @@
     "team_a_roster": "rosters/vitality.json",
     "team_b_roster": "rosters/mouz.json",
     "maps": [
-      {"map": "Nuke",  "picker": "B"},
-      {"map": "Dust2", "picker": "A"}
+      {"map": "Nuke",  "picker": "B", "a_start_ct": true},
+      {"map": "Dust2", "picker": "A", "a_start_ct": false}
     ],
     "a_won_series": true
   },
@@ -55,8 +55,8 @@
     "team_a_roster": "rosters/spirit.json",
     "team_b_roster": "rosters/mouz.json",
     "maps": [
-      {"map": "Dust2",  "picker": "A"},
-      {"map": "Mirage", "picker": "B"}
+      {"map": "Dust2",  "picker": "A", "a_start_ct": false},
+      {"map": "Mirage", "picker": "B", "a_start_ct": true}
     ],
     "a_won_series": true
   },
@@ -67,10 +67,10 @@
     "team_a_roster": "rosters/furia.json",
     "team_b_roster": "rosters/vitality.json",
     "maps": [
-      {"map": "Mirage",  "picker": "A"},
-      {"map": "Inferno", "picker": "B"},
-      {"map": "Nuke",    "picker": "A"},
-      {"map": "Overpass","picker": "B"}
+      {"map": "Mirage",  "picker": "A", "a_start_ct": false},
+      {"map": "Inferno", "picker": "B", "a_start_ct": true},
+      {"map": "Nuke",    "picker": "A", "a_start_ct": false},
+      {"map": "Overpass","picker": "B", "a_start_ct": true}
     ],
     "a_won_series": false
   },
@@ -81,8 +81,8 @@
     "team_a_roster": "rosters/spirit.json",
     "team_b_roster": "rosters/falcons.json",
     "maps": [
-      {"map": "Nuke",  "picker": "B"},
-      {"map": "Dust2", "picker": "A"}
+      {"map": "Nuke",  "picker": "B", "a_start_ct": true},
+      {"map": "Dust2", "picker": "A", "a_start_ct": false}
     ],
     "a_won_series": true
   },
@@ -93,8 +93,8 @@
     "team_a_roster": "rosters/vitality.json",
     "team_b_roster": "rosters/mongolz.json",
     "maps": [
-      {"map": "Mirage", "picker": "B"},
-      {"map": "Dust2",  "picker": "A"}
+      {"map": "Mirage", "picker": "B", "a_start_ct": true},
+      {"map": "Dust2",  "picker": "A", "a_start_ct": false}
     ],
     "a_won_series": true
   },
@@ -105,8 +105,8 @@
     "team_a_roster": "rosters/faze.json",
     "team_b_roster": "rosters/mouz.json",
     "maps": [
-      {"map": "Nuke",    "picker": "A"},
-      {"map": "Inferno", "picker": "B"}
+      {"map": "Nuke",    "picker": "A", "a_start_ct": false},
+      {"map": "Inferno", "picker": "B", "a_start_ct": true}
     ],
     "a_won_series": true
   },
@@ -117,9 +117,9 @@
     "team_a_roster": "rosters/navi.json",
     "team_b_roster": "rosters/furia.json",
     "maps": [
-      {"map": "Mirage",  "picker": "A"},
-      {"map": "Inferno", "picker": "B"},
-      {"map": "Train",   "picker": "D"}
+      {"map": "Mirage",  "picker": "A", "a_start_ct": false},
+      {"map": "Inferno", "picker": "B", "a_start_ct": true},
+      {"map": "Train",   "picker": "D", "a_start_ct": false}
     ],
     "a_won_series": true
   },
@@ -130,8 +130,8 @@
     "team_a_roster": "rosters/vitality.json",
     "team_b_roster": "rosters/spirit.json",
     "maps": [
-      {"map": "Mirage", "picker": "A"},
-      {"map": "Dust2",  "picker": "B"}
+      {"map": "Mirage", "picker": "A", "a_start_ct": false},
+      {"map": "Dust2",  "picker": "B", "a_start_ct": true}
     ],
     "a_won_series": true
   },
@@ -142,9 +142,9 @@
     "team_a_roster": "rosters/faze.json",
     "team_b_roster": "rosters/navi.json",
     "maps": [
-      {"map": "Ancient", "picker": "B"},
-      {"map": "Nuke",    "picker": "A"},
-      {"map": "Inferno", "picker": "D"}
+      {"map": "Ancient", "picker": "B", "a_start_ct": true},
+      {"map": "Nuke",    "picker": "A", "a_start_ct": false},
+      {"map": "Inferno", "picker": "D", "a_start_ct": true}
     ],
     "a_won_series": true
   },
@@ -155,10 +155,10 @@
     "team_a_roster": "rosters/faze.json",
     "team_b_roster": "rosters/vitality.json",
     "maps": [
-      {"map": "Nuke",    "picker": "A"},
-      {"map": "Dust2",   "picker": "B"},
-      {"map": "Inferno", "picker": "A"},
-      {"map": "Overpass","picker": "B"}
+      {"map": "Nuke",    "picker": "A", "a_start_ct": false},
+      {"map": "Dust2",   "picker": "B", "a_start_ct": true},
+      {"map": "Inferno", "picker": "A", "a_start_ct": false},
+      {"map": "Overpass","picker": "B", "a_start_ct": true}
     ],
     "a_won_series": false
   },
