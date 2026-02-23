@@ -44,14 +44,21 @@ type simbo3TeamStats struct {
 	WindowDays        int                       `json:"window_days"`
 	LatestMatchDate   string                    `json:"latest_match_date"`
 	DemoCount         int                       `json:"demo_count"`
+	TradeNetRate      float64                   `json:"trade_net_rate,omitempty"`
+	EcoWinPct         float64                   `json:"eco_win_pct,omitempty"`
+	ForceWinPct       float64                   `json:"force_win_pct,omitempty"`
+	RatingFloor       float64                   `json:"rating_floor,omitempty"`
 }
 
 // simbo3MapStats is the per-map block within the simbo3 team JSON.
 type simbo3MapStats struct {
-	MapWinPct     float64 `json:"map_win_pct"`
-	CTRoundWinPct float64 `json:"ct_round_win_pct"`
-	TRoundWinPct  float64 `json:"t_round_win_pct"`
-	Matches3m     int     `json:"matches_3m"`
+	MapWinPct        float64 `json:"map_win_pct"`
+	CTRoundWinPct    float64 `json:"ct_round_win_pct"`
+	TRoundWinPct     float64 `json:"t_round_win_pct"`
+	Matches3m        int     `json:"matches_3m"`
+	EntryKillRate    float64 `json:"entry_kill_rate,omitempty"`
+	EntryDeathRate   float64 `json:"entry_death_rate,omitempty"`
+	PostPlantTWinPct float64 `json:"post_plant_t_win_pct,omitempty"`
 }
 
 var exportCmd = &cobra.Command{
@@ -203,6 +210,68 @@ func runExport(_ *cobra.Command, _ []string) error {
 	}
 	ratings := buildRatings(totals)
 
+	// Populate per-map entry kill/death rates.
+	entryByMap, err := db.MapEntryStats(steamIDs, allHashes)
+	if err != nil {
+		return fmt.Errorf("map entry stats: %w", err)
+	}
+	for mapName, es := range entryByMap {
+		ms, ok := maps[mapName]
+		if !ok {
+			continue
+		}
+		if es.RoundsPlayed > 0 {
+			ms.EntryKillRate = roundTo2dp(float64(es.OpeningKills) / float64(es.RoundsPlayed))
+			ms.EntryDeathRate = roundTo2dp(float64(es.OpeningDeaths) / float64(es.RoundsPlayed))
+		}
+		maps[mapName] = ms
+	}
+
+	// Populate per-map T-side post-plant win rates.
+	postPlantByMap, err := db.MapPostPlantTWinRates(steamIDs, allHashes)
+	if err != nil {
+		return fmt.Errorf("map post-plant stats: %w", err)
+	}
+	const postPlantPrior = 0.75
+	const postPlantMinRounds = 5
+	for mapName, ms := range maps {
+		pp, ok := postPlantByMap[mapName]
+		if ok && pp.TTotal >= postPlantMinRounds {
+			ms.PostPlantTWinPct = roundTo2dp(float64(pp.TWins) / float64(pp.TTotal))
+		} else {
+			ms.PostPlantTWinPct = postPlantPrior
+		}
+		maps[mapName] = ms
+	}
+
+	// Compute team-level trade net rate.
+	tradeStats, err := db.TeamTradeStats(steamIDs, allHashes)
+	if err != nil {
+		return fmt.Errorf("team trade stats: %w", err)
+	}
+	var tradeNetRate float64
+	if tradeStats.RoundsPlayed > 0 {
+		tradeNetRate = roundTo2dp(float64(tradeStats.TradeKills-tradeStats.TradeDeaths) / float64(tradeStats.RoundsPlayed))
+	}
+
+	// Compute eco and force buy-type win rates.
+	buyRates, err := db.BuyTypeWinRates(steamIDs, allHashes)
+	if err != nil {
+		return fmt.Errorf("buy type win rates: %w", err)
+	}
+	const buyTypeMinRounds = 10
+	ecoWinPct := 0.50
+	if buyRates.EcoTotal >= buyTypeMinRounds {
+		ecoWinPct = roundTo2dp(float64(buyRates.EcoWins) / float64(buyRates.EcoTotal))
+	}
+	forceWinPct := 0.50
+	if buyRates.ForceTotal >= buyTypeMinRounds {
+		forceWinPct = roundTo2dp(float64(buyRates.ForceWins) / float64(buyRates.ForceTotal))
+	}
+
+	// Rating floor: ratings is sorted descending; index 4 is the 5th player (lowest).
+	ratingFloor := ratings[4]
+
 	out := simbo3TeamStats{
 		Team:              teamName,
 		PlayersRating2_3m: ratings,
@@ -211,6 +280,10 @@ func runExport(_ *cobra.Command, _ []string) error {
 		WindowDays:        exportSince,
 		LatestMatchDate:   demos[0].MatchDate,
 		DemoCount:         len(demos),
+		TradeNetRate:      tradeNetRate,
+		EcoWinPct:         ecoWinPct,
+		ForceWinPct:       forceWinPct,
+		RatingFloor:       ratingFloor,
 	}
 	if exportSince != 90 {
 		fmt.Fprintf(os.Stderr,

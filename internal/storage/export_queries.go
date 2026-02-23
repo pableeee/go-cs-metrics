@@ -81,6 +81,50 @@ func (db *DB) QualifyingDemos(steamIDs []string, since time.Time, quorum int) ([
 	return out, rows.Err()
 }
 
+// QualifyingDemosWindow is like QualifyingDemos but uses a half-open window
+// [from, before) so callers can exclude demos on or after a cutoff date.
+// Used by backtest-dataset to avoid temporal lookahead: pass before=event_date.
+func (db *DB) QualifyingDemosWindow(steamIDs []string, from, before time.Time, quorum int) ([]DemoRef, error) {
+	if len(steamIDs) == 0 {
+		return nil, nil
+	}
+	ph := placeholders(len(steamIDs))
+	args := make([]interface{}, 0, len(steamIDs)+2)
+	for _, id := range steamIDs {
+		args = append(args, id)
+	}
+	args = append(args, from.Format("2006-01-02"))
+	args = append(args, before.Format("2006-01-02"))
+
+	query := fmt.Sprintf(`
+		SELECT d.hash, d.map_name, d.match_date
+		FROM demos d
+		JOIN player_match_stats p ON p.demo_hash = d.hash
+		WHERE p.steam_id IN (%s)
+		  AND d.match_date >= ?
+		  AND d.match_date < ?
+		GROUP BY d.hash
+		HAVING COUNT(DISTINCT p.steam_id) >= %d
+		ORDER BY d.match_date DESC`,
+		ph, quorum)
+
+	rows, err := db.conn.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []DemoRef
+	for rows.Next() {
+		var r DemoRef
+		if err := rows.Scan(&r.Hash, &r.MapName, &r.MatchDate); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // MapWinOutcomes returns one WinOutcome per demo hash, using the roster player
 // with the most rounds_played as the anchor to determine the match result.
 func (db *DB) MapWinOutcomes(steamIDs []string, demoHashes []string) ([]WinOutcome, error) {
@@ -257,6 +301,210 @@ func (db *DB) PlayerDemoCounts(steamIDs []string, since time.Time) ([]PlayerDemo
 			return nil, err
 		}
 		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// MapEntryStats holds opening kill/death counts and rounds for one map.
+type MapEntryStats struct {
+	OpeningKills  int
+	OpeningDeaths int
+	RoundsPlayed  int
+}
+
+// TradeStats holds trade kill/death counts across all maps.
+type TradeStats struct {
+	TradeKills   int
+	TradeDeaths  int
+	RoundsPlayed int
+}
+
+// BuyTypeWinRate holds win/total counts for eco and force buy types.
+type BuyTypeWinRate struct {
+	EcoWins    int
+	EcoTotal   int
+	ForceWins  int
+	ForceTotal int
+}
+
+// PostPlantStats holds T-side post-plant win counts for one map.
+type PostPlantStats struct {
+	TWins  int
+	TTotal int
+}
+
+// MapEntryStats returns per-map opening kill/death counts and rounds_played
+// for the given roster players across the given demo hashes.
+func (db *DB) MapEntryStats(steamIDs []string, demoHashes []string) (map[string]MapEntryStats, error) {
+	if len(steamIDs) == 0 || len(demoHashes) == 0 {
+		return nil, nil
+	}
+	idPH := placeholders(len(steamIDs))
+	hashPH := placeholders(len(demoHashes))
+
+	args := make([]interface{}, 0, len(steamIDs)+len(demoHashes))
+	for _, id := range steamIDs {
+		args = append(args, id)
+	}
+	for _, h := range demoHashes {
+		args = append(args, h)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT d.map_name,
+		       COALESCE(SUM(p.opening_kills), 0),
+		       COALESCE(SUM(p.opening_deaths), 0),
+		       COALESCE(SUM(p.rounds_played), 0)
+		FROM player_match_stats p
+		JOIN demos d ON d.hash = p.demo_hash
+		WHERE p.steam_id IN (%s)
+		  AND p.demo_hash IN (%s)
+		GROUP BY d.map_name`,
+		idPH, hashPH)
+
+	rows, err := db.conn.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]MapEntryStats)
+	for rows.Next() {
+		var mapName string
+		var s MapEntryStats
+		if err := rows.Scan(&mapName, &s.OpeningKills, &s.OpeningDeaths, &s.RoundsPlayed); err != nil {
+			return nil, err
+		}
+		out[mapName] = s
+	}
+	return out, rows.Err()
+}
+
+// TeamTradeStats returns aggregate trade kill/death counts and rounds_played
+// for the given roster players across all given demo hashes.
+func (db *DB) TeamTradeStats(steamIDs []string, demoHashes []string) (TradeStats, error) {
+	var s TradeStats
+	if len(steamIDs) == 0 || len(demoHashes) == 0 {
+		return s, nil
+	}
+	idPH := placeholders(len(steamIDs))
+	hashPH := placeholders(len(demoHashes))
+
+	args := make([]interface{}, 0, len(steamIDs)+len(demoHashes))
+	for _, id := range steamIDs {
+		args = append(args, id)
+	}
+	for _, h := range demoHashes {
+		args = append(args, h)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+		  COALESCE(SUM(trade_kills), 0),
+		  COALESCE(SUM(trade_deaths), 0),
+		  COALESCE(SUM(rounds_played), 0)
+		FROM player_match_stats
+		WHERE steam_id IN (%s)
+		  AND demo_hash IN (%s)`,
+		idPH, hashPH)
+
+	err := db.conn.QueryRow(query, args...).Scan(&s.TradeKills, &s.TradeDeaths, &s.RoundsPlayed)
+	return s, err
+}
+
+// BuyTypeWinRates returns eco and force buy-type win/total counts for the
+// given roster players across the given demo hashes.
+func (db *DB) BuyTypeWinRates(steamIDs []string, demoHashes []string) (BuyTypeWinRate, error) {
+	var r BuyTypeWinRate
+	if len(steamIDs) == 0 || len(demoHashes) == 0 {
+		return r, nil
+	}
+	idPH := placeholders(len(steamIDs))
+	hashPH := placeholders(len(demoHashes))
+
+	args := make([]interface{}, 0, len(steamIDs)+len(demoHashes))
+	for _, id := range steamIDs {
+		args = append(args, id)
+	}
+	for _, h := range demoHashes {
+		args = append(args, h)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT buy_type,
+		       COALESCE(SUM(won_round), 0),
+		       COUNT(*)
+		FROM player_round_stats
+		WHERE steam_id IN (%s)
+		  AND demo_hash IN (%s)
+		  AND buy_type IN ('eco', 'force')
+		GROUP BY buy_type`,
+		idPH, hashPH)
+
+	rows, err := db.conn.Query(query, args...)
+	if err != nil {
+		return r, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var buyType string
+		var wins, total int
+		if err := rows.Scan(&buyType, &wins, &total); err != nil {
+			return r, err
+		}
+		switch buyType {
+		case "eco":
+			r.EcoWins, r.EcoTotal = wins, total
+		case "force":
+			r.ForceWins, r.ForceTotal = wins, total
+		}
+	}
+	return r, rows.Err()
+}
+
+// MapPostPlantTWinRates returns per-map T-side post-plant win/total counts
+// for the given roster players across the given demo hashes.
+func (db *DB) MapPostPlantTWinRates(steamIDs []string, demoHashes []string) (map[string]PostPlantStats, error) {
+	if len(steamIDs) == 0 || len(demoHashes) == 0 {
+		return nil, nil
+	}
+	idPH := placeholders(len(steamIDs))
+	hashPH := placeholders(len(demoHashes))
+
+	args := make([]interface{}, 0, len(steamIDs)+len(demoHashes))
+	for _, id := range steamIDs {
+		args = append(args, id)
+	}
+	for _, h := range demoHashes {
+		args = append(args, h)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT d.map_name,
+		       COALESCE(SUM(CASE WHEN prs.team='T' AND prs.is_post_plant=1 AND prs.won_round=1 THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN prs.team='T' AND prs.is_post_plant=1 THEN 1 ELSE 0 END), 0)
+		FROM player_round_stats prs
+		JOIN demos d ON d.hash = prs.demo_hash
+		WHERE prs.steam_id IN (%s)
+		  AND prs.demo_hash IN (%s)
+		GROUP BY d.map_name`,
+		idPH, hashPH)
+
+	rows, err := db.conn.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]PostPlantStats)
+	for rows.Next() {
+		var mapName string
+		var s PostPlantStats
+		if err := rows.Scan(&mapName, &s.TWins, &s.TTotal); err != nil {
+			return nil, err
+		}
+		out[mapName] = s
 	}
 	return out, rows.Err()
 }
