@@ -216,6 +216,19 @@ Priority issues identified:
 
 **Every change — bug fix, feature, refactor, or behavioural tweak — must be reflected in ALL relevant docs files before the work is considered done.** This includes `README.md`, `docs/architecture.md`, and any other file under `docs/` that covers the modified area. When adding or changing a command, flag, metric, output table, or pipeline behaviour, update those files as part of the same change. Do not commit code changes without the corresponding doc updates.
 
+### Cross-repo pipeline flow doc
+
+The workspace-level file **`docs/cs2-pipeline-flow.md`** (in this repo) is the authoritative
+specification for the full three-tool pipeline. **Update it in the same commit** whenever
+you change anything that affects the pipeline flow from this repo, including:
+
+- Any field added to or removed from `simbo3MapStats` or `simbo3TeamStats` in `cmd/export.go`
+- Any new query function added to `internal/storage/export_queries.go` that feeds into export
+- Any prior or fallback value used when computing export fields
+- Any flag added, removed, or changed on the `export` command
+- The `--dir` non-recursive behaviour, the mtime/match_date contract, or GOMEMLIMIT guidance
+- The metrics.db schema (any table or column referenced by the export pipeline)
+
 ## Integration with cs2-pro-match-simulator (simbo3)
 
 The `export` command bridges go-cs-metrics to
