@@ -71,6 +71,41 @@ Core types (all in `internal/model/model.go`):
 10. TTK/TTD/one-tap kills (first shot fired → kill, 3 s rolling window)
 11. Counter-strafe % (shots fired at horizontal speed ≤ 34 u/s, via `e.Shooter.Velocity()` captured at WeaponFire time)
 
+## Memory Behaviour of the Parser
+
+The demoinfocs library allocates heavily during parsing — each demo creates a large volume of short-lived objects. Memory characteristics measured on WSL2:
+
+| Demo | File size | Peak RSS (default GC) | Peak RSS (GOGC=off) | Notes |
+|---|---|---|---|---|
+| `g2-vs-mouz-m1-overpass-p3.dem` | 1.1 GB | ~72 MB | ~10 GB | typical large demo |
+| `furia-vs-vitality-m2-inferno.dem` | 577 MB | ~29 GB (OOM) | n/a | pathological demo — many events |
+
+**Key insight**: peak RSS is dominated by GC pressure, not file size. Each demo causes ~10 GB of cumulative allocation; the GC normally keeps live heap small, but Go does not return freed pages to the OS promptly. With multiple workers or back-to-back sequential parses, freed-but-not-returned pages accumulate and RSS grows until the process is OOM-killed.
+
+### Required workaround: `GOMEMLIMIT`
+
+Always set `GOMEMLIMIT` when parsing a directory of demos:
+
+```sh
+GOMEMLIMIT=4294967296 ./go-cs-metrics parse --dir ~/demos/pro/iem_krakow_2026/ --workers 1
+```
+
+- `GOMEMLIMIT=4294967296` (4 GB) tells the GC to scavenge and return pages to the OS aggressively. It does **not** hard-cap RSS at 4 GB — it caps the managed heap, so RSS can still exceed 4 GB for pathological demos (observed peak: ~19–24 GB during krakow batch). What it prevents is RSS ballooning to ~29 GB and triggering the WSL OOM killer.
+- `--workers 1` ensures demos are parsed sequentially. After each demo, `debug.FreeOSMemory()` is called explicitly (in the sequential code path) and all references to the parsed `RawMatch` are nil'd before the next parse begins.
+- **Do not use `--workers > 1`** for large event directories — N concurrent parses multiply the GC pressure and reliably OOM.
+
+### Why `debug.FreeOSMemory()` is needed
+
+Go's background scavenger returns pages to the OS gradually (over seconds). Between sequential demo parses the scavenger may not have finished before the next parse's allocations begin, causing RSS to accumulate across demos. `FreeOSMemory()` performs a full GC cycle and immediately returns all freed pages to the OS, resetting RSS before the next parse.
+
+### Anomalous demos
+
+Some demos (~577 MB) allocate far more than their file size suggests — likely due to high event density (many rounds, extensive utility usage). These demos work fine with `GOMEMLIMIT` set; without it they OOM even as a single-file parse.
+
+### Quick-hash pre-check
+
+The `parse --dir` command computes a SHA-256 of the first 64 KB of each file and checks it against the DB before doing the expensive full parse. Already-stored demos are skipped in milliseconds. This makes re-running `parse --dir` after an interrupted batch essentially free for the already-ingested demos.
+
 ## Key Implementation Notes
 
 - **SteamID64 stored as TEXT** — avoids signed integer overflow for IDs above `2^63`.
@@ -79,6 +114,103 @@ Core types (all in `internal/model/model.go`):
 - **Distance** computed as `||attackerPos − victimPos|| * 0.01905` (Hammer units → meters).
 - **`player` command aggregation**: integers summed directly; float medians averaged across matches (approximate); FHHS rate recomputed from raw segment count totals (accurate).
 - **Schema migrations**: new columns are added automatically at startup via `ALTER TABLE ... ADD COLUMN ... DEFAULT` statements (duplicate-column errors silently ignored). Existing rows default to `0`/`''`. A full DB rebuild is only required if a column type or a table structure changes (not just additions).
+- **Parse skips already-stored demos**: `parse --dir` skips any demo whose hash is already in the `demos` table. Passing the same directory again after a schema migration will NOT backfill new columns for old rows — see below.
+- **`match_date` comes from file mtime**: the parser reads the `.dem` file's filesystem modification time, not anything inside the demo. `demoget sync` sets mtime to the extraction date (today). Always run `demoget touch-dates --out <dir>` after downloading and before the first parse, otherwise every demo gets `match_date = today` and `--since` filtering in `export` breaks silently.
+- **`--dir` is not recursive**: only finds `.dem` files directly in the given directory. Pass each event subdirectory individually (`--dir ~/demos/pro/iem_cologne_2025/`), not the parent.
+
+## Recovering from a Schema Migration (New Columns on Old Demos)
+
+When a new column is added to `player_match_stats` or `player_round_stats`, existing rows get the column's `DEFAULT` value (usually `0`). Demos are not re-parsed automatically because the parser skips files whose hash is already stored.
+
+**Which columns can be backfilled with SQL vs. which require a full re-parse:**
+
+| Scenario | Fix |
+|---|---|
+| New column in `player_match_stats` is derivable from `player_round_stats` | SQL `UPDATE` backfill (fast, no re-parse) |
+| New column requires re-running the aggregator (e.g. counter-strafe, TTK, duel engine) | Full re-parse — drop DB and re-parse all demos |
+
+### Example: backfilling `rounds_won`
+
+`rounds_won` in `player_match_stats` is just `SUM(won_round)` from `player_round_stats`. If `player_round_stats.won_round` is correctly populated but `player_match_stats.rounds_won` is all zeros (e.g. after the column was added mid-dataset), run:
+
+```sh
+sqlite3 ~/.csmetrics/metrics.db "
+UPDATE player_match_stats
+SET rounds_won = (
+  SELECT COALESCE(SUM(won_round), 0)
+  FROM player_round_stats prs
+  WHERE prs.demo_hash = player_match_stats.demo_hash
+    AND prs.steam_id  = player_match_stats.steam_id
+)
+WHERE rounds_won = 0;
+"
+```
+
+Verify with:
+```sh
+sqlite3 ~/.csmetrics/metrics.db "
+SELECT
+  SUM(CASE WHEN rounds_won = 0 THEN 1 ELSE 0 END) AS still_zero,
+  SUM(CASE WHEN rounds_won > 0 THEN 1 ELSE 0 END) AS populated,
+  ROUND(AVG(CAST(rounds_won AS REAL) / NULLIF(rounds_played,0)), 3) AS avg_win_rate
+FROM player_match_stats;
+"
+-- avg_win_rate should be ~0.50; still_zero should be small (legitimate 0-round-win demos only)
+```
+
+### Recovering from wrong match_dates (forgot touch-dates)
+
+If `demoget touch-dates` was not run before parsing, all affected demos will have `match_date = <parse date>` instead of the actual match date. This silently breaks `export --since` filtering. There is no SQL-only fix — the correct date can only be obtained by re-parsing the file after fixing its mtime.
+
+```sh
+# 1. Fix file mtimes
+cd ~/git/cs-demo-downloader
+./demoget touch-dates --out ~/demos/pro
+
+# 2. Delete affected demos from DB (all tables, respecting foreign keys)
+#    Adjust the WHERE clause to target the specific wrong date(s)
+sqlite3 ~/.csmetrics/metrics.db "
+DELETE FROM player_duel_segments WHERE demo_hash IN (SELECT hash FROM demos WHERE match_date = 'YYYY-MM-DD' AND tier = 'pro');
+DELETE FROM player_weapon_stats   WHERE demo_hash IN (SELECT hash FROM demos WHERE match_date = 'YYYY-MM-DD' AND tier = 'pro');
+DELETE FROM player_round_stats    WHERE demo_hash IN (SELECT hash FROM demos WHERE match_date = 'YYYY-MM-DD' AND tier = 'pro');
+DELETE FROM player_match_stats    WHERE demo_hash IN (SELECT hash FROM demos WHERE match_date = 'YYYY-MM-DD' AND tier = 'pro');
+DELETE FROM demos WHERE match_date = 'YYYY-MM-DD' AND tier = 'pro';
+"
+
+# 3. Re-parse (now reads correct mtime from fixed files)
+for dir in ~/demos/pro/*/; do
+  ./go-cs-metrics parse --dir "$dir" --tier pro
+done
+```
+
+Verify dates look right afterward:
+```sh
+sqlite3 ~/.csmetrics/metrics.db "SELECT MIN(match_date), MAX(match_date), COUNT(*) FROM demos WHERE tier='pro';"
+```
+
+### Full re-parse (when SQL backfill isn't possible)
+
+The parser won't re-parse demos already in the DB. To force a full rebuild:
+
+```sh
+./go-cs-metrics drop --force
+# Then re-parse all events:
+for dir in ~/demos/pro/*/; do
+  ./go-cs-metrics parse --dir "$dir" --tier pro
+done
+```
+
+Note: `--dir` does a flat search for `.dem` files — pass each event subdirectory individually, not the parent `pro/` directory.
+
+## Known Issues / Improvement Backlog
+
+See `docs/prediction-analysis.md` for a full analysis of model accuracy vs actual results across three tier-1 events (Budapest Major 2025, IEM Krakow 2026, PGL Cluj-Napoca 2026).
+
+Priority issues identified:
+1. ~~**simbo3 map pool is stale**~~ — fixed: pool updated to Mirage/Inferno/Nuke/Ancient/Overpass/Dust2/Train.
+2. **PARIVISION stand-in skew** — `zweih` (SteamID `76561198210626739`) is a current PARIVISION player but was a stand-in for other matches in 2025 (38 demos vs ~9 for the rest of the lineup), inflating his contribution to the export.
+3. **Single-event DB** — only IEM Krakow 2026 demos stored; predictions for Budapest Major use lookahead data. Add ESL Pro League S22 and IEM Chengdu 2025 demos.
+4. **MOUZ systematically overrated** — strong group-stage map stats don't translate to playoff performance.
 
 ## Documentation Rule
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -96,14 +97,16 @@ func loadDemoMeta(dir string) *demoMeta {
 
 // parseJob carries the input for one parse worker.
 type parseJob struct {
-	idx  int
-	path string
+	idx       int
+	path      string
+	quickHash string // pre-computed SHA-256 of first 64 KB; empty if unavailable
 }
 
 // parseResult carries the output of one parse+aggregate cycle.
 type parseResult struct {
 	idx          int
 	path         string
+	quickHash    string // passed through from parseJob
 	raw          *model.RawMatch // nil on error
 	matchStats   []model.PlayerMatchStats
 	roundStats   []model.PlayerRoundStats
@@ -118,7 +121,7 @@ type parseResult struct {
 // sends a parseResult to results. It exits when jobs is closed.
 func runDemoWorker(jobs <-chan parseJob, results chan<- parseResult, mt string) {
 	for job := range jobs {
-		res := parseResult{idx: job.idx, path: job.path}
+		res := parseResult{idx: job.idx, path: job.path, quickHash: job.quickHash}
 
 		t0 := time.Now()
 		raw, err := parser.ParseDemo(job.path, mt)
@@ -248,6 +251,20 @@ func runParse(cmd *cobra.Command, args []string) error {
 		demoPath := paths[0]
 		fmt.Fprintf(os.Stdout, "Parsing %s...\n", demoPath)
 
+		// Cheap pre-check: hash only the first 64 KB before the expensive full parse.
+		singleQuickHash, _ := parser.QuickHash(demoPath)
+		if singleQuickHash != "" {
+			found, fullHash, _ := db.DemoExistsByQuickHash(singleQuickHash)
+			if found {
+				restoreStderr()
+				if err := db.UpdateDemoMeta(fullHash, singleQuickHash, matchType, effectiveTier, effectiveEventID, parseBaseline); err != nil {
+					return fmt.Errorf("update demo meta: %w", err)
+				}
+				fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", fullHash[:12])
+				return showByHash(db, fullHash)
+			}
+		}
+
 		t0 := time.Now()
 		raw, err := parser.ParseDemo(demoPath, matchType)
 		parseElapsed := time.Since(t0)
@@ -261,6 +278,9 @@ func runParse(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("check demo: %w", err)
 		}
 		if exists {
+			if err := db.UpdateDemoMeta(raw.DemoHash, singleQuickHash, matchType, effectiveTier, effectiveEventID, parseBaseline); err != nil {
+				return fmt.Errorf("update demo meta: %w", err)
+			}
 			fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", raw.DemoHash[:12])
 			return showByHash(db, raw.DemoHash)
 		}
@@ -286,7 +306,7 @@ func runParse(cmd *cobra.Command, args []string) error {
 			EventID:    effectiveEventID,
 		}
 
-		if err := db.InsertDemo(summary); err != nil {
+		if err := db.InsertDemo(summary, singleQuickHash); err != nil {
 			return fmt.Errorf("insert demo: %w", err)
 		}
 		if err := db.InsertPlayerMatchStats(matchStats); err != nil {
@@ -333,52 +353,66 @@ func runParse(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(os.Stdout, "Parsing %d demos with %d worker(s)...\n", len(paths), numWorkers)
 
-	jobs := make(chan parseJob, numWorkers)
-	resultsCh := make(chan parseResult, numWorkers)
-
-	var wg sync.WaitGroup
-	for w := 0; w < numWorkers; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			runDemoWorker(jobs, resultsCh, matchType)
-		}()
-	}
-
-	// Feed all jobs; close the channel when done so workers exit.
-	go func() {
-		for i, p := range paths {
-			jobs <- parseJob{idx: i, path: p}
-		}
-		close(jobs)
-	}()
-
-	// Close resultsCh once all workers have finished so the writer loop exits.
-	go func() {
-		wg.Wait()
-		close(resultsCh)
-	}()
-
 	var stored, skipped, failed int
 
-	for res := range resultsCh {
+	// Phase 1: quick-hash pre-check — identify already-stored demos without
+	// a full parse. Reading 64 KB per file costs milliseconds vs. 4+ minutes
+	// for a full parse of a ~500 MB pro demo.
+	var pendingJobs []parseJob
+	for i, p := range paths {
+		name := filepath.Base(p)
+		tag := fmt.Sprintf("[%d/%d] %s", i+1, len(paths), name)
+
+		qh, err := parser.QuickHash(p)
+		if err == nil {
+			found, fullHash, dbErr := db.DemoExistsByQuickHash(qh)
+			if dbErr == nil && found {
+				if err := db.UpdateDemoMeta(fullHash, qh, matchType, effectiveTier, effectiveEventID, parseBaseline); err != nil {
+					fmt.Fprintf(origStderr, "  %s  warn: update meta: %v\n", tag, err)
+				}
+				fmt.Fprintf(os.Stdout, "  %s  skipped (quick-hash match)\n", tag)
+				skipped++
+				continue
+			}
+		}
+		pendingJobs = append(pendingJobs, parseJob{idx: i, path: p, quickHash: qh})
+	}
+
+	if len(pendingJobs) == 0 {
+		restoreStderr()
+		fmt.Fprintf(os.Stdout, "\nDone: %d stored, %d skipped, %d failed (total %d)\n",
+			stored, skipped, failed, len(paths))
+		return nil
+	}
+
+	// Phase 2: full parse for demos not found by quick hash.
+	if numWorkers > len(pendingJobs) {
+		numWorkers = len(pendingJobs)
+	}
+
+	// writeDemoResult handles the DB write for a parsed demo and returns whether
+	// the demo was stored (true) or skipped/failed (false).
+	writeDemoResult := func(res parseResult) (didStore bool, err error) {
 		name := filepath.Base(res.path)
 		tag := fmt.Sprintf("[%d/%d] %s", res.idx+1, len(paths), name)
 
 		if res.err != nil {
 			fmt.Fprintf(origStderr, "  %s  error: %v\n", tag, res.err)
 			failed++
-			continue
+			return false, nil
 		}
 
 		exists, err := db.DemoExists(res.raw.DemoHash)
 		if err != nil {
-			return fmt.Errorf("check demo %s: %w", name, err)
+			return false, fmt.Errorf("check demo %s: %w", name, err)
 		}
 		if exists {
-			fmt.Fprintf(os.Stdout, "  %s  skipped (already stored)\n", tag)
+			if err := db.UpdateDemoMeta(res.raw.DemoHash, res.quickHash, matchType, effectiveTier, effectiveEventID, parseBaseline); err != nil {
+				return false, fmt.Errorf("update demo meta %s: %w", name, err)
+			}
+			fmt.Fprintf(os.Stdout, "  %s  skipped (already stored, metadata updated)\n", tag)
 			skipped++
-			continue
+			return false, nil
 		}
 
 		ctScore, tScore := computeScore(res.raw.Rounds)
@@ -394,23 +428,21 @@ func runParse(cmd *cobra.Command, args []string) error {
 			IsBaseline: parseBaseline,
 			EventID:    effectiveEventID,
 		}
-
-		if err := db.InsertDemo(summary); err != nil {
-			return fmt.Errorf("insert demo: %w", err)
+		if err := db.InsertDemo(summary, res.quickHash); err != nil {
+			return false, fmt.Errorf("insert demo: %w", err)
 		}
 		if err := db.InsertPlayerMatchStats(res.matchStats); err != nil {
-			return fmt.Errorf("insert player stats: %w", err)
+			return false, fmt.Errorf("insert player stats: %w", err)
 		}
 		if err := db.InsertPlayerRoundStats(res.roundStats); err != nil {
-			return fmt.Errorf("insert round stats: %w", err)
+			return false, fmt.Errorf("insert round stats: %w", err)
 		}
 		if err := db.InsertPlayerWeaponStats(res.weaponStats); err != nil {
-			return fmt.Errorf("insert weapon stats: %w", err)
+			return false, fmt.Errorf("insert weapon stats: %w", err)
 		}
 		if err := db.InsertPlayerDuelSegments(res.duelSegs); err != nil {
-			return fmt.Errorf("insert duel segments: %w", err)
+			return false, fmt.Errorf("insert duel segments: %w", err)
 		}
-
 		fmt.Fprintf(os.Stdout, "  %s  stored: %s  %s  %d–%d  %d players  %d rounds  (parse %s  agg %s  total %s)\n",
 			tag,
 			summary.MapName, summary.MatchDate, ctScore, tScore,
@@ -419,6 +451,82 @@ func runParse(cmd *cobra.Command, args []string) error {
 			res.aggElapsed.Round(time.Millisecond),
 			(res.parseElapsed+res.aggElapsed).Round(time.Millisecond))
 		stored++
+		return true, nil
+	}
+
+	if numWorkers == 1 {
+		// Sequential path: parse → write → FreeOSMemory → repeat.
+		// This guarantees all heap pages from demo N are returned to the OS
+		// before demo N+1 starts, preventing RSS from accumulating across demos.
+		// (With a goroutine pool the next parse begins before FreeOSMemory runs,
+		// which can compound across sequential demos to trigger the OOM killer.)
+		for _, job := range pendingJobs {
+			res := parseResult{idx: job.idx, path: job.path, quickHash: job.quickHash}
+			t0 := time.Now()
+			raw, parseErr := parser.ParseDemo(job.path, matchType)
+			res.parseElapsed = time.Since(t0)
+			if parseErr != nil {
+				res.err = fmt.Errorf("parse: %w", parseErr)
+			} else {
+				res.raw = raw
+				t1 := time.Now()
+				ms, rs, ws, ds, aggErr := aggregator.Aggregate(raw)
+				res.aggElapsed = time.Since(t1)
+				if aggErr != nil {
+					res.err = fmt.Errorf("aggregate: %w", aggErr)
+				} else {
+					res.matchStats = ms
+					res.roundStats = rs
+					res.weaponStats = ws
+					res.duelSegs = ds
+				}
+			}
+			if _, err := writeDemoResult(res); err != nil {
+				return err
+			}
+			// Release all references so GC can collect the parsed data, then
+			// return idle heap pages to the OS before starting the next parse.
+			// Both the struct fields AND the local variable `raw` must be nilled:
+			// res.raw=nil drops the struct's copy, but `raw` (declared in this
+			// loop iteration's scope) still holds the pointer and keeps the
+			// entire RawMatch live during FreeOSMemory's GC scan.
+			raw = nil
+			res.raw = nil
+			res.matchStats = nil
+			res.roundStats = nil
+			res.weaponStats = nil
+			res.duelSegs = nil
+			debug.FreeOSMemory()
+		}
+	} else {
+		// Parallel path: worker pool for N > 1.
+		jobs := make(chan parseJob, numWorkers)
+		resultsCh := make(chan parseResult, numWorkers)
+
+		var wg sync.WaitGroup
+		for w := 0; w < numWorkers; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				runDemoWorker(jobs, resultsCh, matchType)
+			}()
+		}
+		go func() {
+			for _, job := range pendingJobs {
+				jobs <- job
+			}
+			close(jobs)
+		}()
+		go func() {
+			wg.Wait()
+			close(resultsCh)
+		}()
+
+		for res := range resultsCh {
+			if _, err := writeDemoResult(res); err != nil {
+				return err
+			}
+		}
 	}
 
 	restoreStderr()

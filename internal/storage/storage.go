@@ -51,6 +51,8 @@ func Open(path string) (*DB, error) {
 		`ALTER TABLE player_match_stats ADD COLUMN median_trade_kill_delay_ms REAL NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_match_stats ADD COLUMN median_trade_death_delay_ms REAL NOT NULL DEFAULT 0`,
 		`ALTER TABLE demos ADD COLUMN event_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE demos ADD COLUMN quick_hash TEXT`,
+		`CREATE INDEX IF NOT EXISTS idx_demos_quick_hash ON demos(quick_hash) WHERE quick_hash IS NOT NULL`,
 	}
 	for _, stmt := range altMigrations {
 		if _, err := conn.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {

@@ -213,7 +213,7 @@ func doFetch(db *storage.DB, playerQuery, mapFilter string, level, count int, ti
 			IsBaseline: true,
 		}
 
-		if err := db.InsertDemo(summary); err != nil {
+		if err := db.InsertDemo(summary, ""); err != nil {
 			return fmt.Errorf("insert demo: %w", err)
 		}
 		if err := db.InsertPlayerMatchStats(matchStats); err != nil {

@@ -1,0 +1,46 @@
+{
+  "team": "Astralis",
+  "players_rating2_3m": [
+    1.24,
+    1.19,
+    1.15,
+    1.09,
+    0.88
+  ],
+  "maps": {
+    "Ancient": {
+      "map_win_pct": 1,
+      "ct_round_win_pct": 0.67,
+      "t_round_win_pct": 0.63,
+      "matches_3m": 1
+    },
+    "Dust2": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.61,
+      "t_round_win_pct": 0.3,
+      "matches_3m": 3
+    },
+    "Mirage": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.54,
+      "t_round_win_pct": 0.25,
+      "matches_3m": 2
+    },
+    "Nuke": {
+      "map_win_pct": 0.5,
+      "ct_round_win_pct": 0.69,
+      "t_round_win_pct": 0.54,
+      "matches_3m": 2
+    },
+    "Overpass": {
+      "map_win_pct": 0.75,
+      "ct_round_win_pct": 0.57,
+      "t_round_win_pct": 0.48,
+      "matches_3m": 4
+    }
+  },
+  "generated_at": "2026-02-23T03:42:02Z",
+  "window_days": 90,
+  "latest_match_date": "2026-02-03",
+  "demo_count": 12
+}

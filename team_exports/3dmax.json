@@ -1,0 +1,40 @@
+{
+  "team": "3DMAX",
+  "players_rating2_3m": [
+    1.15,
+    1.14,
+    0.97,
+    0.97,
+    0.73
+  ],
+  "maps": {
+    "Anubis": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.33,
+      "t_round_win_pct": 0.17,
+      "matches_3m": 1
+    },
+    "Dust2": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.44,
+      "t_round_win_pct": 0.21,
+      "matches_3m": 3
+    },
+    "Inferno": {
+      "map_win_pct": 0.5,
+      "ct_round_win_pct": 0.43,
+      "t_round_win_pct": 0.42,
+      "matches_3m": 5
+    },
+    "Nuke": {
+      "map_win_pct": 0.33,
+      "ct_round_win_pct": 0.71,
+      "t_round_win_pct": 0.26,
+      "matches_3m": 3
+    }
+  },
+  "generated_at": "2026-02-23T03:42:02Z",
+  "window_days": 90,
+  "latest_match_date": "2026-02-03",
+  "demo_count": 12
+}

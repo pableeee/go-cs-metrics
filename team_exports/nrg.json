@@ -1,0 +1,34 @@
+{
+  "team": "NRG",
+  "players_rating2_3m": [
+    1.19,
+    1.04,
+    1.03,
+    0.93,
+    0.82
+  ],
+  "maps": {
+    "Ancient": {
+      "map_win_pct": 0.5,
+      "ct_round_win_pct": 0.75,
+      "t_round_win_pct": 0.19,
+      "matches_3m": 2
+    },
+    "Dust2": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.41,
+      "t_round_win_pct": 0.41,
+      "matches_3m": 2
+    },
+    "Inferno": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.67,
+      "t_round_win_pct": 0.08,
+      "matches_3m": 1
+    }
+  },
+  "generated_at": "2026-02-23T03:42:02Z",
+  "window_days": 90,
+  "latest_match_date": "2026-02-02",
+  "demo_count": 5
+}

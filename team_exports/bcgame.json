@@ -1,0 +1,46 @@
+{
+  "team": "BC Game",
+  "players_rating2_3m": [
+    1.22,
+    1.1,
+    1.08,
+    0.97,
+    0.95
+  ],
+  "maps": {
+    "Ancient": {
+      "map_win_pct": 0.5,
+      "ct_round_win_pct": 0.57,
+      "t_round_win_pct": 0.56,
+      "matches_3m": 2
+    },
+    "Dust2": {
+      "map_win_pct": 0.25,
+      "ct_round_win_pct": 0.38,
+      "t_round_win_pct": 0.42,
+      "matches_3m": 4
+    },
+    "Inferno": {
+      "map_win_pct": 0.5,
+      "ct_round_win_pct": 0.5,
+      "t_round_win_pct": 0.48,
+      "matches_3m": 2
+    },
+    "Mirage": {
+      "map_win_pct": 0.67,
+      "ct_round_win_pct": 0.63,
+      "t_round_win_pct": 0.41,
+      "matches_3m": 3
+    },
+    "Nuke": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0,
+      "t_round_win_pct": 0.17,
+      "matches_3m": 1
+    }
+  },
+  "generated_at": "2026-02-23T03:42:02Z",
+  "window_days": 90,
+  "latest_match_date": "2026-02-01",
+  "demo_count": 12
+}

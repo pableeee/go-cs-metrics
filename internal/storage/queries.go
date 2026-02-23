@@ -10,7 +10,7 @@ import (
 	"github.com/pable/go-cs-metrics/internal/model"
 )
 
-// DemoExists returns true if a demo with the given hash is already stored.
+// DemoExists returns true if a demo with the given full hash is already stored.
 func (db *DB) DemoExists(hash string) (bool, error) {
 	var count int
 	err := db.conn.QueryRow("SELECT COUNT(1) FROM demos WHERE hash = ?", hash).Scan(&count)
@@ -20,16 +20,54 @@ func (db *DB) DemoExists(hash string) (bool, error) {
 	return count > 0, nil
 }
 
+// DemoExistsByQuickHash looks up a demo by its 64-KB prefix hash. Returns
+// (true, fullHash) if found, (false, "") if not. Use this for a cheap
+// pre-existence check before committing to a full demo parse.
+func (db *DB) DemoExistsByQuickHash(quickHash string) (bool, string, error) {
+	var fullHash string
+	err := db.conn.QueryRow("SELECT hash FROM demos WHERE quick_hash = ?", quickHash).Scan(&fullHash)
+	if err == sql.ErrNoRows {
+		return false, "", nil
+	}
+	if err != nil {
+		return false, "", err
+	}
+	return true, fullHash, nil
+}
+
+// UpdateDemoMeta updates the flag-derived metadata columns on an already-stored demo.
+// quickHash may be empty, in which case any existing quick_hash value is preserved.
+// Columns sourced from the demo file itself (map_name, match_date, tickrate,
+// ct_score, t_score) are not touched.
+func (db *DB) UpdateDemoMeta(hash, quickHash, matchType, tier, eventID string, isBaseline bool) error {
+	var qh interface{}
+	if quickHash != "" {
+		qh = quickHash
+	}
+	_, err := db.conn.Exec(`
+		UPDATE demos SET quick_hash=COALESCE(?,quick_hash), match_type=?, tier=?, event_id=?, is_baseline=?
+		WHERE hash=?`,
+		qh, matchType, tier, eventID, boolInt(isBaseline), hash,
+	)
+	return err
+}
+
 // InsertDemo inserts a demo record. Uses INSERT OR REPLACE for idempotency.
+// quickHash is the SHA-256 of the first 64 KB of the demo file; pass empty
+// string if unavailable and it will be stored as NULL.
 // MapName is normalized to title-case (e.g. "de_mirage" → "Mirage") before storage
 // so all reads return a consistent name regardless of what the demo header contains.
-func (db *DB) InsertDemo(summary model.MatchSummary) error {
+func (db *DB) InsertDemo(summary model.MatchSummary, quickHash string) error {
+	var qh interface{}
+	if quickHash != "" {
+		qh = quickHash
+	}
 	_, err := db.conn.Exec(`
-		INSERT OR REPLACE INTO demos(hash, map_name, match_date, match_type, tickrate, ct_score, t_score, tier, is_baseline, event_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT OR REPLACE INTO demos(hash, map_name, match_date, match_type, tickrate, ct_score, t_score, tier, is_baseline, event_id, quick_hash)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		summary.DemoHash, normalizeMapName(summary.MapName), summary.MatchDate, summary.MatchType,
 		summary.Tickrate, summary.CTScore, summary.TScore,
-		summary.Tier, boolInt(summary.IsBaseline), summary.EventID,
+		summary.Tier, boolInt(summary.IsBaseline), summary.EventID, qh,
 	)
 	return err
 }

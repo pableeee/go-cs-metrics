@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS demos (
     t_score     INTEGER NOT NULL DEFAULT 0,
     tier        TEXT NOT NULL DEFAULT '',
     is_baseline INTEGER NOT NULL DEFAULT 0,
-    event_id    TEXT NOT NULL DEFAULT ''
+    event_id    TEXT NOT NULL DEFAULT '',
+    quick_hash  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS player_match_stats (

@@ -1,0 +1,58 @@
+{
+  "team": "Vitality",
+  "players_rating2_3m": [
+    1.67,
+    1.33,
+    1.24,
+    1.19,
+    1.08
+  ],
+  "maps": {
+    "Ancient": {
+      "map_win_pct": 1,
+      "ct_round_win_pct": 0.58,
+      "t_round_win_pct": 0.48,
+      "matches_3m": 1
+    },
+    "Dust2": {
+      "map_win_pct": 1,
+      "ct_round_win_pct": 0.64,
+      "t_round_win_pct": 0.73,
+      "matches_3m": 6
+    },
+    "Inferno": {
+      "map_win_pct": 1,
+      "ct_round_win_pct": 0.65,
+      "t_round_win_pct": 0.64,
+      "matches_3m": 5
+    },
+    "Mirage": {
+      "map_win_pct": 0.67,
+      "ct_round_win_pct": 0.64,
+      "t_round_win_pct": 0.44,
+      "matches_3m": 3
+    },
+    "Nuke": {
+      "map_win_pct": 0.6,
+      "ct_round_win_pct": 0.63,
+      "t_round_win_pct": 0.45,
+      "matches_3m": 5
+    },
+    "Overpass": {
+      "map_win_pct": 1,
+      "ct_round_win_pct": 0.68,
+      "t_round_win_pct": 0.69,
+      "matches_3m": 4
+    },
+    "Train": {
+      "map_win_pct": 1,
+      "ct_round_win_pct": 0.5,
+      "t_round_win_pct": 0.58,
+      "matches_3m": 1
+    }
+  },
+  "generated_at": "2026-02-23T03:42:02Z",
+  "window_days": 90,
+  "latest_match_date": "2026-02-22",
+  "demo_count": 25
+}

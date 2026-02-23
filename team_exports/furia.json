@@ -1,0 +1,52 @@
+{
+  "team": "FURIA",
+  "players_rating2_3m": [
+    1.29,
+    1.25,
+    1.15,
+    1.06,
+    1.06
+  ],
+  "maps": {
+    "Dust2": {
+      "map_win_pct": 0.6,
+      "ct_round_win_pct": 0.46,
+      "t_round_win_pct": 0.6,
+      "matches_3m": 5
+    },
+    "Inferno": {
+      "map_win_pct": 0.6,
+      "ct_round_win_pct": 0.53,
+      "t_round_win_pct": 0.51,
+      "matches_3m": 5
+    },
+    "Mirage": {
+      "map_win_pct": 0.56,
+      "ct_round_win_pct": 0.64,
+      "t_round_win_pct": 0.41,
+      "matches_3m": 9
+    },
+    "Nuke": {
+      "map_win_pct": 0.8,
+      "ct_round_win_pct": 0.74,
+      "t_round_win_pct": 0.48,
+      "matches_3m": 5
+    },
+    "Overpass": {
+      "map_win_pct": 0.33,
+      "ct_round_win_pct": 0.43,
+      "t_round_win_pct": 0.5,
+      "matches_3m": 3
+    },
+    "Train": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.17,
+      "t_round_win_pct": 0.25,
+      "matches_3m": 1
+    }
+  },
+  "generated_at": "2026-02-23T03:42:02Z",
+  "window_days": 90,
+  "latest_match_date": "2026-02-08",
+  "demo_count": 28
+}

@@ -1,0 +1,46 @@
+{
+  "team": "FUT",
+  "players_rating2_3m": [
+    1.3,
+    1.18,
+    1.17,
+    1.14,
+    1.02
+  ],
+  "maps": {
+    "Ancient": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.42,
+      "t_round_win_pct": 0.4,
+      "matches_3m": 1
+    },
+    "Dust2": {
+      "map_win_pct": 0.67,
+      "ct_round_win_pct": 0.44,
+      "t_round_win_pct": 0.71,
+      "matches_3m": 3
+    },
+    "Mirage": {
+      "map_win_pct": 1,
+      "ct_round_win_pct": 0.83,
+      "t_round_win_pct": 0.39,
+      "matches_3m": 4
+    },
+    "Nuke": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.19,
+      "t_round_win_pct": 0,
+      "matches_3m": 1
+    },
+    "Overpass": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.58,
+      "t_round_win_pct": 0.33,
+      "matches_3m": 1
+    }
+  },
+  "generated_at": "2026-02-23T03:42:02Z",
+  "window_days": 90,
+  "latest_match_date": "2026-02-02",
+  "demo_count": 10
+}

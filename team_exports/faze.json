@@ -1,0 +1,52 @@
+{
+  "team": "FaZe",
+  "players_rating2_3m": [
+    1.27,
+    1.22,
+    1.16,
+    1.1,
+    0.93
+  ],
+  "maps": {
+    "Ancient": {
+      "map_win_pct": 0.5,
+      "ct_round_win_pct": 0.5,
+      "t_round_win_pct": 0.6,
+      "matches_3m": 2
+    },
+    "Dust2": {
+      "map_win_pct": 0.5,
+      "ct_round_win_pct": 0.49,
+      "t_round_win_pct": 0.43,
+      "matches_3m": 4
+    },
+    "Inferno": {
+      "map_win_pct": 0.44,
+      "ct_round_win_pct": 0.57,
+      "t_round_win_pct": 0.47,
+      "matches_3m": 8
+    },
+    "Mirage": {
+      "map_win_pct": 0.33,
+      "ct_round_win_pct": 0.53,
+      "t_round_win_pct": 0.28,
+      "matches_3m": 3
+    },
+    "Nuke": {
+      "map_win_pct": 0.67,
+      "ct_round_win_pct": 0.51,
+      "t_round_win_pct": 0.49,
+      "matches_3m": 6
+    },
+    "Overpass": {
+      "map_win_pct": 0.5,
+      "ct_round_win_pct": 0.33,
+      "t_round_win_pct": 0.47,
+      "matches_3m": 2
+    }
+  },
+  "generated_at": "2026-02-23T03:42:02Z",
+  "window_days": 90,
+  "latest_match_date": "2026-02-22",
+  "demo_count": 25
+}

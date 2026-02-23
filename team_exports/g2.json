@@ -1,0 +1,52 @@
+{
+  "team": "G2",
+  "players_rating2_3m": [
+    1.2,
+    1.2,
+    1.14,
+    1.02,
+    0.96
+  ],
+  "maps": {
+    "Ancient": {
+      "map_win_pct": 0.75,
+      "ct_round_win_pct": 0.48,
+      "t_round_win_pct": 0.54,
+      "matches_3m": 4
+    },
+    "Anubis": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.56,
+      "t_round_win_pct": 0.25,
+      "matches_3m": 1
+    },
+    "Dust2": {
+      "map_win_pct": 0.38,
+      "ct_round_win_pct": 0.49,
+      "t_round_win_pct": 0.54,
+      "matches_3m": 8
+    },
+    "Inferno": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.21,
+      "t_round_win_pct": 0.38,
+      "matches_3m": 3
+    },
+    "Mirage": {
+      "map_win_pct": 0.33,
+      "ct_round_win_pct": 0.73,
+      "t_round_win_pct": 0.23,
+      "matches_3m": 3
+    },
+    "Overpass": {
+      "map_win_pct": 0.3,
+      "ct_round_win_pct": 0.48,
+      "t_round_win_pct": 0.52,
+      "matches_3m": 5
+    }
+  },
+  "generated_at": "2026-02-23T03:42:02Z",
+  "window_days": 90,
+  "latest_match_date": "2026-02-22",
+  "demo_count": 24
+}

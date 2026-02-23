@@ -1,0 +1,58 @@
+{
+  "team": "MOUZ",
+  "players_rating2_3m": [
+    1.24,
+    1.19,
+    1.17,
+    1.11,
+    0.96
+  ],
+  "maps": {
+    "Ancient": {
+      "map_win_pct": 1,
+      "ct_round_win_pct": 0.9,
+      "t_round_win_pct": 0.33,
+      "matches_3m": 1
+    },
+    "Dust2": {
+      "map_win_pct": 0.57,
+      "ct_round_win_pct": 0.45,
+      "t_round_win_pct": 0.52,
+      "matches_3m": 7
+    },
+    "Inferno": {
+      "map_win_pct": 0.67,
+      "ct_round_win_pct": 0.57,
+      "t_round_win_pct": 0.46,
+      "matches_3m": 6
+    },
+    "Mirage": {
+      "map_win_pct": 0.25,
+      "ct_round_win_pct": 0.57,
+      "t_round_win_pct": 0.25,
+      "matches_3m": 4
+    },
+    "Nuke": {
+      "map_win_pct": 0.33,
+      "ct_round_win_pct": 0.44,
+      "t_round_win_pct": 0.49,
+      "matches_3m": 3
+    },
+    "Overpass": {
+      "map_win_pct": 0.75,
+      "ct_round_win_pct": 0.63,
+      "t_round_win_pct": 0.46,
+      "matches_3m": 6
+    },
+    "Train": {
+      "map_win_pct": 1,
+      "ct_round_win_pct": 0.36,
+      "t_round_win_pct": 0.75,
+      "matches_3m": 1
+    }
+  },
+  "generated_at": "2026-02-23T03:42:02Z",
+  "window_days": 90,
+  "latest_match_date": "2026-02-08",
+  "demo_count": 28
+}

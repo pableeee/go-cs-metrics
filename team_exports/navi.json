@@ -1,0 +1,58 @@
+{
+  "team": "NaVi",
+  "players_rating2_3m": [
+    1.24,
+    1.24,
+    1.18,
+    1.16,
+    0.94
+  ],
+  "maps": {
+    "Ancient": {
+      "map_win_pct": 1,
+      "ct_round_win_pct": 0.6,
+      "t_round_win_pct": 0.9,
+      "matches_3m": 4
+    },
+    "Anubis": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.5,
+      "t_round_win_pct": 0.41,
+      "matches_3m": 1
+    },
+    "Dust2": {
+      "map_win_pct": 0.5,
+      "ct_round_win_pct": 0.5,
+      "t_round_win_pct": 0.38,
+      "matches_3m": 4
+    },
+    "Inferno": {
+      "map_win_pct": 0.25,
+      "ct_round_win_pct": 0.53,
+      "t_round_win_pct": 0.41,
+      "matches_3m": 4
+    },
+    "Mirage": {
+      "map_win_pct": 0.33,
+      "ct_round_win_pct": 0.55,
+      "t_round_win_pct": 0.46,
+      "matches_3m": 3
+    },
+    "Nuke": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.67,
+      "t_round_win_pct": 0.13,
+      "matches_3m": 2
+    },
+    "Train": {
+      "map_win_pct": 0.67,
+      "ct_round_win_pct": 0.52,
+      "t_round_win_pct": 0.62,
+      "matches_3m": 3
+    }
+  },
+  "generated_at": "2026-02-23T03:42:02Z",
+  "window_days": 90,
+  "latest_match_date": "2026-02-02",
+  "demo_count": 21
+}

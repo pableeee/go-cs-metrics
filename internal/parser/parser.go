@@ -18,6 +18,29 @@ import (
 	"github.com/pable/go-cs-metrics/internal/model"
 )
 
+// quickHashBytes is the number of bytes read from the start of a demo file
+// when computing a cheap existence-check hash (QuickHash). 64 KB captures
+// several protobuf packets of actual match data, making collisions between
+// genuinely different CS2 demos astronomically unlikely.
+const quickHashBytes = 64 << 10 // 64 KB
+
+// QuickHash computes a SHA-256 over the first 64 KB of the demo file at path.
+// It is orders of magnitude faster than hashing the full file and is used as a
+// cheap pre-existence check before committing to a full (expensive) parse.
+func QuickHash(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open demo: %w", err)
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, io.LimitReader(f, quickHashBytes)); err != nil {
+		return "", fmt.Errorf("quick hash demo: %w", err)
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
 // pairKey identifies a (observer, enemy) pair for spotted-state deduplication.
 type pairKey struct{ obs, enemy uint64 }
 
