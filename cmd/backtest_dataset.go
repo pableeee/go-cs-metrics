@@ -60,10 +60,11 @@ type btMatchRecord struct {
 }
 
 var (
-	bdsSpec   string
-	bdsOut    string
-	bdsWindow int
-	bdsQuorum int
+	bdsSpec     string
+	bdsOut      string
+	bdsWindow   int
+	bdsQuorum   int
+	bdsHalfLife float64
 )
 
 var backtestDatasetCmd = &cobra.Command{
@@ -86,6 +87,8 @@ func init() {
 	backtestDatasetCmd.Flags().StringVar(&bdsOut, "out", "", "output file path (stdout if omitted)")
 	backtestDatasetCmd.Flags().IntVar(&bdsWindow, "window", 90, "look-back window in days before event_date")
 	backtestDatasetCmd.Flags().IntVar(&bdsQuorum, "quorum", 3, "min roster players per demo to include it")
+	backtestDatasetCmd.Flags().Float64Var(&bdsHalfLife, "half-life", 35,
+		"temporal decay half-life in days (0 = uniform weights)")
 	_ = backtestDatasetCmd.MarkFlagRequired("spec")
 }
 
@@ -118,13 +121,13 @@ func runBacktestDataset(_ *cobra.Command, _ []string) error {
 		}
 		since := eventDate.AddDate(0, 0, -bdsWindow)
 
-		teamA, err := buildBTTeamStats(db, spec.TeamARoster, since, eventDate, bdsQuorum, "A")
+		teamA, err := buildBTTeamStats(db, spec.TeamARoster, since, eventDate, bdsQuorum, "A", bdsHalfLife)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  SKIP: team A: %v\n", err)
 			skipped++
 			continue
 		}
-		teamB, err := buildBTTeamStats(db, spec.TeamBRoster, since, eventDate, bdsQuorum, "B")
+		teamB, err := buildBTTeamStats(db, spec.TeamBRoster, since, eventDate, bdsQuorum, "B", bdsHalfLife)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  SKIP: team B: %v\n", err)
 			skipped++
@@ -165,7 +168,7 @@ func runBacktestDataset(_ *cobra.Command, _ []string) error {
 
 // buildBTTeamStats loads a roster file and computes team stats from demos in
 // the window [since, before) where before=event_date eliminates lookahead bias.
-func buildBTTeamStats(db *storage.DB, rosterPath string, since, before time.Time, quorum int, label string) (*btTeamStats, error) {
+func buildBTTeamStats(db *storage.DB, rosterPath string, since, before time.Time, quorum int, label string, halfLife float64) (*btTeamStats, error) {
 	raw, err := os.ReadFile(rosterPath)
 	if err != nil {
 		return nil, fmt.Errorf("read roster %s: %w", rosterPath, err)
@@ -198,41 +201,22 @@ func buildBTTeamStats(db *storage.DB, rosterPath string, since, before time.Time
 		allHashes = append(allHashes, d.Hash)
 	}
 
+	weights := demoWeights(demos, before, halfLife)
+
 	maps := make(map[string]btMapStats, len(byMap))
 	for mapName, hashes := range byMap {
 		outcomes, err := db.MapWinOutcomes(rf.Players, hashes)
 		if err != nil {
 			return nil, fmt.Errorf("map win outcomes %s: %w", mapName, err)
 		}
-		var winSum float64
-		for _, o := range outcomes {
-			if o.RoundsPlayed == 0 {
-				continue
-			}
-			switch {
-			case o.RoundsWon*2 > o.RoundsPlayed:
-				winSum += 1.0
-			case o.RoundsWon*2 == o.RoundsPlayed:
-				winSum += 0.5
-			}
-		}
+		mapWinPct := weightedMapWinPct(outcomes, weights)
 		n := len(outcomes)
-		var mapWinPct float64
-		if n > 0 {
-			mapWinPct = winSum / float64(n)
-		}
 
-		sides, err := db.RoundSideStats(rf.Players, hashes)
+		sidesByDemo, err := db.RoundSideStatsByDemo(rf.Players, hashes)
 		if err != nil {
 			return nil, fmt.Errorf("round side stats %s: %w", mapName, err)
 		}
-		ctPct, tPct := 0.50, 0.50
-		if sides.CTTotal > 0 {
-			ctPct = float64(sides.CTWins) / float64(sides.CTTotal)
-		}
-		if sides.TTotal > 0 {
-			tPct = float64(sides.TWins) / float64(sides.TTotal)
-		}
+		ctPct, tPct := weightedSideStats(sidesByDemo, weights)
 
 		maps[mapName] = btMapStats{
 			MapWinPct:     roundTo2dp(mapWinPct),
@@ -244,11 +228,11 @@ func buildBTTeamStats(db *storage.DB, rosterPath string, since, before time.Time
 			mapName, n, mapWinPct, ctPct, tPct)
 	}
 
-	totals, err := db.RosterMatchTotals(rf.Players, allHashes)
+	byDemo, err := db.RosterMatchTotalsByDemo(rf.Players, allHashes)
 	if err != nil {
 		return nil, fmt.Errorf("roster match totals: %w", err)
 	}
-	ratings := buildRatings(totals)
+	ratings := buildWeightedRatings(byDemo, weights)
 
 	return &btTeamStats{
 		Team:              rf.Team,

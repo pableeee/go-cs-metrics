@@ -40,6 +40,28 @@ type PlayerTotals struct {
 	TotalDamage  int
 }
 
+// DemoSideStats holds CT/T round win counts for a single demo.
+type DemoSideStats struct {
+	Hash    string
+	CTWins  int
+	CTTotal int
+	TWins   int
+	TTotal  int
+}
+
+// PlayerDemoTotals holds per-demo stats for one player (not aggregated).
+type PlayerDemoTotals struct {
+	SteamID      string
+	Name         string
+	DemoHash     string
+	Kills        int
+	Deaths       int
+	Assists      int
+	KastRounds   int
+	RoundsPlayed int
+	TotalDamage  int
+}
+
 // QualifyingDemos returns demos within the time window where at least quorum
 // of the given SteamIDs appear in player_match_stats, ordered by date descending.
 func (db *DB) QualifyingDemos(steamIDs []string, since time.Time, quorum int) ([]DemoRef, error) {
@@ -505,6 +527,99 @@ func (db *DB) MapPostPlantTWinRates(steamIDs []string, demoHashes []string) (map
 			return nil, err
 		}
 		out[mapName] = s
+	}
+	return out, rows.Err()
+}
+
+// RoundSideStatsByDemo returns per-demo CT/T round win counts for the given
+// roster players and demo hashes, grouped by demo_hash.
+func (db *DB) RoundSideStatsByDemo(steamIDs []string, demoHashes []string) ([]DemoSideStats, error) {
+	if len(steamIDs) == 0 || len(demoHashes) == 0 {
+		return nil, nil
+	}
+	idPH := placeholders(len(steamIDs))
+	hashPH := placeholders(len(demoHashes))
+
+	args := make([]interface{}, 0, len(steamIDs)+len(demoHashes))
+	for _, id := range steamIDs {
+		args = append(args, id)
+	}
+	for _, h := range demoHashes {
+		args = append(args, h)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT demo_hash,
+		  COALESCE(SUM(CASE WHEN team='CT' AND won_round=1 THEN 1 ELSE 0 END), 0),
+		  COALESCE(SUM(CASE WHEN team='CT'                 THEN 1 ELSE 0 END), 0),
+		  COALESCE(SUM(CASE WHEN team='T'  AND won_round=1 THEN 1 ELSE 0 END), 0),
+		  COALESCE(SUM(CASE WHEN team='T'                  THEN 1 ELSE 0 END), 0)
+		FROM player_round_stats
+		WHERE steam_id IN (%s)
+		  AND demo_hash IN (%s)
+		GROUP BY demo_hash`,
+		idPH, hashPH)
+
+	rows, err := db.conn.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []DemoSideStats
+	for rows.Next() {
+		var s DemoSideStats
+		if err := rows.Scan(&s.Hash, &s.CTWins, &s.CTTotal, &s.TWins, &s.TTotal); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// RosterMatchTotalsByDemo returns per-player per-demo stats (not aggregated)
+// for the given roster players across the given demo hashes.
+func (db *DB) RosterMatchTotalsByDemo(steamIDs []string, demoHashes []string) ([]PlayerDemoTotals, error) {
+	if len(steamIDs) == 0 || len(demoHashes) == 0 {
+		return nil, nil
+	}
+	idPH := placeholders(len(steamIDs))
+	hashPH := placeholders(len(demoHashes))
+
+	args := make([]interface{}, 0, len(steamIDs)+len(demoHashes))
+	for _, id := range steamIDs {
+		args = append(args, id)
+	}
+	for _, h := range demoHashes {
+		args = append(args, h)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT steam_id, name, demo_hash,
+		       kills, deaths, assists, kast_rounds, rounds_played, total_damage
+		FROM player_match_stats
+		WHERE steam_id IN (%s)
+		  AND demo_hash IN (%s)
+		ORDER BY steam_id, demo_hash`,
+		idPH, hashPH)
+
+	rows, err := db.conn.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PlayerDemoTotals
+	for rows.Next() {
+		var p PlayerDemoTotals
+		if err := rows.Scan(
+			&p.SteamID, &p.Name, &p.DemoHash,
+			&p.Kills, &p.Deaths, &p.Assists,
+			&p.KastRounds, &p.RoundsPlayed, &p.TotalDamage,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
 	}
 	return out, rows.Err()
 }

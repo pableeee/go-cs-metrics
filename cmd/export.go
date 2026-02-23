@@ -15,12 +15,13 @@ import (
 )
 
 var (
-	exportTeam    string
-	exportPlayers string
-	exportRoster  string
-	exportSince   int
-	exportQuorum  int
-	exportOut     string
+	exportTeam     string
+	exportPlayers  string
+	exportRoster   string
+	exportSince    int
+	exportQuorum   int
+	exportOut      string
+	exportHalfLife float64
 )
 
 // rosterFile is the schema for --roster JSON files.
@@ -88,6 +89,8 @@ func init() {
 	exportCmd.Flags().IntVar(&exportSince, "since", 90, "look-back window in days")
 	exportCmd.Flags().IntVar(&exportQuorum, "quorum", 3, "min roster players per demo to include it")
 	exportCmd.Flags().StringVar(&exportOut, "out", "", "output file path (default: stdout)")
+	exportCmd.Flags().Float64Var(&exportHalfLife, "half-life", 35,
+		"temporal decay half-life in days (0 = uniform weights)")
 }
 
 func runExport(_ *cobra.Command, _ []string) error {
@@ -151,6 +154,8 @@ func runExport(_ *cobra.Command, _ []string) error {
 		allHashes = append(allHashes, d.Hash)
 	}
 
+	weights := demoWeights(demos, time.Now(), exportHalfLife)
+
 	// Compute per-map stats.
 	maps := make(map[string]simbo3MapStats, len(byMap))
 	for mapName, hashes := range byMap {
@@ -159,39 +164,14 @@ func runExport(_ *cobra.Command, _ []string) error {
 			return fmt.Errorf("map win outcomes for %s: %w", mapName, err)
 		}
 
-		var winSum float64
-		for _, o := range outcomes {
-			if o.RoundsPlayed == 0 {
-				continue
-			}
-			switch {
-			case o.RoundsWon*2 > o.RoundsPlayed:
-				winSum += 1.0
-			case o.RoundsWon*2 == o.RoundsPlayed:
-				winSum += 0.5 // draw
-			}
-		}
+		mapWinPct := weightedMapWinPct(outcomes, weights)
 		n := len(outcomes)
-		var mapWinPct float64
-		if n > 0 {
-			mapWinPct = winSum / float64(n)
-		}
 
-		sides, err := db.RoundSideStats(steamIDs, hashes)
+		sidesByDemo, err := db.RoundSideStatsByDemo(steamIDs, hashes)
 		if err != nil {
 			return fmt.Errorf("round side stats for %s: %w", mapName, err)
 		}
-		ctPct, tPct := 0.50, 0.50
-		if sides.CTTotal > 0 {
-			ctPct = float64(sides.CTWins) / float64(sides.CTTotal)
-		} else {
-			fmt.Fprintf(os.Stderr, "warn: no CT rounds found for %s — using prior 0.50\n", mapName)
-		}
-		if sides.TTotal > 0 {
-			tPct = float64(sides.TWins) / float64(sides.TTotal)
-		} else {
-			fmt.Fprintf(os.Stderr, "warn: no T rounds found for %s — using prior 0.50\n", mapName)
-		}
+		ctPct, tPct := weightedSideStats(sidesByDemo, weights)
 
 		maps[mapName] = simbo3MapStats{
 			MapWinPct:     roundTo2dp(mapWinPct),
@@ -204,11 +184,11 @@ func runExport(_ *cobra.Command, _ []string) error {
 	}
 
 	// Compute HLTV Rating 2.0 proxies for the top 5 players by activity.
-	totals, err := db.RosterMatchTotals(steamIDs, allHashes)
+	byDemo, err := db.RosterMatchTotalsByDemo(steamIDs, allHashes)
 	if err != nil {
 		return fmt.Errorf("roster match totals: %w", err)
 	}
-	ratings := buildRatings(totals)
+	ratings := buildWeightedRatings(byDemo, weights)
 
 	// Populate per-map entry kill/death rates.
 	entryByMap, err := db.MapEntryStats(steamIDs, allHashes)
@@ -336,34 +316,139 @@ func resolveRoster() (teamName string, steamIDs []string, err error) {
 	return exportTeam, nil, nil
 }
 
-// buildRatings computes the HLTV Rating 2.0 community proxy for up to 5 players.
-// totals must be sorted by rounds_played DESC (guaranteed by RosterMatchTotals).
-// Slots with no matching player are padded with 1.00 (neutral prior).
-func buildRatings(totals []storage.PlayerTotals) []float64 {
-	top := totals
-	if len(top) > 5 {
-		top = top[:5]
+// demoWeights returns exp(-ln(2)/halfLife * days_before_ref) per demo hash.
+// halfLife <= 0 returns uniform weights of 1.0.
+func demoWeights(demos []storage.DemoRef, refDate time.Time, halfLife float64) map[string]float64 {
+	weights := make(map[string]float64, len(demos))
+	if halfLife <= 0 {
+		for _, d := range demos {
+			weights[d.Hash] = 1.0
+		}
+		return weights
 	}
+	lambda := math.Log(2) / halfLife
+	for _, d := range demos {
+		matchDate, err := time.Parse("2006-01-02", d.MatchDate)
+		if err != nil {
+			weights[d.Hash] = 1.0
+			continue
+		}
+		days := refDate.Sub(matchDate).Hours() / 24
+		if days < 0 {
+			days = 0
+		}
+		weights[d.Hash] = math.Exp(-lambda * days)
+	}
+	return weights
+}
+
+// weightedMapWinPct returns weighted win% from a WinOutcome slice.
+func weightedMapWinPct(outcomes []storage.WinOutcome, weights map[string]float64) float64 {
+	var winSum, totalW float64
+	for _, o := range outcomes {
+		if o.RoundsPlayed == 0 {
+			continue
+		}
+		w := weights[o.Hash]
+		totalW += w
+		switch {
+		case o.RoundsWon*2 > o.RoundsPlayed:
+			winSum += w
+		case o.RoundsWon*2 == o.RoundsPlayed:
+			winSum += 0.5 * w
+		}
+	}
+	if totalW == 0 {
+		return 0
+	}
+	return winSum / totalW
+}
+
+// weightedSideStats returns weighted CT/T win% from per-demo DemoSideStats.
+// Returns 0.50/0.50 when no data is available.
+func weightedSideStats(byDemo []storage.DemoSideStats, weights map[string]float64) (ctPct, tPct float64) {
+	var ctWinW, ctTotalW, tWinW, tTotalW float64
+	for _, d := range byDemo {
+		w := weights[d.Hash]
+		ctWinW += w * float64(d.CTWins)
+		ctTotalW += w * float64(d.CTTotal)
+		tWinW += w * float64(d.TWins)
+		tTotalW += w * float64(d.TTotal)
+	}
+	ctPct, tPct = 0.50, 0.50
+	if ctTotalW > 0 {
+		ctPct = ctWinW / ctTotalW
+	}
+	if tTotalW > 0 {
+		tPct = tWinW / tTotalW
+	}
+	return
+}
+
+// buildWeightedRatings groups PlayerDemoTotals by player, accumulates
+// weighted stat sums, computes KPR/DPR/APR/KAST/ADR from weighted totals.
+// Returns a 5-element slice sorted descending, padded with 1.00.
+func buildWeightedRatings(byDemo []storage.PlayerDemoTotals, weights map[string]float64) []float64 {
+	type acc struct {
+		name        string
+		kills       float64
+		deaths      float64
+		assists     float64
+		kastRounds  float64
+		rounds      float64
+		totalDamage float64
+	}
+
+	players := make(map[string]*acc)
+	for _, d := range byDemo {
+		w := weights[d.DemoHash]
+		a, ok := players[d.SteamID]
+		if !ok {
+			a = &acc{name: d.Name}
+			players[d.SteamID] = a
+		}
+		a.kills += w * float64(d.Kills)
+		a.deaths += w * float64(d.Deaths)
+		a.assists += w * float64(d.Assists)
+		a.kastRounds += w * float64(d.KastRounds)
+		a.rounds += w * float64(d.RoundsPlayed)
+		a.totalDamage += w * float64(d.TotalDamage)
+	}
+
+	type namedAcc struct {
+		steamID string
+		*acc
+	}
+	sorted := make([]namedAcc, 0, len(players))
+	for id, a := range players {
+		sorted = append(sorted, namedAcc{id, a})
+	}
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].rounds > sorted[j].rounds })
 
 	ratings := make([]float64, 5)
 	for i := range ratings {
 		ratings[i] = 1.00
 	}
 
+	top := sorted
+	if len(top) > 5 {
+		top = top[:5]
+	}
+
 	for i, p := range top {
-		if p.RoundsPlayed == 0 {
+		if p.rounds == 0 {
 			continue
 		}
-		kpr := float64(p.Kills) / float64(p.RoundsPlayed)
-		dpr := float64(p.Deaths) / float64(p.RoundsPlayed)
-		apr := float64(p.Assists) / float64(p.RoundsPlayed)
-		kast := 100.0 * float64(p.KastRounds) / float64(p.RoundsPlayed)
-		adr := float64(p.TotalDamage) / float64(p.RoundsPlayed)
+		kpr := p.kills / p.rounds
+		dpr := p.deaths / p.rounds
+		apr := p.assists / p.rounds
+		kast := 100.0 * p.kastRounds / p.rounds
+		adr := p.totalDamage / p.rounds
 		impact := 2.13*kpr + 0.42*apr - 0.41
 		r := 0.0073*kast + 0.3591*kpr - 0.5329*dpr + 0.2372*impact + 0.0032*adr + 0.1587
 		ratings[i] = roundTo2dp(r)
-		fmt.Fprintf(os.Stderr, "  %-20s  %3d rounds  KPR=%.2f DPR=%.2f KAST=%.0f%% ADR=%.1f  → rating %.2f\n",
-			p.Name, p.RoundsPlayed, kpr, dpr, kast, adr, r)
+		fmt.Fprintf(os.Stderr, "  %-20s  wRounds=%.1f  KPR=%.2f DPR=%.2f KAST=%.0f%% ADR=%.1f  → rating %.2f\n",
+			p.name, p.rounds, kpr, dpr, kast, adr, r)
 	}
 
 	if len(top) < 5 {
@@ -371,10 +456,10 @@ func buildRatings(totals []storage.PlayerTotals) []float64 {
 			len(top), 5-len(top))
 	}
 
-	// Highest-rated player first, matching HLTV's typical display order.
 	sort.Slice(ratings, func(i, j int) bool { return ratings[i] > ratings[j] })
 	return ratings
 }
+
 
 func roundTo2dp(v float64) float64 {
 	return math.Round(v*100) / 100
