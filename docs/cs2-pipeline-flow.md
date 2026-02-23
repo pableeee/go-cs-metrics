@@ -794,11 +794,13 @@ automates this:
 
 ```sh
 ./go-cs-metrics backtest-dataset \
-  --matches matches.yaml \
-  --out playoff_matches.json
+  --spec playoff-matches.json \
+  --out playoffs21.json \
+  --window 90 \
+  --quorum 3
 ```
 
-(Roster files are listed in `matches.yaml` alongside match metadata.)
+(Roster files are listed in `playoff-matches.json` alongside match metadata.)
 
 ---
 

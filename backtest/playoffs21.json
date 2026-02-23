@@ -1,0 +1,2347 @@
+[
+  {
+    "match_id": "krakow-qf1-aurora-vs-furia",
+    "format": "bo3",
+    "team_a": {
+      "team": "Aurora",
+      "players_rating2_3m": [
+        1.41,
+        1.28,
+        1.25,
+        1,
+        0.99
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.68,
+          "t_round_win_pct": 0.61,
+          "matches_3m": 3
+        },
+        "Inferno": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.41,
+          "t_round_win_pct": 0.43,
+          "matches_3m": 2
+        },
+        "Mirage": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.47,
+          "t_round_win_pct": 0.59,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.53,
+          "matches_3m": 3
+        },
+        "Overpass": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.94,
+          "t_round_win_pct": 0.79,
+          "matches_3m": 2
+        },
+        "Train": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.69,
+          "t_round_win_pct": 0.3,
+          "matches_3m": 3
+        }
+      }
+    },
+    "team_b": {
+      "team": "FURIA",
+      "players_rating2_3m": [
+        1.33,
+        1.3,
+        1.23,
+        1.19,
+        1.03
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.33,
+          "t_round_win_pct": 0.92,
+          "matches_3m": 1
+        },
+        "Inferno": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 4
+        },
+        "Mirage": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.55,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.73,
+          "t_round_win_pct": 0.59,
+          "matches_3m": 4
+        },
+        "Overpass": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.49,
+          "matches_3m": 3
+        },
+        "Train": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.43,
+          "t_round_win_pct": 0.45,
+          "matches_3m": 2
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Dust2",
+        "picker": "A"
+      },
+      {
+        "map": "Mirage",
+        "picker": "B"
+      }
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "krakow-qf2-g2-vs-mouz",
+    "format": "bo3",
+    "team_a": {
+      "team": "G2",
+      "players_rating2_3m": [
+        1.19,
+        1.17,
+        1.05,
+        0.96,
+        0.96
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.38,
+          "t_round_win_pct": 0.54,
+          "matches_3m": 2
+        },
+        "Dust2": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.53,
+          "t_round_win_pct": 0.45,
+          "matches_3m": 2
+        },
+        "Inferno": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.08,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 2
+        },
+        "Mirage": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.92,
+          "t_round_win_pct": 0.22,
+          "matches_3m": 1
+        },
+        "Overpass": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.26,
+          "t_round_win_pct": 0.65,
+          "matches_3m": 1
+        }
+      }
+    },
+    "team_b": {
+      "team": "MOUZ",
+      "players_rating2_3m": [
+        1.22,
+        1.22,
+        1.14,
+        1.09,
+        0.89
+      ],
+      "maps": {
+        "Inferno": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.6,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 2
+        },
+        "Mirage": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.46,
+          "t_round_win_pct": 0.28,
+          "matches_3m": 2
+        },
+        "Nuke": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.46,
+          "t_round_win_pct": 0.57,
+          "matches_3m": 2
+        },
+        "Overpass": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.67,
+          "t_round_win_pct": 0.41,
+          "matches_3m": 3
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.36,
+          "t_round_win_pct": 0.75,
+          "matches_3m": 1
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Overpass",
+        "picker": "B"
+      },
+      {
+        "map": "Dust2",
+        "picker": "A"
+      }
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "krakow-sf1-spirit-vs-furia",
+    "format": "bo3",
+    "team_a": {
+      "team": "Spirit",
+      "players_rating2_3m": [
+        1.49,
+        1.38,
+        1.11,
+        1,
+        1
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.58,
+          "t_round_win_pct": 0.55,
+          "matches_3m": 1
+        },
+        "Dust2": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 6
+        },
+        "Mirage": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.54,
+          "t_round_win_pct": 0.49,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.52,
+          "t_round_win_pct": 0.48,
+          "matches_3m": 3
+        },
+        "Overpass": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.75,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 1
+        },
+        "Train": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.46,
+          "t_round_win_pct": 0.6,
+          "matches_3m": 2
+        }
+      }
+    },
+    "team_b": {
+      "team": "FURIA",
+      "players_rating2_3m": [
+        1.33,
+        1.3,
+        1.23,
+        1.19,
+        1.03
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.33,
+          "t_round_win_pct": 0.92,
+          "matches_3m": 1
+        },
+        "Inferno": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 4
+        },
+        "Mirage": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.55,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.73,
+          "t_round_win_pct": 0.59,
+          "matches_3m": 4
+        },
+        "Overpass": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.49,
+          "matches_3m": 3
+        },
+        "Train": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.43,
+          "t_round_win_pct": 0.45,
+          "matches_3m": 2
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Mirage",
+        "picker": "B"
+      },
+      {
+        "map": "Dust2",
+        "picker": "A"
+      },
+      {
+        "map": "Nuke",
+        "picker": "D"
+      }
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "krakow-sf2-vitality-vs-mouz",
+    "format": "bo3",
+    "team_a": {
+      "team": "Vitality",
+      "players_rating2_3m": [
+        1.42,
+        1.28,
+        1.24,
+        1.08,
+        0.91
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.64,
+          "matches_3m": 4
+        },
+        "Inferno": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.52,
+          "t_round_win_pct": 0.54,
+          "matches_3m": 6
+        },
+        "Mirage": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.6,
+          "t_round_win_pct": 0.56,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0.29,
+          "ct_round_win_pct": 0.52,
+          "t_round_win_pct": 0.34,
+          "matches_3m": 7
+        },
+        "Overpass": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.72,
+          "t_round_win_pct": 0.7,
+          "matches_3m": 3
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.58,
+          "matches_3m": 1
+        }
+      }
+    },
+    "team_b": {
+      "team": "MOUZ",
+      "players_rating2_3m": [
+        1.22,
+        1.22,
+        1.14,
+        1.09,
+        0.89
+      ],
+      "maps": {
+        "Inferno": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.6,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 2
+        },
+        "Mirage": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.46,
+          "t_round_win_pct": 0.28,
+          "matches_3m": 2
+        },
+        "Nuke": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.46,
+          "t_round_win_pct": 0.57,
+          "matches_3m": 2
+        },
+        "Overpass": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.67,
+          "t_round_win_pct": 0.41,
+          "matches_3m": 3
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.36,
+          "t_round_win_pct": 0.75,
+          "matches_3m": 1
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Nuke",
+        "picker": "B"
+      },
+      {
+        "map": "Dust2",
+        "picker": "A"
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "krakow-3rd-spirit-vs-mouz",
+    "format": "bo3",
+    "team_a": {
+      "team": "Spirit",
+      "players_rating2_3m": [
+        1.49,
+        1.38,
+        1.11,
+        1,
+        1
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.58,
+          "t_round_win_pct": 0.55,
+          "matches_3m": 1
+        },
+        "Dust2": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 6
+        },
+        "Mirage": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.54,
+          "t_round_win_pct": 0.49,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.52,
+          "t_round_win_pct": 0.48,
+          "matches_3m": 3
+        },
+        "Overpass": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.75,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 1
+        },
+        "Train": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.46,
+          "t_round_win_pct": 0.6,
+          "matches_3m": 2
+        }
+      }
+    },
+    "team_b": {
+      "team": "MOUZ",
+      "players_rating2_3m": [
+        1.22,
+        1.22,
+        1.14,
+        1.09,
+        0.89
+      ],
+      "maps": {
+        "Inferno": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.6,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 2
+        },
+        "Mirage": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.46,
+          "t_round_win_pct": 0.28,
+          "matches_3m": 2
+        },
+        "Nuke": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.46,
+          "t_round_win_pct": 0.57,
+          "matches_3m": 2
+        },
+        "Overpass": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.67,
+          "t_round_win_pct": 0.41,
+          "matches_3m": 3
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.36,
+          "t_round_win_pct": 0.75,
+          "matches_3m": 1
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Dust2",
+        "picker": "A"
+      },
+      {
+        "map": "Mirage",
+        "picker": "B"
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "krakow-gf-furia-vs-vitality",
+    "format": "bo5",
+    "team_a": {
+      "team": "FURIA",
+      "players_rating2_3m": [
+        1.33,
+        1.3,
+        1.23,
+        1.19,
+        1.03
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.33,
+          "t_round_win_pct": 0.92,
+          "matches_3m": 1
+        },
+        "Inferno": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 4
+        },
+        "Mirage": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.55,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.73,
+          "t_round_win_pct": 0.59,
+          "matches_3m": 4
+        },
+        "Overpass": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.49,
+          "matches_3m": 3
+        },
+        "Train": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.43,
+          "t_round_win_pct": 0.45,
+          "matches_3m": 2
+        }
+      }
+    },
+    "team_b": {
+      "team": "Vitality",
+      "players_rating2_3m": [
+        1.42,
+        1.28,
+        1.24,
+        1.08,
+        0.91
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.64,
+          "matches_3m": 4
+        },
+        "Inferno": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.52,
+          "t_round_win_pct": 0.54,
+          "matches_3m": 6
+        },
+        "Mirage": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.6,
+          "t_round_win_pct": 0.56,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0.29,
+          "ct_round_win_pct": 0.52,
+          "t_round_win_pct": 0.34,
+          "matches_3m": 7
+        },
+        "Overpass": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.72,
+          "t_round_win_pct": 0.7,
+          "matches_3m": 3
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.58,
+          "matches_3m": 1
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Mirage",
+        "picker": "A"
+      },
+      {
+        "map": "Inferno",
+        "picker": "B"
+      },
+      {
+        "map": "Nuke",
+        "picker": "A"
+      },
+      {
+        "map": "Overpass",
+        "picker": "B"
+      }
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "budapest-qf1-spirit-vs-falcons",
+    "format": "bo3",
+    "team_a": {
+      "team": "Spirit",
+      "players_rating2_3m": [
+        1.46,
+        1.39,
+        1.09,
+        1,
+        1
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.69,
+          "matches_3m": 2
+        },
+        "Dust2": {
+          "map_win_pct": 0.86,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.55,
+          "matches_3m": 7
+        },
+        "Mirage": {
+          "map_win_pct": 0.6,
+          "ct_round_win_pct": 0.49,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 5
+        },
+        "Nuke": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.47,
+          "t_round_win_pct": 0.31,
+          "matches_3m": 6
+        },
+        "Overpass": {
+          "map_win_pct": 0.83,
+          "ct_round_win_pct": 0.75,
+          "t_round_win_pct": 0.4,
+          "matches_3m": 3
+        },
+        "Train": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.46,
+          "t_round_win_pct": 0.6,
+          "matches_3m": 2
+        }
+      }
+    },
+    "team_b": {
+      "team": "Falcons",
+      "players_rating2_3m": [
+        1.48,
+        1.24,
+        1.2,
+        1.05,
+        1.03
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.71,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.57,
+          "matches_3m": 7
+        },
+        "Dust2": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.39,
+          "t_round_win_pct": 0.53,
+          "matches_3m": 2
+        },
+        "Inferno": {
+          "map_win_pct": 0.64,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.57,
+          "matches_3m": 11
+        },
+        "Mirage": {
+          "map_win_pct": 0.8,
+          "ct_round_win_pct": 0.73,
+          "t_round_win_pct": 0.48,
+          "matches_3m": 5
+        },
+        "Nuke": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.55,
+          "matches_3m": 8
+        },
+        "Train": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.43,
+          "matches_3m": 3
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Nuke",
+        "picker": "B"
+      },
+      {
+        "map": "Dust2",
+        "picker": "A"
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "budapest-qf2-vitality-vs-mongolz",
+    "format": "bo3",
+    "team_a": {
+      "team": "Vitality",
+      "players_rating2_3m": [
+        1.44,
+        1.26,
+        1.23,
+        1.18,
+        0.99
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 0.8,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.68,
+          "matches_3m": 5
+        },
+        "Inferno": {
+          "map_win_pct": 0.7,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.59,
+          "matches_3m": 10
+        },
+        "Mirage": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0.38,
+          "ct_round_win_pct": 0.6,
+          "t_round_win_pct": 0.34,
+          "matches_3m": 8
+        },
+        "Overpass": {
+          "map_win_pct": 0.8,
+          "ct_round_win_pct": 0.68,
+          "t_round_win_pct": 0.54,
+          "matches_3m": 5
+        },
+        "Train": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 3
+        }
+      }
+    },
+    "team_b": {
+      "team": "The MongolZ",
+      "players_rating2_3m": [
+        1.22,
+        1.15,
+        1.05,
+        1.04,
+        1
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.2,
+          "ct_round_win_pct": 0.51,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 5
+        },
+        "Dust2": {
+          "map_win_pct": 0.25,
+          "ct_round_win_pct": 0.43,
+          "t_round_win_pct": 0.51,
+          "matches_3m": 4
+        },
+        "Inferno": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.52,
+          "t_round_win_pct": 0.6,
+          "matches_3m": 4
+        },
+        "Mirage": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.54,
+          "matches_3m": 4
+        },
+        "Nuke": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.51,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 3
+        },
+        "Overpass": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.52,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 2
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Mirage",
+        "picker": "B"
+      },
+      {
+        "map": "Dust2",
+        "picker": "A"
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "budapest-qf3-faze-vs-mouz",
+    "format": "bo3",
+    "team_a": {
+      "team": "FaZe",
+      "players_rating2_3m": [
+        1.34,
+        1.31,
+        1.31,
+        1.29,
+        0.94
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.53,
+          "t_round_win_pct": 0.57,
+          "matches_3m": 4
+        },
+        "Dust2": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.55,
+          "t_round_win_pct": 0.49,
+          "matches_3m": 6
+        },
+        "Inferno": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.48,
+          "t_round_win_pct": 0.68,
+          "matches_3m": 2
+        },
+        "Mirage": {
+          "map_win_pct": 0.8,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 5
+        },
+        "Nuke": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.54,
+          "matches_3m": 3
+        },
+        "Overpass": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.51,
+          "t_round_win_pct": 0.48,
+          "matches_3m": 2
+        },
+        "Train": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.34,
+          "t_round_win_pct": 0.24,
+          "matches_3m": 2
+        }
+      }
+    },
+    "team_b": {
+      "team": "MOUZ",
+      "players_rating2_3m": [
+        1.3,
+        1.27,
+        1.26,
+        1.24,
+        1.04
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.4,
+          "ct_round_win_pct": 0.47,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 5
+        },
+        "Inferno": {
+          "map_win_pct": 0.88,
+          "ct_round_win_pct": 0.62,
+          "t_round_win_pct": 0.68,
+          "matches_3m": 8
+        },
+        "Mirage": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.47,
+          "t_round_win_pct": 0.4,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.54,
+          "t_round_win_pct": 0.58,
+          "matches_3m": 3
+        },
+        "Overpass": {
+          "map_win_pct": 0.83,
+          "ct_round_win_pct": 0.7,
+          "t_round_win_pct": 0.43,
+          "matches_3m": 6
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.76,
+          "matches_3m": 2
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Nuke",
+        "picker": "A"
+      },
+      {
+        "map": "Inferno",
+        "picker": "B"
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "budapest-qf4-navi-vs-furia",
+    "format": "bo3",
+    "team_a": {
+      "team": "NaVi",
+      "players_rating2_3m": [
+        1.39,
+        1.25,
+        1.23,
+        1.17,
+        1
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.83,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.63,
+          "matches_3m": 6
+        },
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.48,
+          "t_round_win_pct": 0.7,
+          "matches_3m": 2
+        },
+        "Inferno": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.36,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0.6,
+          "ct_round_win_pct": 0.59,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 5
+        },
+        "Train": {
+          "map_win_pct": 0.57,
+          "ct_round_win_pct": 0.44,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 7
+        }
+      }
+    },
+    "team_b": {
+      "team": "FURIA",
+      "players_rating2_3m": [
+        1.33,
+        1.31,
+        1.31,
+        1.23,
+        1.03
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.61,
+          "matches_3m": 4
+        },
+        "Inferno": {
+          "map_win_pct": 0.6,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.45,
+          "matches_3m": 5
+        },
+        "Mirage": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.47,
+          "matches_3m": 4
+        },
+        "Nuke": {
+          "map_win_pct": 0.8,
+          "ct_round_win_pct": 0.68,
+          "t_round_win_pct": 0.47,
+          "matches_3m": 5
+        },
+        "Overpass": {
+          "map_win_pct": 0.83,
+          "ct_round_win_pct": 0.59,
+          "t_round_win_pct": 0.57,
+          "matches_3m": 6
+        },
+        "Train": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.61,
+          "t_round_win_pct": 0.43,
+          "matches_3m": 2
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Mirage",
+        "picker": "A"
+      },
+      {
+        "map": "Inferno",
+        "picker": "B"
+      },
+      {
+        "map": "Train",
+        "picker": "D"
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "budapest-sf1-vitality-vs-spirit",
+    "format": "bo3",
+    "team_a": {
+      "team": "Vitality",
+      "players_rating2_3m": [
+        1.44,
+        1.26,
+        1.23,
+        1.18,
+        0.99
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 0.8,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.68,
+          "matches_3m": 5
+        },
+        "Inferno": {
+          "map_win_pct": 0.7,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.59,
+          "matches_3m": 10
+        },
+        "Mirage": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0.38,
+          "ct_round_win_pct": 0.6,
+          "t_round_win_pct": 0.34,
+          "matches_3m": 8
+        },
+        "Overpass": {
+          "map_win_pct": 0.8,
+          "ct_round_win_pct": 0.68,
+          "t_round_win_pct": 0.54,
+          "matches_3m": 5
+        },
+        "Train": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 3
+        }
+      }
+    },
+    "team_b": {
+      "team": "Spirit",
+      "players_rating2_3m": [
+        1.46,
+        1.39,
+        1.09,
+        1,
+        1
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.69,
+          "matches_3m": 2
+        },
+        "Dust2": {
+          "map_win_pct": 0.86,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.55,
+          "matches_3m": 7
+        },
+        "Mirage": {
+          "map_win_pct": 0.6,
+          "ct_round_win_pct": 0.49,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 5
+        },
+        "Nuke": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.47,
+          "t_round_win_pct": 0.31,
+          "matches_3m": 6
+        },
+        "Overpass": {
+          "map_win_pct": 0.83,
+          "ct_round_win_pct": 0.75,
+          "t_round_win_pct": 0.4,
+          "matches_3m": 3
+        },
+        "Train": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.46,
+          "t_round_win_pct": 0.6,
+          "matches_3m": 2
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Mirage",
+        "picker": "A"
+      },
+      {
+        "map": "Dust2",
+        "picker": "B"
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "budapest-sf2-faze-vs-navi",
+    "format": "bo3",
+    "team_a": {
+      "team": "FaZe",
+      "players_rating2_3m": [
+        1.34,
+        1.31,
+        1.31,
+        1.29,
+        0.94
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.53,
+          "t_round_win_pct": 0.57,
+          "matches_3m": 4
+        },
+        "Dust2": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.55,
+          "t_round_win_pct": 0.49,
+          "matches_3m": 6
+        },
+        "Inferno": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.48,
+          "t_round_win_pct": 0.68,
+          "matches_3m": 2
+        },
+        "Mirage": {
+          "map_win_pct": 0.8,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 5
+        },
+        "Nuke": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.54,
+          "matches_3m": 3
+        },
+        "Overpass": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.51,
+          "t_round_win_pct": 0.48,
+          "matches_3m": 2
+        },
+        "Train": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.34,
+          "t_round_win_pct": 0.24,
+          "matches_3m": 2
+        }
+      }
+    },
+    "team_b": {
+      "team": "NaVi",
+      "players_rating2_3m": [
+        1.39,
+        1.25,
+        1.23,
+        1.17,
+        1
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.83,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.63,
+          "matches_3m": 6
+        },
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.48,
+          "t_round_win_pct": 0.7,
+          "matches_3m": 2
+        },
+        "Inferno": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.36,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0.6,
+          "ct_round_win_pct": 0.59,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 5
+        },
+        "Train": {
+          "map_win_pct": 0.57,
+          "ct_round_win_pct": 0.44,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 7
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Ancient",
+        "picker": "B"
+      },
+      {
+        "map": "Nuke",
+        "picker": "A"
+      },
+      {
+        "map": "Inferno",
+        "picker": "D"
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "budapest-gf-faze-vs-vitality",
+    "format": "bo5",
+    "team_a": {
+      "team": "FaZe",
+      "players_rating2_3m": [
+        1.34,
+        1.31,
+        1.31,
+        1.29,
+        0.94
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.53,
+          "t_round_win_pct": 0.57,
+          "matches_3m": 4
+        },
+        "Dust2": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.55,
+          "t_round_win_pct": 0.49,
+          "matches_3m": 6
+        },
+        "Inferno": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.48,
+          "t_round_win_pct": 0.68,
+          "matches_3m": 2
+        },
+        "Mirage": {
+          "map_win_pct": 0.8,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 5
+        },
+        "Nuke": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.54,
+          "matches_3m": 3
+        },
+        "Overpass": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.51,
+          "t_round_win_pct": 0.48,
+          "matches_3m": 2
+        },
+        "Train": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.34,
+          "t_round_win_pct": 0.24,
+          "matches_3m": 2
+        }
+      }
+    },
+    "team_b": {
+      "team": "Vitality",
+      "players_rating2_3m": [
+        1.44,
+        1.26,
+        1.23,
+        1.18,
+        0.99
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 0.8,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.68,
+          "matches_3m": 5
+        },
+        "Inferno": {
+          "map_win_pct": 0.7,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.59,
+          "matches_3m": 10
+        },
+        "Mirage": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0.38,
+          "ct_round_win_pct": 0.6,
+          "t_round_win_pct": 0.34,
+          "matches_3m": 8
+        },
+        "Overpass": {
+          "map_win_pct": 0.8,
+          "ct_round_win_pct": 0.68,
+          "t_round_win_pct": 0.54,
+          "matches_3m": 5
+        },
+        "Train": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 3
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Nuke",
+        "picker": "A"
+      },
+      {
+        "map": "Dust2",
+        "picker": "B"
+      },
+      {
+        "map": "Inferno",
+        "picker": "A"
+      },
+      {
+        "map": "Overpass",
+        "picker": "B"
+      }
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "cluj-qf1-falcons-vs-parivision",
+    "format": "bo3",
+    "team_a": {
+      "team": "Falcons",
+      "players_rating2_3m": [
+        1.35,
+        1.33,
+        1.24,
+        0.98,
+        0.97
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.53,
+          "t_round_win_pct": 0.34,
+          "matches_3m": 3
+        },
+        "Anubis": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 2
+        },
+        "Dust2": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.61,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 4
+        },
+        "Inferno": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.6,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 6
+        },
+        "Mirage": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.72,
+          "t_round_win_pct": 0.58,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.37,
+          "matches_3m": 3
+        }
+      }
+    },
+    "team_b": {
+      "team": "Parivision",
+      "players_rating2_3m": [
+        1.22,
+        1.12,
+        1.08,
+        1.04,
+        0.9
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.2,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 3
+        },
+        "Anubis": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.59,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 1
+        },
+        "Dust2": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 3
+        },
+        "Overpass": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.53,
+          "t_round_win_pct": 0.4,
+          "matches_3m": 2
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Dust2",
+        "picker": "B"
+      },
+      {
+        "map": "Mirage",
+        "picker": "A"
+      },
+      {
+        "map": "Ancient",
+        "picker": "D"
+      }
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "cluj-qf2-mouz-vs-navi",
+    "format": "bo3",
+    "team_a": {
+      "team": "MOUZ",
+      "players_rating2_3m": [
+        1.24,
+        1.19,
+        1.17,
+        1.11,
+        0.96
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.9,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 1
+        },
+        "Dust2": {
+          "map_win_pct": 0.57,
+          "ct_round_win_pct": 0.45,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 7
+        },
+        "Inferno": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 6
+        },
+        "Mirage": {
+          "map_win_pct": 0.25,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.25,
+          "matches_3m": 4
+        },
+        "Nuke": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.44,
+          "t_round_win_pct": 0.49,
+          "matches_3m": 3
+        },
+        "Overpass": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 6
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.36,
+          "t_round_win_pct": 0.75,
+          "matches_3m": 1
+        }
+      }
+    },
+    "team_b": {
+      "team": "NaVi",
+      "players_rating2_3m": [
+        1.24,
+        1.24,
+        1.18,
+        1.16,
+        0.94
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.6,
+          "t_round_win_pct": 0.9,
+          "matches_3m": 4
+        },
+        "Anubis": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.41,
+          "matches_3m": 1
+        },
+        "Dust2": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 4
+        },
+        "Inferno": {
+          "map_win_pct": 0.25,
+          "ct_round_win_pct": 0.53,
+          "t_round_win_pct": 0.41,
+          "matches_3m": 4
+        },
+        "Mirage": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.55,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.67,
+          "t_round_win_pct": 0.13,
+          "matches_3m": 2
+        },
+        "Train": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.52,
+          "t_round_win_pct": 0.62,
+          "matches_3m": 3
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Ancient",
+        "picker": "B"
+      },
+      {
+        "map": "Inferno",
+        "picker": "A"
+      },
+      {
+        "map": "Mirage",
+        "picker": "D"
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "cluj-qf3-vitality-vs-aurora",
+    "format": "bo3",
+    "team_a": {
+      "team": "Vitality",
+      "players_rating2_3m": [
+        1.69,
+        1.32,
+        1.27,
+        1.17,
+        1.06
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.58,
+          "t_round_win_pct": 0.48,
+          "matches_3m": 1
+        },
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.71,
+          "t_round_win_pct": 0.7,
+          "matches_3m": 5
+        },
+        "Inferno": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.64,
+          "matches_3m": 5
+        },
+        "Mirage": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.44,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0.6,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.45,
+          "matches_3m": 5
+        },
+        "Overpass": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.69,
+          "matches_3m": 3
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.58,
+          "matches_3m": 1
+        }
+      }
+    },
+    "team_b": {
+      "team": "Aurora",
+      "players_rating2_3m": [
+        1.17,
+        1.17,
+        1.04,
+        1,
+        0.97
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.52,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 1
+        },
+        "Anubis": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.67,
+          "t_round_win_pct": 0.63,
+          "matches_3m": 1
+        },
+        "Dust2": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.6,
+          "t_round_win_pct": 0.4,
+          "matches_3m": 2
+        },
+        "Inferno": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.71,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 2
+        },
+        "Mirage": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.38,
+          "t_round_win_pct": 0.32,
+          "matches_3m": 2
+        },
+        "Overpass": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.33,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 1
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Inferno",
+        "picker": "B"
+      },
+      {
+        "map": "Overpass",
+        "picker": "A"
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "cluj-qf4-furia-vs-mongolz",
+    "format": "bo3",
+    "team_a": {
+      "team": "FURIA",
+      "players_rating2_3m": [
+        1.29,
+        1.25,
+        1.15,
+        1.06,
+        1.06
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 0.6,
+          "ct_round_win_pct": 0.46,
+          "t_round_win_pct": 0.6,
+          "matches_3m": 5
+        },
+        "Inferno": {
+          "map_win_pct": 0.6,
+          "ct_round_win_pct": 0.53,
+          "t_round_win_pct": 0.51,
+          "matches_3m": 5
+        },
+        "Mirage": {
+          "map_win_pct": 0.56,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.41,
+          "matches_3m": 9
+        },
+        "Nuke": {
+          "map_win_pct": 0.8,
+          "ct_round_win_pct": 0.74,
+          "t_round_win_pct": 0.48,
+          "matches_3m": 5
+        },
+        "Overpass": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.43,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 3
+        },
+        "Train": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.17,
+          "t_round_win_pct": 0.25,
+          "matches_3m": 1
+        }
+      }
+    },
+    "team_b": {
+      "team": "The MongolZ",
+      "players_rating2_3m": [
+        1.22,
+        1.1,
+        1.08,
+        0.97,
+        0.95
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.56,
+          "matches_3m": 2
+        },
+        "Dust2": {
+          "map_win_pct": 0.25,
+          "ct_round_win_pct": 0.38,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 4
+        },
+        "Inferno": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.48,
+          "matches_3m": 2
+        },
+        "Mirage": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.41,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0,
+          "t_round_win_pct": 0.17,
+          "matches_3m": 1
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Mirage",
+        "picker": "B"
+      },
+      {
+        "map": "Dust2",
+        "picker": "A"
+      },
+      {
+        "map": "Nuke",
+        "picker": "D"
+      }
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "cluj-sf1-parivision-vs-mouz",
+    "format": "bo3",
+    "team_a": {
+      "team": "Parivision",
+      "players_rating2_3m": [
+        1.22,
+        1.12,
+        1.08,
+        1.04,
+        0.9
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.2,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 3
+        },
+        "Anubis": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.59,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 1
+        },
+        "Dust2": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 3
+        },
+        "Overpass": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.53,
+          "t_round_win_pct": 0.4,
+          "matches_3m": 2
+        }
+      }
+    },
+    "team_b": {
+      "team": "MOUZ",
+      "players_rating2_3m": [
+        1.24,
+        1.19,
+        1.17,
+        1.11,
+        0.96
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.9,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 1
+        },
+        "Dust2": {
+          "map_win_pct": 0.57,
+          "ct_round_win_pct": 0.45,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 7
+        },
+        "Inferno": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 6
+        },
+        "Mirage": {
+          "map_win_pct": 0.25,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.25,
+          "matches_3m": 4
+        },
+        "Nuke": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.44,
+          "t_round_win_pct": 0.49,
+          "matches_3m": 3
+        },
+        "Overpass": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 6
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.36,
+          "t_round_win_pct": 0.75,
+          "matches_3m": 1
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Dust2",
+        "picker": "A"
+      },
+      {
+        "map": "Inferno",
+        "picker": "B"
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "cluj-sf2-vitality-vs-mongolz",
+    "format": "bo3",
+    "team_a": {
+      "team": "Vitality",
+      "players_rating2_3m": [
+        1.69,
+        1.32,
+        1.27,
+        1.17,
+        1.06
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.58,
+          "t_round_win_pct": 0.48,
+          "matches_3m": 1
+        },
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.71,
+          "t_round_win_pct": 0.7,
+          "matches_3m": 5
+        },
+        "Inferno": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.64,
+          "matches_3m": 5
+        },
+        "Mirage": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.44,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0.6,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.45,
+          "matches_3m": 5
+        },
+        "Overpass": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.69,
+          "matches_3m": 3
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.58,
+          "matches_3m": 1
+        }
+      }
+    },
+    "team_b": {
+      "team": "The MongolZ",
+      "players_rating2_3m": [
+        1.22,
+        1.1,
+        1.08,
+        0.97,
+        0.95
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.56,
+          "matches_3m": 2
+        },
+        "Dust2": {
+          "map_win_pct": 0.25,
+          "ct_round_win_pct": 0.38,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 4
+        },
+        "Inferno": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.48,
+          "matches_3m": 2
+        },
+        "Mirage": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.41,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0,
+          "t_round_win_pct": 0.17,
+          "matches_3m": 1
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Mirage",
+        "picker": "B"
+      },
+      {
+        "map": "Dust2",
+        "picker": "A"
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "cluj-3rd-mouz-vs-mongolz",
+    "format": "bo3",
+    "team_a": {
+      "team": "MOUZ",
+      "players_rating2_3m": [
+        1.24,
+        1.19,
+        1.17,
+        1.11,
+        0.96
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.9,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 1
+        },
+        "Dust2": {
+          "map_win_pct": 0.57,
+          "ct_round_win_pct": 0.45,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 7
+        },
+        "Inferno": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 6
+        },
+        "Mirage": {
+          "map_win_pct": 0.25,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.25,
+          "matches_3m": 4
+        },
+        "Nuke": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.44,
+          "t_round_win_pct": 0.49,
+          "matches_3m": 3
+        },
+        "Overpass": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 6
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.36,
+          "t_round_win_pct": 0.75,
+          "matches_3m": 1
+        }
+      }
+    },
+    "team_b": {
+      "team": "The MongolZ",
+      "players_rating2_3m": [
+        1.22,
+        1.1,
+        1.08,
+        0.97,
+        0.95
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.56,
+          "matches_3m": 2
+        },
+        "Dust2": {
+          "map_win_pct": 0.25,
+          "ct_round_win_pct": 0.38,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 4
+        },
+        "Inferno": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.48,
+          "matches_3m": 2
+        },
+        "Mirage": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.41,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0,
+          "t_round_win_pct": 0.17,
+          "matches_3m": 1
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Mirage",
+        "picker": "B"
+      },
+      {
+        "map": "Inferno",
+        "picker": "A"
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "cluj-gf-parivision-vs-vitality",
+    "format": "bo5",
+    "team_a": {
+      "team": "Parivision",
+      "players_rating2_3m": [
+        1.22,
+        1.12,
+        1.08,
+        1.04,
+        0.9
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.2,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 3
+        },
+        "Anubis": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.59,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 1
+        },
+        "Dust2": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 3
+        },
+        "Overpass": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.53,
+          "t_round_win_pct": 0.4,
+          "matches_3m": 2
+        }
+      }
+    },
+    "team_b": {
+      "team": "Vitality",
+      "players_rating2_3m": [
+        1.69,
+        1.32,
+        1.27,
+        1.17,
+        1.06
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.58,
+          "t_round_win_pct": 0.48,
+          "matches_3m": 1
+        },
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.71,
+          "t_round_win_pct": 0.7,
+          "matches_3m": 5
+        },
+        "Inferno": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.64,
+          "matches_3m": 5
+        },
+        "Mirage": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.44,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0.6,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.45,
+          "matches_3m": 5
+        },
+        "Overpass": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.69,
+          "matches_3m": 3
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.58,
+          "matches_3m": 1
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Overpass",
+        "picker": "B"
+      },
+      {
+        "map": "Dust2",
+        "picker": "A"
+      },
+      {
+        "map": "Inferno",
+        "picker": "B"
+      }
+    ],
+    "a_won_series": false
+  }
+]
