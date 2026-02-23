@@ -1,0 +1,265 @@
+[
+  {
+    "match_id": "krakow-qf1-aurora-vs-furia",
+    "event_date": "2026-01-27",
+    "format": "bo3",
+    "team_a_roster": "rosters/aurora.json",
+    "team_b_roster": "rosters/furia.json",
+    "maps": [
+      {"map": "Dust2",  "picker": "A"},
+      {"map": "Mirage", "picker": "B"}
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "krakow-qf2-g2-vs-mouz",
+    "event_date": "2026-01-27",
+    "format": "bo3",
+    "team_a_roster": "rosters/g2.json",
+    "team_b_roster": "rosters/mouz.json",
+    "maps": [
+      {"map": "Overpass", "picker": "B"},
+      {"map": "Dust2",    "picker": "A"}
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "krakow-sf1-spirit-vs-furia",
+    "event_date": "2026-01-27",
+    "format": "bo3",
+    "team_a_roster": "rosters/spirit.json",
+    "team_b_roster": "rosters/furia.json",
+    "maps": [
+      {"map": "Mirage", "picker": "B"},
+      {"map": "Dust2",  "picker": "A"},
+      {"map": "Nuke",   "picker": "D"}
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "krakow-sf2-vitality-vs-mouz",
+    "event_date": "2026-01-27",
+    "format": "bo3",
+    "team_a_roster": "rosters/vitality.json",
+    "team_b_roster": "rosters/mouz.json",
+    "maps": [
+      {"map": "Nuke",  "picker": "B"},
+      {"map": "Dust2", "picker": "A"}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "krakow-3rd-spirit-vs-mouz",
+    "event_date": "2026-01-27",
+    "format": "bo3",
+    "team_a_roster": "rosters/spirit.json",
+    "team_b_roster": "rosters/mouz.json",
+    "maps": [
+      {"map": "Dust2",  "picker": "A"},
+      {"map": "Mirage", "picker": "B"}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "krakow-gf-furia-vs-vitality",
+    "event_date": "2026-01-27",
+    "format": "bo5",
+    "team_a_roster": "rosters/furia.json",
+    "team_b_roster": "rosters/vitality.json",
+    "maps": [
+      {"map": "Mirage",  "picker": "A"},
+      {"map": "Inferno", "picker": "B"},
+      {"map": "Nuke",    "picker": "A"},
+      {"map": "Overpass","picker": "B"}
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "budapest-qf1-spirit-vs-falcons",
+    "event_date": "2025-12-11",
+    "format": "bo3",
+    "team_a_roster": "rosters/spirit.json",
+    "team_b_roster": "rosters/falcons.json",
+    "maps": [
+      {"map": "Nuke",  "picker": "B"},
+      {"map": "Dust2", "picker": "A"}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "budapest-qf2-vitality-vs-mongolz",
+    "event_date": "2025-12-11",
+    "format": "bo3",
+    "team_a_roster": "rosters/vitality.json",
+    "team_b_roster": "rosters/mongolz.json",
+    "maps": [
+      {"map": "Mirage", "picker": "B"},
+      {"map": "Dust2",  "picker": "A"}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "budapest-qf3-faze-vs-mouz",
+    "event_date": "2025-12-11",
+    "format": "bo3",
+    "team_a_roster": "rosters/faze.json",
+    "team_b_roster": "rosters/mouz.json",
+    "maps": [
+      {"map": "Nuke",    "picker": "A"},
+      {"map": "Inferno", "picker": "B"}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "budapest-qf4-navi-vs-furia",
+    "event_date": "2025-12-11",
+    "format": "bo3",
+    "team_a_roster": "rosters/navi.json",
+    "team_b_roster": "rosters/furia.json",
+    "maps": [
+      {"map": "Mirage",  "picker": "A"},
+      {"map": "Inferno", "picker": "B"},
+      {"map": "Train",   "picker": "D"}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "budapest-sf1-vitality-vs-spirit",
+    "event_date": "2025-12-11",
+    "format": "bo3",
+    "team_a_roster": "rosters/vitality.json",
+    "team_b_roster": "rosters/spirit.json",
+    "maps": [
+      {"map": "Mirage", "picker": "A"},
+      {"map": "Dust2",  "picker": "B"}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "budapest-sf2-faze-vs-navi",
+    "event_date": "2025-12-11",
+    "format": "bo3",
+    "team_a_roster": "rosters/faze.json",
+    "team_b_roster": "rosters/navi.json",
+    "maps": [
+      {"map": "Ancient", "picker": "B"},
+      {"map": "Nuke",    "picker": "A"},
+      {"map": "Inferno", "picker": "D"}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "budapest-gf-faze-vs-vitality",
+    "event_date": "2025-12-11",
+    "format": "bo5",
+    "team_a_roster": "rosters/faze.json",
+    "team_b_roster": "rosters/vitality.json",
+    "maps": [
+      {"map": "Nuke",    "picker": "A"},
+      {"map": "Dust2",   "picker": "B"},
+      {"map": "Inferno", "picker": "A"},
+      {"map": "Overpass","picker": "B"}
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "cluj-qf1-falcons-vs-parivision",
+    "event_date": "2026-02-16",
+    "format": "bo3",
+    "team_a_roster": "rosters/falcons.json",
+    "team_b_roster": "rosters/parivision.json",
+    "maps": [
+      {"map": "Dust2",   "picker": "B"},
+      {"map": "Mirage",  "picker": "A"},
+      {"map": "Ancient", "picker": "D"}
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "cluj-qf2-mouz-vs-navi",
+    "event_date": "2026-02-16",
+    "format": "bo3",
+    "team_a_roster": "rosters/mouz.json",
+    "team_b_roster": "rosters/navi.json",
+    "maps": [
+      {"map": "Ancient", "picker": "B"},
+      {"map": "Inferno", "picker": "A"},
+      {"map": "Mirage",  "picker": "D"}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "cluj-qf3-vitality-vs-aurora",
+    "event_date": "2026-02-16",
+    "format": "bo3",
+    "team_a_roster": "rosters/vitality.json",
+    "team_b_roster": "rosters/aurora.json",
+    "maps": [
+      {"map": "Inferno", "picker": "B"},
+      {"map": "Overpass","picker": "A"}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "cluj-qf4-furia-vs-mongolz",
+    "event_date": "2026-02-16",
+    "format": "bo3",
+    "team_a_roster": "rosters/furia.json",
+    "team_b_roster": "rosters/mongolz.json",
+    "maps": [
+      {"map": "Mirage", "picker": "B"},
+      {"map": "Dust2",  "picker": "A"},
+      {"map": "Nuke",   "picker": "D"}
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "cluj-sf1-parivision-vs-mouz",
+    "event_date": "2026-02-16",
+    "format": "bo3",
+    "team_a_roster": "rosters/parivision.json",
+    "team_b_roster": "rosters/mouz.json",
+    "maps": [
+      {"map": "Dust2",   "picker": "A"},
+      {"map": "Inferno", "picker": "B"}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "cluj-sf2-vitality-vs-mongolz",
+    "event_date": "2026-02-16",
+    "format": "bo3",
+    "team_a_roster": "rosters/vitality.json",
+    "team_b_roster": "rosters/mongolz.json",
+    "maps": [
+      {"map": "Mirage", "picker": "B"},
+      {"map": "Dust2",  "picker": "A"}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "cluj-3rd-mouz-vs-mongolz",
+    "event_date": "2026-02-16",
+    "format": "bo3",
+    "team_a_roster": "rosters/mouz.json",
+    "team_b_roster": "rosters/mongolz.json",
+    "maps": [
+      {"map": "Mirage",  "picker": "B"},
+      {"map": "Inferno", "picker": "A"}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "cluj-gf-parivision-vs-vitality",
+    "event_date": "2026-02-16",
+    "format": "bo5",
+    "team_a_roster": "rosters/parivision.json",
+    "team_b_roster": "rosters/vitality.json",
+    "maps": [
+      {"map": "Overpass","picker": "B"},
+      {"map": "Dust2",   "picker": "A"},
+      {"map": "Inferno", "picker": "B"}
+    ],
+    "a_won_series": false
+  }
+]

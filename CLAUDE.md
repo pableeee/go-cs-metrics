@@ -208,9 +208,9 @@ See `docs/prediction-analysis.md` for a full analysis of model accuracy vs actua
 
 Priority issues identified:
 1. ~~**simbo3 map pool is stale**~~ — fixed: pool updated to Mirage/Inferno/Nuke/Ancient/Overpass/Dust2/Train.
-2. **PARIVISION stand-in skew** — `zweih` (SteamID `76561198210626739`) is a current PARIVISION player but was a stand-in for other matches in 2025 (38 demos vs ~9 for the rest of the lineup), inflating his contribution to the export.
-3. **Single-event DB** — only IEM Krakow 2026 demos stored; predictions for Budapest Major use lookahead data. Add ESL Pro League S22 and IEM Chengdu 2025 demos.
-4. **MOUZ systematically overrated** — strong group-stage map stats don't translate to playoff performance.
+2. ~~**PARIVISION stand-in skew**~~ — fixed: PARIVISION and Spirit rosters updated to correct 5-player lineups.
+3. ~~**Single-event DB**~~ — fixed: 7 events ingested (612 demos, Feb 2025 – Feb 2026), covering pre-Budapest window with ESL Pro League S22, PGL Masters Bucharest 2025, and BLAST Rivals S2.
+4. ~~**MOUZ systematically overrated**~~ — addressed by multi-event coverage; group-stage-only stats no longer dominate the export window.
 
 ## Documentation Rule
 
