@@ -1,40 +1,64 @@
 {
   "team": "3DMAX",
   "players_rating2_3m": [
-    1.15,
-    1.14,
-    0.97,
-    0.97,
-    0.73
+    1.04,
+    1.01,
+    0.98,
+    0.96,
+    0.92
   ],
   "maps": {
     "Anubis": {
       "map_win_pct": 0,
       "ct_round_win_pct": 0.33,
       "t_round_win_pct": 0.17,
-      "matches_3m": 1
+      "matches_3m": 1,
+      "entry_kill_rate": 0.13,
+      "entry_death_rate": 0.07,
+      "post_plant_t_win_pct": 0.33
     },
     "Dust2": {
       "map_win_pct": 0,
-      "ct_round_win_pct": 0.44,
-      "t_round_win_pct": 0.21,
-      "matches_3m": 3
+      "ct_round_win_pct": 0.47,
+      "t_round_win_pct": 0.28,
+      "matches_3m": 4,
+      "entry_kill_rate": 0.09,
+      "entry_death_rate": 0.11,
+      "post_plant_t_win_pct": 0.64
     },
     "Inferno": {
-      "map_win_pct": 0.5,
-      "ct_round_win_pct": 0.43,
-      "t_round_win_pct": 0.42,
-      "matches_3m": 5
+      "map_win_pct": 0.44,
+      "ct_round_win_pct": 0.34,
+      "t_round_win_pct": 0.52,
+      "matches_3m": 6,
+      "entry_kill_rate": 0.09,
+      "entry_death_rate": 0.12,
+      "post_plant_t_win_pct": 0.79
     },
     "Nuke": {
-      "map_win_pct": 0.33,
-      "ct_round_win_pct": 0.71,
-      "t_round_win_pct": 0.26,
-      "matches_3m": 3
+      "map_win_pct": 0.18,
+      "ct_round_win_pct": 0.49,
+      "t_round_win_pct": 0.37,
+      "matches_3m": 6,
+      "entry_kill_rate": 0.1,
+      "entry_death_rate": 0.1,
+      "post_plant_t_win_pct": 0.71
+    },
+    "Overpass": {
+      "map_win_pct": 0,
+      "ct_round_win_pct": 0.17,
+      "t_round_win_pct": 0,
+      "matches_3m": 1,
+      "entry_kill_rate": 0.09,
+      "entry_death_rate": 0.11
     }
   },
-  "generated_at": "2026-02-23T03:42:02Z",
+  "generated_at": "2026-02-24T18:41:34Z",
   "window_days": 90,
-  "latest_match_date": "2026-02-03",
-  "demo_count": 12
+  "latest_match_date": "2026-02-16",
+  "demo_count": 18,
+  "trade_net_rate": -0.02,
+  "eco_win_pct": 0.39,
+  "force_win_pct": 0.39,
+  "rating_floor": 0.92
 }

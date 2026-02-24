@@ -1491,30 +1491,30 @@
     "team_a": {
       "team": "Falcons",
       "players_rating2_3m": [
-        1.38,
-        1.34,
-        1.22,
-        0.98,
+        1.45,
+        1.35,
+        1.3,
+        1.03,
         0.95
       ],
       "maps": {
         "Ancient": {
-          "map_win_pct": 0,
-          "ct_round_win_pct": 0.62,
-          "t_round_win_pct": 0.27,
-          "matches_3m": 3
+          "map_win_pct": 0.44,
+          "ct_round_win_pct": 0.72,
+          "t_round_win_pct": 0.35,
+          "matches_3m": 4
         },
         "Anubis": {
-          "map_win_pct": 0.51,
-          "ct_round_win_pct": 0.58,
-          "t_round_win_pct": 0.5,
-          "matches_3m": 2
+          "map_win_pct": 0.7,
+          "ct_round_win_pct": 0.49,
+          "t_round_win_pct": 0.6,
+          "matches_3m": 3
         },
         "Dust2": {
-          "map_win_pct": 0.6,
-          "ct_round_win_pct": 0.62,
-          "t_round_win_pct": 0.44,
-          "matches_3m": 4
+          "map_win_pct": 0.55,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.48,
+          "matches_3m": 6
         },
         "Inferno": {
           "map_win_pct": 0.28,
@@ -1529,10 +1529,10 @@
           "matches_3m": 3
         },
         "Nuke": {
-          "map_win_pct": 0.31,
-          "ct_round_win_pct": 0.56,
-          "t_round_win_pct": 0.36,
-          "matches_3m": 3
+          "map_win_pct": 0.7,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.56,
+          "matches_3m": 4
         }
       }
     },
@@ -1540,10 +1540,10 @@
       "team": "Parivision",
       "players_rating2_3m": [
         1.22,
-        1.14,
-        1.07,
-        1.05,
-        0.91
+        1.2,
+        1.12,
+        1.02,
+        0.99
       ],
       "maps": {
         "Ancient": {
@@ -1559,10 +1559,22 @@
           "matches_3m": 1
         },
         "Dust2": {
-          "map_win_pct": 0.67,
-          "ct_round_win_pct": 0.63,
-          "t_round_win_pct": 0.38,
-          "matches_3m": 3
+          "map_win_pct": 0.77,
+          "ct_round_win_pct": 0.7,
+          "t_round_win_pct": 0.49,
+          "matches_3m": 4
+        },
+        "Inferno": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.83,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 1
+        },
+        "Mirage": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.25,
+          "matches_3m": 1
         },
         "Overpass": {
           "map_win_pct": 0,
@@ -1648,11 +1660,11 @@
     "team_b": {
       "team": "NaVi",
       "players_rating2_3m": [
+        1.24,
+        1.23,
         1.16,
-        1.15,
-        1.15,
-        1.15,
-        0.91
+        1.13,
+        0.95
       ],
       "maps": {
         "Ancient": {
@@ -1680,16 +1692,16 @@
           "matches_3m": 4
         },
         "Mirage": {
-          "map_win_pct": 0.15,
-          "ct_round_win_pct": 0.51,
-          "t_round_win_pct": 0.41,
-          "matches_3m": 3
+          "map_win_pct": 0.45,
+          "ct_round_win_pct": 0.6,
+          "t_round_win_pct": 0.47,
+          "matches_3m": 4
         },
         "Nuke": {
-          "map_win_pct": 0,
-          "ct_round_win_pct": 0.67,
-          "t_round_win_pct": 0.13,
-          "matches_3m": 2
+          "map_win_pct": 0.64,
+          "ct_round_win_pct": 0.61,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 3
         },
         "Train": {
           "map_win_pct": 0.68,
@@ -1721,17 +1733,23 @@
     "team_a": {
       "team": "Vitality",
       "players_rating2_3m": [
-        1.77,
-        1.27,
-        1.21,
-        1.21,
-        1.13
+        1.71,
+        1.23,
+        1.19,
+        1.14,
+        1.14
       ],
       "maps": {
         "Ancient": {
           "map_win_pct": 1,
           "ct_round_win_pct": 0.58,
           "t_round_win_pct": 0.48,
+          "matches_3m": 1
+        },
+        "Anubis": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.67,
+          "t_round_win_pct": 0.58,
           "matches_3m": 1
         },
         "Dust2": {
@@ -1741,16 +1759,16 @@
           "matches_3m": 5
         },
         "Inferno": {
-          "map_win_pct": 1,
-          "ct_round_win_pct": 0.66,
-          "t_round_win_pct": 0.63,
-          "matches_3m": 5
+          "map_win_pct": 0.71,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.56,
+          "matches_3m": 6
         },
         "Mirage": {
-          "map_win_pct": 0.39,
-          "ct_round_win_pct": 0.68,
-          "t_round_win_pct": 0.33,
-          "matches_3m": 3
+          "map_win_pct": 0.64,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.4,
+          "matches_3m": 4
         },
         "Nuke": {
           "map_win_pct": 0.77,
@@ -1775,11 +1793,11 @@
     "team_b": {
       "team": "Aurora",
       "players_rating2_3m": [
-        1.17,
-        1.16,
-        1.04,
-        1,
-        0.96
+        1.33,
+        1.18,
+        1.15,
+        1.07,
+        0.97
       ],
       "maps": {
         "Ancient": {
@@ -1790,15 +1808,15 @@
         },
         "Anubis": {
           "map_win_pct": 1,
-          "ct_round_win_pct": 0.67,
-          "t_round_win_pct": 0.63,
-          "matches_3m": 1
+          "ct_round_win_pct": 0.54,
+          "t_round_win_pct": 0.68,
+          "matches_3m": 3
         },
         "Dust2": {
-          "map_win_pct": 0.48,
-          "ct_round_win_pct": 0.59,
-          "t_round_win_pct": 0.4,
-          "matches_3m": 2
+          "map_win_pct": 0.68,
+          "ct_round_win_pct": 0.62,
+          "t_round_win_pct": 0.54,
+          "matches_3m": 3
         },
         "Inferno": {
           "map_win_pct": 1,
@@ -1808,15 +1826,21 @@
         },
         "Mirage": {
           "map_win_pct": 0,
-          "ct_round_win_pct": 0.37,
-          "t_round_win_pct": 0.31,
-          "matches_3m": 2
+          "ct_round_win_pct": 0.39,
+          "t_round_win_pct": 0.25,
+          "matches_3m": 3
+        },
+        "Nuke": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.36,
+          "matches_3m": 1
         },
         "Overpass": {
           "map_win_pct": 0,
-          "ct_round_win_pct": 0.33,
-          "t_round_win_pct": 0.38,
-          "matches_3m": 1
+          "ct_round_win_pct": 0.36,
+          "t_round_win_pct": 0.35,
+          "matches_3m": 2
         }
       }
     },
@@ -1838,13 +1862,19 @@
     "team_a": {
       "team": "FURIA",
       "players_rating2_3m": [
-        1.27,
-        1.25,
-        1.16,
+        1.3,
+        1.3,
+        1.17,
         1.06,
         1.04
       ],
       "maps": {
+        "Anubis": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.7,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 1
+        },
         "Dust2": {
           "map_win_pct": 0.54,
           "ct_round_win_pct": 0.47,
@@ -1852,16 +1882,16 @@
           "matches_3m": 5
         },
         "Inferno": {
-          "map_win_pct": 0.44,
-          "ct_round_win_pct": 0.48,
-          "t_round_win_pct": 0.5,
-          "matches_3m": 5
+          "map_win_pct": 0.58,
+          "ct_round_win_pct": 0.47,
+          "t_round_win_pct": 0.54,
+          "matches_3m": 6
         },
         "Mirage": {
-          "map_win_pct": 0.62,
-          "ct_round_win_pct": 0.67,
+          "map_win_pct": 0.59,
+          "ct_round_win_pct": 0.63,
           "t_round_win_pct": 0.43,
-          "matches_3m": 9
+          "matches_3m": 11
         },
         "Nuke": {
           "map_win_pct": 0.75,
@@ -1870,10 +1900,10 @@
           "matches_3m": 5
         },
         "Overpass": {
-          "map_win_pct": 0.13,
-          "ct_round_win_pct": 0.45,
-          "t_round_win_pct": 0.41,
-          "matches_3m": 3
+          "map_win_pct": 0.43,
+          "ct_round_win_pct": 0.53,
+          "t_round_win_pct": 0.44,
+          "matches_3m": 4
         },
         "Train": {
           "map_win_pct": 0,
@@ -1886,11 +1916,11 @@
     "team_b": {
       "team": "The MongolZ",
       "players_rating2_3m": [
-        1.21,
-        0.98,
-        0.98,
-        0.96,
-        0.95
+        1.33,
+        1.22,
+        1.11,
+        1.06,
+        1.04
       ],
       "maps": {
         "Ancient": {
@@ -1900,10 +1930,10 @@
           "matches_3m": 2
         },
         "Dust2": {
-          "map_win_pct": 0.16,
-          "ct_round_win_pct": 0.3,
-          "t_round_win_pct": 0.33,
-          "matches_3m": 4
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.52,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 5
         },
         "Inferno": {
           "map_win_pct": 0.24,
@@ -1912,16 +1942,16 @@
           "matches_3m": 2
         },
         "Mirage": {
-          "map_win_pct": 0.79,
-          "ct_round_win_pct": 0.68,
-          "t_round_win_pct": 0.38,
-          "matches_3m": 3
+          "map_win_pct": 0.88,
+          "ct_round_win_pct": 0.73,
+          "t_round_win_pct": 0.62,
+          "matches_3m": 4
         },
         "Nuke": {
           "map_win_pct": 0,
-          "ct_round_win_pct": 0,
-          "t_round_win_pct": 0.17,
-          "matches_3m": 1
+          "ct_round_win_pct": 0.42,
+          "t_round_win_pct": 0.15,
+          "matches_3m": 2
         }
       }
     },
@@ -1948,10 +1978,10 @@
       "team": "Parivision",
       "players_rating2_3m": [
         1.22,
-        1.14,
-        1.07,
-        1.05,
-        0.91
+        1.2,
+        1.12,
+        1.02,
+        0.99
       ],
       "maps": {
         "Ancient": {
@@ -1967,10 +1997,22 @@
           "matches_3m": 1
         },
         "Dust2": {
-          "map_win_pct": 0.67,
-          "ct_round_win_pct": 0.63,
-          "t_round_win_pct": 0.38,
-          "matches_3m": 3
+          "map_win_pct": 0.77,
+          "ct_round_win_pct": 0.7,
+          "t_round_win_pct": 0.49,
+          "matches_3m": 4
+        },
+        "Inferno": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.83,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 1
+        },
+        "Mirage": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.25,
+          "matches_3m": 1
         },
         "Overpass": {
           "map_win_pct": 0,
@@ -2052,17 +2094,23 @@
     "team_a": {
       "team": "Vitality",
       "players_rating2_3m": [
-        1.77,
-        1.27,
-        1.21,
-        1.21,
-        1.13
+        1.71,
+        1.23,
+        1.19,
+        1.14,
+        1.14
       ],
       "maps": {
         "Ancient": {
           "map_win_pct": 1,
           "ct_round_win_pct": 0.58,
           "t_round_win_pct": 0.48,
+          "matches_3m": 1
+        },
+        "Anubis": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.67,
+          "t_round_win_pct": 0.58,
           "matches_3m": 1
         },
         "Dust2": {
@@ -2072,16 +2120,16 @@
           "matches_3m": 5
         },
         "Inferno": {
-          "map_win_pct": 1,
-          "ct_round_win_pct": 0.66,
-          "t_round_win_pct": 0.63,
-          "matches_3m": 5
+          "map_win_pct": 0.71,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.56,
+          "matches_3m": 6
         },
         "Mirage": {
-          "map_win_pct": 0.39,
-          "ct_round_win_pct": 0.68,
-          "t_round_win_pct": 0.33,
-          "matches_3m": 3
+          "map_win_pct": 0.64,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.4,
+          "matches_3m": 4
         },
         "Nuke": {
           "map_win_pct": 0.77,
@@ -2106,11 +2154,11 @@
     "team_b": {
       "team": "The MongolZ",
       "players_rating2_3m": [
-        1.21,
-        0.98,
-        0.98,
-        0.96,
-        0.95
+        1.33,
+        1.22,
+        1.11,
+        1.06,
+        1.04
       ],
       "maps": {
         "Ancient": {
@@ -2120,10 +2168,10 @@
           "matches_3m": 2
         },
         "Dust2": {
-          "map_win_pct": 0.16,
-          "ct_round_win_pct": 0.3,
-          "t_round_win_pct": 0.33,
-          "matches_3m": 4
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.52,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 5
         },
         "Inferno": {
           "map_win_pct": 0.24,
@@ -2132,16 +2180,16 @@
           "matches_3m": 2
         },
         "Mirage": {
-          "map_win_pct": 0.79,
-          "ct_round_win_pct": 0.68,
-          "t_round_win_pct": 0.38,
-          "matches_3m": 3
+          "map_win_pct": 0.88,
+          "ct_round_win_pct": 0.73,
+          "t_round_win_pct": 0.62,
+          "matches_3m": 4
         },
         "Nuke": {
           "map_win_pct": 0,
-          "ct_round_win_pct": 0,
-          "t_round_win_pct": 0.17,
-          "matches_3m": 1
+          "ct_round_win_pct": 0.42,
+          "t_round_win_pct": 0.15,
+          "matches_3m": 2
         }
       }
     },
@@ -2217,11 +2265,11 @@
     "team_b": {
       "team": "The MongolZ",
       "players_rating2_3m": [
-        1.21,
-        0.98,
-        0.98,
-        0.96,
-        0.95
+        1.33,
+        1.22,
+        1.11,
+        1.06,
+        1.04
       ],
       "maps": {
         "Ancient": {
@@ -2231,10 +2279,10 @@
           "matches_3m": 2
         },
         "Dust2": {
-          "map_win_pct": 0.16,
-          "ct_round_win_pct": 0.3,
-          "t_round_win_pct": 0.33,
-          "matches_3m": 4
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.52,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 5
         },
         "Inferno": {
           "map_win_pct": 0.24,
@@ -2243,16 +2291,16 @@
           "matches_3m": 2
         },
         "Mirage": {
-          "map_win_pct": 0.79,
-          "ct_round_win_pct": 0.68,
-          "t_round_win_pct": 0.38,
-          "matches_3m": 3
+          "map_win_pct": 0.88,
+          "ct_round_win_pct": 0.73,
+          "t_round_win_pct": 0.62,
+          "matches_3m": 4
         },
         "Nuke": {
           "map_win_pct": 0,
-          "ct_round_win_pct": 0,
-          "t_round_win_pct": 0.17,
-          "matches_3m": 1
+          "ct_round_win_pct": 0.42,
+          "t_round_win_pct": 0.15,
+          "matches_3m": 2
         }
       }
     },
@@ -2275,10 +2323,10 @@
       "team": "Parivision",
       "players_rating2_3m": [
         1.22,
-        1.14,
-        1.07,
-        1.05,
-        0.91
+        1.2,
+        1.12,
+        1.02,
+        0.99
       ],
       "maps": {
         "Ancient": {
@@ -2294,10 +2342,22 @@
           "matches_3m": 1
         },
         "Dust2": {
-          "map_win_pct": 0.67,
-          "ct_round_win_pct": 0.63,
-          "t_round_win_pct": 0.38,
-          "matches_3m": 3
+          "map_win_pct": 0.77,
+          "ct_round_win_pct": 0.7,
+          "t_round_win_pct": 0.49,
+          "matches_3m": 4
+        },
+        "Inferno": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.83,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 1
+        },
+        "Mirage": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.25,
+          "matches_3m": 1
         },
         "Overpass": {
           "map_win_pct": 0,
@@ -2310,17 +2370,23 @@
     "team_b": {
       "team": "Vitality",
       "players_rating2_3m": [
-        1.77,
-        1.27,
-        1.21,
-        1.21,
-        1.13
+        1.71,
+        1.23,
+        1.19,
+        1.14,
+        1.14
       ],
       "maps": {
         "Ancient": {
           "map_win_pct": 1,
           "ct_round_win_pct": 0.58,
           "t_round_win_pct": 0.48,
+          "matches_3m": 1
+        },
+        "Anubis": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.67,
+          "t_round_win_pct": 0.58,
           "matches_3m": 1
         },
         "Dust2": {
@@ -2330,16 +2396,16 @@
           "matches_3m": 5
         },
         "Inferno": {
-          "map_win_pct": 1,
-          "ct_round_win_pct": 0.66,
-          "t_round_win_pct": 0.63,
-          "matches_3m": 5
+          "map_win_pct": 0.71,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.56,
+          "matches_3m": 6
         },
         "Mirage": {
-          "map_win_pct": 0.39,
-          "ct_round_win_pct": 0.68,
-          "t_round_win_pct": 0.33,
-          "matches_3m": 3
+          "map_win_pct": 0.64,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.4,
+          "matches_3m": 4
         },
         "Nuke": {
           "map_win_pct": 0.77,

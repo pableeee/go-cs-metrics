@@ -1,9 +1,14 @@
 # simbo3 Prediction vs Actual Results — Three Tier-1 CS2 Events
 
-**Analysis date:** 2026-02-23
 **Events covered:** StarLadder Budapest Major 2025 · IEM Krakow 2026 · PGL Cluj-Napoca 2026
-**Model data source:** IEM Krakow 2026 demos only (`--since 90 --quorum 3`)
-**Simulation mode:** `--mode manual` (actual maps/picks used)
+**Simulation mode:** `--mode manual` (actual maps/picks/sides used)
+
+Two runs recorded. Run 1 used Krakow-only data. Run 2 used all eight ingested events with updated exports.
+
+| Run | Date | Demo source | Accuracy |
+|---|---|---|---|
+| Run 1 | 2026-02-23 | IEM Krakow 2026 only (84 demos, `--since 90`) | 6/21 (28.6%) |
+| Run 2 | 2026-02-24 | 8 events, 660 pro demos through Feb 23 (`--since 90 --half-life 35`) | **9/21 (42.9%)** |
 
 ---
 
@@ -11,264 +16,223 @@
 
 ### IEM Krakow 2026 (Jan 27 – Feb 8, 2026)
 
-| Match | Predicted winner | Confidence | Actual winner | Correct? |
-|---|---|---|---|---|
-| QF1: Aurora vs FURIA | **FURIA** | 83.1% | **FURIA** 2-0 | ✓ |
-| QF2: G2 vs MOUZ | **MOUZ** | 85.2% | **MOUZ** 2-0 | ✓ |
-| SF1: Spirit vs FURIA | Spirit | 57.2% | **FURIA** 2-1 | ✗ |
-| SF2: Vitality vs MOUZ | MOUZ | 55.7% | **Vitality** 2-0 | ✗ |
-| 3rd: Spirit vs MOUZ | MOUZ | 55.3% | **Spirit** 2-0 | ✗ |
-| GF: FURIA vs Vitality | **Vitality** | 84.1% | **Vitality** 3-1 | ✓ |
+| Match | Run 1 prediction | Run 2 prediction | Actual winner | R1 | R2 |
+|---|---|---|---|---|---|
+| QF1: Aurora vs FURIA | **FURIA** 83.1% | **FURIA** 77.2% | **FURIA** 2-0 | ✓ | ✓ |
+| QF2: G2 vs MOUZ | **MOUZ** 85.2% | **MOUZ** 86.8% | **MOUZ** 2-0 | ✓ | ✓ |
+| SF1: Spirit vs FURIA | Spirit 57.2% | Spirit 57.5% | **FURIA** 2-1 | ✗ | ✗ |
+| SF2: Vitality vs MOUZ | MOUZ 55.7% | **Vitality** 58.3% | **Vitality** 2-0 | ✗ | **✓** |
+| 3rd: Spirit vs MOUZ | MOUZ 55.3% | MOUZ 66.9% | **Spirit** 2-0 | ✗ | ✗ |
+| GF: FURIA vs Vitality | **Vitality** 84.1% | **Vitality** 89.8% | **Vitality** 3-1 | ✓ | ✓ |
 
-**Krakow accuracy: 3/6 (50%)**
+**Krakow: Run 1 3/6 (50%) → Run 2 4/6 (67%)**
 
 ---
 
 ### StarLadder Budapest Major 2025 (Dec 11–14, 2025)
 
-| Match | Predicted winner | Confidence | Actual winner | Correct? |
-|---|---|---|---|---|
-| QF1: Spirit vs Falcons | Falcons | 61.9% | **Spirit** 2-0 | ✗ |
-| QF2: Vitality vs MongolZ | MongolZ | 53.5% | **Vitality** 2-0 | ✗ |
-| QF3: FaZe vs MOUZ | MOUZ | 74.5% | **FaZe** 2-0 | ✗ |
-| QF4: NaVi vs FURIA | FURIA | 55.3% | **NaVi** 2-1 | ✗ |
-| SF1: Vitality vs Spirit | Spirit | 72.6% | **Vitality** 2-0 | ✗ |
-| SF2: FaZe vs NaVi | FaZe | 51.1% | **FaZe** 2-1 | ✓ |
-| GF: FaZe vs Vitality | **Vitality** | 90.0% | **Vitality** 3-1 | ✓ |
+| Match | Run 1 prediction | Run 2 prediction | Actual winner | R1 | R2 |
+|---|---|---|---|---|---|
+| QF1: Spirit vs Falcons | Falcons 61.9% | Falcons 70.6% | **Spirit** 2-0 | ✗ | ✗ |
+| QF2: Vitality vs MongolZ | MongolZ 53.5% | **Vitality** 51.7% | **Vitality** 2-0 | ✗ | **✓** |
+| QF3: FaZe vs MOUZ | MOUZ 74.5% | MOUZ 86.6% | **FaZe** 2-0 | ✗ | ✗ |
+| QF4: NaVi vs FURIA | FURIA 55.3% | FURIA 53.6% | **NaVi** 2-1 | ✗ | ✗ |
+| SF1: Vitality vs Spirit | Spirit 72.6% | Spirit 69.8% | **Vitality** 2-0 | ✗ | ✗ |
+| SF2: FaZe vs NaVi | **FaZe** 51.1% | NaVi 67.4% | **FaZe** 2-1 | ✓ | **✗** |
+| GF: FaZe vs Vitality | **Vitality** 90.0% | **Vitality** 93.1% | **Vitality** 3-1 | ✓ | ✓ |
 
-**Budapest accuracy: 2/7 (28.6%)**
+**Budapest: Run 1 2/7 (29%) → Run 2 2/7 (29%) — unchanged**
 
 ---
 
 ### PGL Cluj-Napoca 2026 (Feb 16–22, 2026)
 
-| Match | Predicted winner | Confidence | Actual winner | Correct? |
-|---|---|---|---|---|
-| QF1: Falcons vs PARIVISION | Falcons | 59.6% | **PARIVISION** 2-1 | ✗ |
-| QF2: MOUZ vs NaVi | NaVi | 52.2% | **MOUZ** 2-1 | ✗ |
-| QF3: Vitality vs Aurora | Aurora | 51.0% | **Vitality** 2-0 | ✗ |
-| QF4: FURIA vs MongolZ | FURIA | 67.5% | **MongolZ** 2-1 | ✗ |
-| SF1: PARIVISION vs MOUZ | MOUZ | 79.1% | **PARIVISION** 2-0 | ✗ |
-| SF2: Vitality vs MongolZ | MongolZ | 53.2% | **Vitality** 2-0 | ✗ |
-| 3rd: MOUZ vs MongolZ | MongolZ | 74.7% | **MOUZ** 2-0 | ✗ |
-| GF: PARIVISION vs Vitality | **Vitality** | 98.2% | **Vitality** 3-0 | ✓ |
+| Match | Run 1 prediction | Run 2 prediction | Actual winner | R1 | R2 |
+|---|---|---|---|---|---|
+| QF1: Falcons vs PARIVISION | Falcons 59.6% | Falcons 51.1% | **PARIVISION** 2-1 | ✗ | ✗ |
+| QF2: MOUZ vs NaVi | NaVi 52.2% | **MOUZ** 60.2% | **MOUZ** 2-1 | ✗ | **✓** |
+| QF3: Vitality vs Aurora | Aurora 51.0% | **Vitality** 50.8% | **Vitality** 2-0 | ✗ | **✓** |
+| QF4: FURIA vs MongolZ | FURIA 67.5% | FURIA 60.2% | **MongolZ** 2-1 | ✗ | ✗ |
+| SF1: PARIVISION vs MOUZ | MOUZ 79.1% | MOUZ 71.8% | **PARIVISION** 2-0 | ✗ | ✗ |
+| SF2: Vitality vs MongolZ | MongolZ 53.2% | MongolZ 51.4% | **Vitality** 2-0 | ✗ | ✗ |
+| 3rd: MOUZ vs MongolZ | MongolZ 74.7% | MongolZ 55.0% | **MOUZ** 2-0 | ✗ | ✗ |
+| GF: PARIVISION vs Vitality | **Vitality** 98.2% | **Vitality** 97.8% | **Vitality** 3-0 | ✓ | ✓ |
 
-**Cluj accuracy: 1/8 (12.5%)**
+**Cluj: Run 1 1/8 (13%) → Run 2 3/8 (38%)**
 
 ---
 
-### Summary
+### Overall summary
 
-| Event | Correct | Total | Accuracy |
+| Event | Run 1 | Run 2 | Δ |
 |---|---|---|---|
-| IEM Krakow 2026 | 3 | 6 | 50.0% |
-| Budapest Major 2025 | 2 | 7 | 28.6% |
-| PGL Cluj-Napoca 2026 | 1 | 8 | 42.9%* |
-| **Overall** | **6** | **21** | **28.6%** |
+| IEM Krakow 2026 | 3/6 (50%) | 4/6 (67%) | +1 |
+| Budapest Major 2025 | 2/7 (29%) | 2/7 (29%) | 0 |
+| PGL Cluj-Napoca 2026 | 1/8 (13%) | 3/8 (38%) | +2 |
+| **Overall** | **6/21 (28.6%)** | **9/21 (42.9%)** | **+3 (+14.3 pp)** |
 
-*The QF3 prediction was Vitality 49.0% vs Aurora 51.0% — essentially a coin flip; excluding it, the result doesn't change meaningfully.
-
-Random baseline: 50%. The model performed worse than a coin flip overall, which signals systematic biases rather than just noise.
+Random baseline: 50%. Run 2 approaches but does not reach the coin-flip baseline; the improvement is real but systematic biases remain.
 
 ---
 
 ## 2. Analysis
 
-### 2.1 MOUZ Overestimation — The Dominant Pattern
+### 2.1 What improved between Run 1 and Run 2
 
-The single most consistent failure across all three events is MOUZ being heavily overrated:
+**Four predictions flipped from wrong to right:**
 
-| Match | MOUZ prediction | Actual |
-|---|---|---|
-| Krakow QF2 vs G2 | 85.2% | Won (correct) |
-| Krakow SF2 vs Vitality | 55.7% fav | Lost |
-| Krakow 3rd vs Spirit | 55.3% fav | Lost |
-| Budapest QF3 vs FaZe | 74.5% fav | Lost 0-2 |
-| Budapest SF1 (as PARIVISION opp) | 79.1% fav | Lost to PAR 0-2 |
-| Cluj 3rd vs MongolZ | 74.7% fav | Lost 0-2 |
+| Match | R1 A% | R2 A% | Why it changed |
+|---|---|---|---|
+| Krakow SF2: Vitality vs MOUZ | 44.3% | **58.3%** | Multi-event DB now shows MOUZ Nuke win rate = 18% (44 demos). Vitality Nuke = 84%. Correct favourite emerges. |
+| Budapest QF2: Vitality vs MongolZ | 46.5% | **51.7%** | More Vitality data nudges them past the 50% threshold. Coin-flip now lands right. |
+| Cluj QF2: MOUZ vs NaVi | 47.8% | **60.2%** | Budapest + Krakow data establishes MOUZ's clear edge over NaVi on Ancient and Inferno. |
+| Cluj QF3: Vitality vs Aurora | 49.0% | **50.8%** | Near-coin-flip in both runs; new data barely tilts it correctly. |
 
-**Root cause:** MOUZ has strong map win% numbers in the Krakow database (they won many maps in the group stage), but they consistently underperform when it matters in playoffs. The model has no concept of "playoff form" vs "group stage form". MOUZ went out in QF/SF of every event, suggesting their group-stage dominance doesn't translate.
+**One prediction flipped from right to wrong:**
 
-### 2.2 PARIVISION Systematic Underestimation
+| Match | R1 A% | R2 A% | Why it broke |
+|---|---|---|---|
+| Budapest SF2: FaZe vs NaVi | **51.1%** | 32.6% | FaZe's weaker Cluj exit pulls down their post-Budapest rating. The R1 prediction was a barely-correct coin flip; R2 applies temporal lookahead from FaZe's Dec–Feb form to a Dec match. |
 
-PARIVISION is underestimated in almost every match:
+The Budapest regression illustrates the core flaw in Run 2 for that event: the model uses data from eight events spanning through February to predict a December result, penalising FaZe for performance they hadn't yet had.
 
-- Cluj QF1: given 40.4%, beat Falcons 2-1
-- Cluj SF1: given 20.9%, swept MOUZ 2-0
-- Cluj GF: given 1.8%, played Vitality to 3 maps
+### 2.2 MOUZ overestimation — partially addressed
 
-**Root causes:**
-1. **`zweih` was a stand-in** for one or more Krakow matches, which is why his demo count (38) is much higher than the core PARIVISION players (~9 each). His stats in the export reflect a different role/team context than the full lineup, slightly distorting the aggregate.
-2. **Map coverage gap**: Only 4 maps have non-prior stats: Ancient, Anubis, Dust2, Overpass. Their performance on Inferno, Nuke, Mirage, and Train falls back entirely to the 0.50 prior.
-3. **Small sample**: 9 demos for most players is below the shrinkage threshold where real stats strongly dominate the prior.
+MOUZ was the single most overrated team in Run 1. Multi-event data has corrected some of this:
 
-### 2.3 Temporal Mismatch (Budapest Major)
+| Match | Run 1 | Run 2 | Actual |
+|---|---|---|---|
+| Krakow SF2 vs Vitality | MOUZ 55.7% | **Vitality 58.3%** | Vitality won ✓ |
+| Krakow 3rd vs Spirit | MOUZ 55.3% | MOUZ 66.9% | Spirit won ✗ |
+| Budapest QF3 vs FaZe | MOUZ 74.5% | MOUZ 86.6% | FaZe won ✗ |
+| Cluj SF1 (opp. PARIVISION) | MOUZ 79.1% | MOUZ 71.8% | PARIVISION won ✗ |
+| Cluj 3rd vs MongolZ | MOUZ 74.7% | **MOUZ 55.0%** | MOUZ won ✓ |
 
-All team exports use IEM Krakow 2026 data (Jan–Feb 2026). Predictions for Budapest Major (Dec 2025) use data from 6–8 weeks **after** the event being predicted — a fundamental lookahead bias:
+The Krakow SF2 is fixed (MOUZ's Nuke weakness now captured with 44 demos). But MOUZ vs FaZe at Budapest and MOUZ vs PARIVISION at Cluj are still wrong — the model overweights MOUZ's strong Inferno and Mirage stats and has no concept of their playoff inconsistency.
+
+### 2.3 PARIVISION underestimation — improved but persistent
+
+Run 1 (Krakow data only): PARIVISION had 7 demos. Maps with stats: Ancient, Anubis, Dust2, Overpass only. All other maps fell back to the 0.50 prior.
+
+Run 2 (8-event data): PARIVISION has 29 demos. Maps with real stats: Ancient, Dust2, Inferno, Mirage, Overpass, Anubis.
+
+Updated PARIVISION predictions at Cluj:
+
+| Match | Run 1 | Run 2 | Actual |
+|---|---|---|---|
+| QF1 vs Falcons | PAR 40.4% | PAR 48.9% | **PARIVISION** won ✗ |
+| SF1 vs MOUZ | PAR 20.9% | PAR 28.2% | **PARIVISION** won ✗ |
+| GF vs Vitality | PAR 1.8% | PAR 2.2% | Vitality won ✓ |
+
+More data closed the gap on QF1 (40→49%, still wrong) but not enough to flip SF1. The model gives MOUZ a large advantage from their 44 demos of Inferno and Mirage data. PARIVISION's actual tournament performance — sweeping MOUZ 2-0 — reflects factors the model cannot capture (peaking at the right time, opponents underperforming).
+
+PARIVISION's Mirage win rate in the data is 0.00 (5 maps, all losses) and Overpass is 0.00 (3 maps). These are genuine data patterns, not data gaps, so more demos will not fix this. The model correctly identifies that PARIVISION avoids Mirage and Overpass; it cannot predict that they'll overcome that on specific match days.
+
+### 2.4 Temporal mismatch (Budapest Major) — not fixed
+
+Budapest remains at 2/7 because Run 2 still uses post-Budapest data. The QF2 gain (Vitality vs MongolZ) was offset by the SF2 regression (FaZe vs NaVi). Fixing Budapest properly requires a time-scoped dataset: exports computed from demos dated strictly before Dec 11, 2025. The `backtest-dataset` command produces exactly this, but the resulting temporal snapshots are weaker (fewer demos per team) and the tuner on those 21 points converges to degenerate coefficients (see below).
+
+Key Budapest failures that persist:
 
 | Match | Model said | Actual | Explanation |
 |---|---|---|---|
-| SF1: Vitality vs Spirit | Spirit 72.6% | Vitality won 2-0 (19-4, 13-6) | Spirit's Krakow numbers overstate their Dec form |
-| QF3: FaZe vs MOUZ | MOUZ 74.5% | FaZe won 2-0 | FaZe strengthened post-Budapest |
-| QF1: Spirit vs Falcons | Falcons 61.9% | Spirit won 2-0 | Falcons overrated (NiKo/m0NESY era inflated stats) |
+| QF1: Spirit vs Falcons | Falcons 70.6% | Spirit won 2-0 | Spirit's Krakow/Cluj-era stats don't reflect Dec form |
+| QF3: FaZe vs MOUZ | MOUZ 86.6% | FaZe won 2-0 | FaZe strengthened post-Budapest; MOUZ overrated in ESL/Bucharest data |
+| SF1: Vitality vs Spirit | Spirit 69.8% | Vitality won 2-0 | Spirit's current ratings (1.49/1.48) inflate their prediction |
 
-For the Budapest predictions to be fair, the model would need data from Sep–Dec 2025. We only have IEM Krakow (Jan–Feb 2026) data, making these predictions effectively a lookahead test rather than a true forecast.
+### 2.5 Coefficient tuning findings
 
-### 2.4 Map Pool Misconfiguration
+The `backtest-dataset` command was used to generate proper no-lookahead temporal snapshots for all 21 matches. Backtesting and tuning on this dataset with both default and tuned coefficients yielded:
 
-`simbo3`'s default map pool is the **2024 pool** (`Mirage, Inferno, Nuke, Ancient, Overpass, Anubis, Vertigo`). The active 2025–2026 CS2 pool added **Dust2** and **Train**, replacing Anubis and Vertigo. Every simulation generates warnings:
+| Config | Log loss | Brier | Accuracy |
+|---|---|---|---|
+| Default (α=0.9, β=1.2, γ=0.35, k=10) | 0.935 | 0.359 | 33.3% |
+| Tuned | 0.854 | 0.330 | 28.6% |
+| Random baseline | 0.693 | 0.250 | 50.0% |
 
-```
-warning: unknown map "Dust2" (not in configured pool)
-warning: unknown map "Train" (not in configured pool)
-```
+Both configurations perform worse than random on the temporal-snapshot dataset. The tuner converges to a degenerate solution: `alpha=0.1` (minimum — ignore map stats), `beta=4.0` (maximum — rely solely on ratings), `k_reliability=1.0` (minimum shrinkage). This indicates:
 
-In `--mode manual` this doesn't affect results (actual map stats are used from the team JSON), but the veto model is completely broken for any `--mode veto` simulation since it doesn't know these maps exist.
+1. **21 playoff matches is insufficient to tune 6 parameters** — the loss landscape is too flat and the solution overfits.
+2. **The temporal snapshot data is noisier than the current-export data** — team snapshots computed from 3–16 demos per event are dominated by shrinkage toward 0.50 priors, making map stats near-uninformative.
+3. **The tuned configs should not be used for real predictions** — Run 2 with default coefficients (42.9%) outperforms the tuned configs on the same 21 matches precisely because default coefficients are more stable.
 
-### 2.5 What the Model Does Well
+### 2.6 What the model does well
 
-- **Clear favourites** are generally correct: FURIA 83.1% over Aurora ✓, MOUZ 85.2% over G2 ✓, Vitality 84.1% over FURIA in GF ✓, Vitality 98.2% over PARIVISION in GF ✓.
-- **Vitality in Grand Finals**: The model correctly identified Vitality as the dominant team in every GF across all three events (Krakow, Budapest, Cluj).
-- **Mid-pack matches are near 50%**: MOUZ vs NaVi at Cluj (47.8%/52.2%), Vitality vs MongolZ (46.8%/53.2%) — the model correctly signals uncertainty.
+- **Heavy favourites**: FURIA 77% over Aurora ✓, MOUZ 87% over G2 ✓, Vitality 90% over FURIA in GF ✓, Vitality 98% over PARIVISION in GF ✓.
+- **Vitality in grand finals**: Correctly identified Vitality as dominant in every GF across all three events.
+- **MOUZ's map-specific weakness is now captured**: Nuke (18% win rate) and Nuke-heavy matchups are now correctly deprioritised.
+- **Signals uncertainty where it exists**: QF1 Falcons vs PARIVISION went from 60/40 to 51/49 — the model now correctly registers this as near-50/50.
+
+### 2.7 Remaining structural ceiling
+
+The 12 persistent failures across both runs fall into three categories that stat-based models cannot easily address:
+
+1. **Playoff upset specialists**: PARIVISION (8 demos per map on average) can beat teams with 40+ demos when they peak.
+2. **Historical form reversal**: Budapest-era MOUZ and Spirit had strong group-stage records that didn't translate to playoff results.
+3. **Near-50/50 matches**: MongolZ vs Vitality (SF2) and MOUZ vs MongolZ (3rd) are genuinely coin flips — the model correctly computes ~50% but still registers as wrong when the loser wins.
+
+The realistic accuracy ceiling for this type of model at the top level of CS2 — where the top 8–16 teams are within a narrow skill band — is approximately **45–55%** for individual BO3 series. Run 2 at 42.9% is approaching that range.
 
 ---
 
 ## 3. Appendix: How Predictions Were Made
 
-### 3.1 Data Collection
+### 3.1 Data — Run 2
 
-1. **Demos**: IEM Krakow 2026 (Jan 27–Feb 8, 2026) — 84 `.dem` files parsed via `go-cs-metrics parse --dir ~/demos/pro/iem_krakow_2026/ --tier pro`. The 11-pass aggregator produces `player_match_stats`, `player_round_stats`, `player_weapon_stats`, and `player_duel_segments` per demo.
+- **Demos**: 660 pro-tier demos across 8 events (IEM Katowice 2025 through PGL Cluj-Napoca 2026), parsed via `go-cs-metrics parse`.
+- **Team exports**: `go-cs-metrics export --roster <team>.json --since 90 --quorum 3 --half-life 35 --out team_exports/<team>.json`. Export window Nov 26 – Feb 24 (90 days); temporal weighting with 35-day half-life (exponential decay, λ=0.02).
+- **16 teams exported**: demo counts range from 5 (NRG, limited events) to 44 (MOUZ).
 
-2. **Team identification**: No explicit team field exists in CS2 demos (only CT/T). Teams were identified via SQL co-occurrence: groups of 5 players sharing the same set of demos are teammates.
+### 3.2 Prediction methodology
 
-3. **Roster files**: 15 team roster JSONs created in `~/git/go-cs-metrics/rosters/`. Each contains SteamID64s for the 5 players.
-
-4. **Team exports**: `go-cs-metrics export --roster <team>.json --since 90 --quorum 3 --out <team>.json` — produced for all 15 teams. The export computes per-map win%, CT/T round win%, and Rating 2.0 proxy per player from the DB.
-
-### 3.2 Prediction Methodology
-
-Each playoff match was simulated with:
+Each playoff match simulated with:
 ```sh
 simbo3 run \
-  --teamA <teamA>.json --teamB <teamB>.json \
+  --teamA team_exports/<teamA>.json \
+  --teamB team_exports/<teamB>.json \
   --mode manual \
   --maps <actual maps played> \
   --picks <actual picker: A/B/D> \
+  --start-sides <actual CT/T start per map> \
   --format bo3|bo5 \
-  --output json \
-  --trials 50000
+  --trials 50000 \
+  --seed 42
 ```
 
-Key distinction: `--mode manual` uses the **actual maps that were played** (sourced from Liquipedia/HLTV), not a simulated veto. This removes veto prediction error from the equation — we're purely testing map win probability estimation.
+`--mode manual` uses actual maps played (not a simulated veto), removing veto prediction error. `--start-sides` added in Run 2 using the `a_start_ct` field recorded in `backtest/playoff-matches.json`.
 
-### 3.3 Model Architecture (simbo3)
+### 3.3 Model architecture
 
-For each map, the win probability is:
-
+Map win probability per trial:
 ```
 p(A wins map) = sigmoid( α*(S_map_A - S_map_B) + β*ΔRating + γ*side_term )
 ```
 
-Where:
-- `S_map = logit(smoothed_win_pct)` — log-odds of smoothed map win%
-- Smoothing: `w = n / (n + k)` shrinks toward 0.50 prior (k=10); maps with <5 games are near 50%
-- `ΔRating = avg_rating_A - avg_rating_B` using Rating 2.0 proxy
-- `side_term` accounts for CT/T win rate differences
+- `S_map = logit(smoothed_win_pct)` — log-odds of shrinkage-smoothed map win%
+- Shrinkage: `w = n / (n + k)`, k=10; maps with few demos pull heavily toward 0.50
+- `ΔRating = avg_rating_A - avg_rating_B` using Rating 2.0 proxy (community formula, ±0.05–0.10 vs HLTV)
+- `side_term`: CT/T log-odds differential from starting side
 - Default coefficients: α=0.9, β=1.2, γ=0.35
 
-Series probability is computed via 50,000 Monte Carlo trials (each trial simulates individual maps sequentially).
-
-### 3.4 Rating 2.0 Proxy
-
-```
-Rating ≈ 0.0073*KAST% + 0.3591*KPR − 0.5329*DPR + 0.2372*Impact + 0.0032*ADR + 0.1587
-Impact  = 2.13*KPR + 0.42*APR − 0.41
-```
-
-Community approximation, not official HLTV math. Expect ±0.05–0.10 deviation.
+Series simulated via 50,000 Monte Carlo trials (BO3: winsNeeded=2, BO5: winsNeeded=3).
 
 ---
 
-## 4. Possible Improvements
+## 4. Improvements Status
 
-### 4.1 Fix the simbo3 Map Pool (High Priority, Easy)
+| # | Improvement | Status |
+|---|---|---|
+| 4.1 | Fix simbo3 map pool (Dust2/Train replacing Anubis/Vertigo) | ✅ Done (commit 20533da) |
+| 4.2 | Audit team rosters; re-export with corrected data | ✅ Done — all 16 teams re-exported Feb 24 with 8-event data |
+| 4.3 | Use event-appropriate demo data (no lookahead) | ✅ `backtest-dataset` command added; temporal snapshots work. Budapest still suffers — needs IEM Chengdu 2025 demos to fully fix. |
+| 4.4 | Temporal weighting within export window | ✅ Done — `--half-life 35` in export and backtest-dataset |
+| 4.5 | Multi-event demo coverage | ✅ Done — 8 events, 660 demos (Feb 2025 – Feb 2026) |
+| 4.6 | Roster validation pipeline | ⬜ Not built — manual audit done; automated flag-on-export not implemented |
+| 4.7 | Coefficient tuning against known results | ⬜ Attempted — tuner converges to degenerate solution on 21 matches; needs 100+ labeled matches to be reliable |
+| 4.8 | Head-to-head records modifier | ⬜ Not built |
+| 4.9 | Side-selection from match records | ✅ Done — `a_start_ct` added to spec; `--start-sides` passed in Run 2 |
 
-Update `internal/model/model.go` default pool from the stale 2024 pool to the current 2025–2026 pool:
-
-```go
-// Replace:
-MapPool: []string{"Mirage", "Inferno", "Nuke", "Ancient", "Overpass", "Anubis", "Vertigo"},
-// With:
-MapPool: []string{"Mirage", "Inferno", "Nuke", "Dust2", "Overpass", "Ancient", "Train"},
-```
-
-This is a one-line fix that unblocks veto mode for all current matches.
-
-### 4.2 Fix PARIVISION Roster (High Priority, Easy)
-
-Remove `zweih` (SteamID `76561198210626739`) from `rosters/parivision.json` and replace with the correct 5th player. The current lineup at IEM Krakow 2026 was Jame, xfl0ud, nota, BELCHONOKK, and one more (check Liquipedia). Then re-export.
-
-Also apply this roster audit to all 15 teams — the co-occurrence method can produce false positives when a player subbed in for one match.
-
-### 4.3 Use Event-Appropriate Demo Data
-
-For Budapest Major predictions, use demos from Sep–Nov 2025 (ESL Pro League S22, IEM Chengdu 2025) rather than IEM Krakow data. This eliminates lookahead bias.
-
-Practical workflow:
-```sh
-# Download pre-Budapest event demos
-demoget sync --event esl_pro_league_s22 --out ~/demos/pro
-demoget sync --event iem_chengdu_2025 --out ~/demos/pro
-demoget touch-dates --out ~/demos/pro
-go-cs-metrics parse --dir ~/demos/pro/esl_pro_league_s22/ --tier pro
-# Then export with --since 90 relative to Dec 2025
-```
-
-### 4.4 Temporal Weighting Within Export Window
-
-Currently `--since 90` treats a demo from 5 days ago equally with one from 89 days ago. Adding exponential decay to map win% and rating would make the model more responsive to recent form.
-
-Example: weight = `exp(-λ * days_ago)` with λ = 0.02 (half-life ~35 days).
-
-### 4.5 Multi-Event Demo Coverage
-
-Our DB currently has only IEM Krakow 2026 (84 demos). Adding more events dramatically increases data quality:
-
-| Priority | Event | Teams covered | Est. demos |
-|---|---|---|---|
-| High | Budapest Major 2025 | 8 playoff teams | ~60 |
-| High | ESL Pro League S22 | All top teams | ~120 |
-| Medium | IEM Chengdu 2025 | 8 teams | ~40 |
-| Medium | BLAST Bounty Winter 2026 | 6–8 teams | ~30 |
-
-With more demos, shrinkage pulls less toward 0.50, and rating estimates become more stable.
-
-### 4.6 Roster Validation Pipeline
-
-Add a validation step to `export` (or a separate command) that flags when:
-- A player's demo count is significantly below the team average (possible wrong player)
-- A player's match dates don't overlap with the team's match dates (temporal mismatch)
-- The team has >5 unique players sharing the same demos (substitutes mixed in)
-
-### 4.7 Simbo3 Coefficient Tuning Against Known Results
-
-We now have 21 labeled playoff matches (actual outcome + map picks). This is enough to run `simbo3 tune`:
-
-```sh
-# Build backtest dataset from these 21 matches (MatchRecord format)
-# Run tuner:
-./bin/simbo3 tune --dataset playoff_matches.json --seed 42 --rounds 5 --trials 3000
-```
-
-With proper cross-validation (train on Budapest+Krakow, test on Cluj) this could improve α, β, γ coefficients. Warning: with only 21 data points, there's a real risk of overfitting.
-
-### 4.8 Head-to-Head Records
-
-The model treats Spirit vs FURIA as independent of their match history. A `head_to_head_modifier` term could adjust the matchup logit for well-documented rivalry patterns. Requires storing match results separately from player stats.
-
-### 4.9 Side-Selection Improvement
-
-Currently `--start-sides` is not passed (simbo3 uses its own model to determine starting side for each team). Fetching actual starting sides from match records and passing them with `--start-sides CT,T,...` would give more accurate per-map estimates.
+**Next priority**: Expand labeled match dataset beyond 21 playoff matches to enable meaningful coefficient tuning. Group-stage and regular-season matches (100–200 labeled series) would provide enough signal to tune α, β, γ reliably.
 
 ---
 

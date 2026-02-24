@@ -1,52 +1,74 @@
 {
   "team": "Spirit",
   "players_rating2_3m": [
-    1.53,
-    1.44,
+    1.49,
+    1.48,
     1.19,
     1.17,
-    0.94
+    0.93
   ],
   "maps": {
     "Anubis": {
       "map_win_pct": 1,
       "ct_round_win_pct": 0.75,
       "t_round_win_pct": 0.44,
-      "matches_3m": 1
+      "matches_3m": 1,
+      "entry_kill_rate": 0.09,
+      "entry_death_rate": 0.11,
+      "post_plant_t_win_pct": 0.57
     },
     "Dust2": {
-      "map_win_pct": 0.88,
+      "map_win_pct": 0.94,
       "ct_round_win_pct": 0.63,
-      "t_round_win_pct": 0.57,
-      "matches_3m": 8
+      "t_round_win_pct": 0.58,
+      "matches_3m": 8,
+      "entry_kill_rate": 0.11,
+      "entry_death_rate": 0.09,
+      "post_plant_t_win_pct": 0.86
     },
     "Mirage": {
-      "map_win_pct": 0.6,
-      "ct_round_win_pct": 0.6,
-      "t_round_win_pct": 0.51,
-      "matches_3m": 5
+      "map_win_pct": 0.62,
+      "ct_round_win_pct": 0.61,
+      "t_round_win_pct": 0.5,
+      "matches_3m": 5,
+      "entry_kill_rate": 0.11,
+      "entry_death_rate": 0.09,
+      "post_plant_t_win_pct": 0.85
     },
     "Nuke": {
-      "map_win_pct": 0.5,
-      "ct_round_win_pct": 0.41,
-      "t_round_win_pct": 0.64,
-      "matches_3m": 2
+      "map_win_pct": 0.24,
+      "ct_round_win_pct": 0.32,
+      "t_round_win_pct": 0.55,
+      "matches_3m": 2,
+      "entry_kill_rate": 0.07,
+      "entry_death_rate": 0.1,
+      "post_plant_t_win_pct": 0.71
     },
     "Overpass": {
-      "map_win_pct": 0.67,
-      "ct_round_win_pct": 0.58,
-      "t_round_win_pct": 0.44,
-      "matches_3m": 3
+      "map_win_pct": 0.55,
+      "ct_round_win_pct": 0.54,
+      "t_round_win_pct": 0.45,
+      "matches_3m": 3,
+      "entry_kill_rate": 0.12,
+      "entry_death_rate": 0.09,
+      "post_plant_t_win_pct": 0.86
     },
     "Train": {
       "map_win_pct": 0.5,
       "ct_round_win_pct": 0.46,
       "t_round_win_pct": 0.6,
-      "matches_3m": 2
+      "matches_3m": 2,
+      "entry_kill_rate": 0.11,
+      "entry_death_rate": 0.09,
+      "post_plant_t_win_pct": 0.71
     }
   },
-  "generated_at": "2026-02-23T03:42:02Z",
+  "generated_at": "2026-02-24T18:41:35Z",
   "window_days": 90,
   "latest_match_date": "2026-02-08",
-  "demo_count": 21
+  "demo_count": 21,
+  "trade_net_rate": -0.01,
+  "eco_win_pct": 0.52,
+  "force_win_pct": 0.55,
+  "rating_floor": 0.93
 }

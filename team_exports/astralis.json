@@ -2,45 +2,64 @@
   "team": "Astralis",
   "players_rating2_3m": [
     1.24,
-    1.19,
-    1.15,
-    1.09,
-    0.88
+    1.2,
+    1.1,
+    1.02,
+    0.91
   ],
   "maps": {
     "Ancient": {
       "map_win_pct": 1,
-      "ct_round_win_pct": 0.67,
-      "t_round_win_pct": 0.63,
-      "matches_3m": 1
+      "ct_round_win_pct": 0.73,
+      "t_round_win_pct": 0.65,
+      "matches_3m": 2,
+      "entry_kill_rate": 0.11,
+      "entry_death_rate": 0.09,
+      "post_plant_t_win_pct": 0.75
     },
     "Dust2": {
       "map_win_pct": 0,
-      "ct_round_win_pct": 0.61,
-      "t_round_win_pct": 0.3,
-      "matches_3m": 3
+      "ct_round_win_pct": 0.69,
+      "t_round_win_pct": 0.22,
+      "matches_3m": 4,
+      "entry_kill_rate": 0.09,
+      "entry_death_rate": 0.11,
+      "post_plant_t_win_pct": 0.67
     },
     "Mirage": {
-      "map_win_pct": 0,
-      "ct_round_win_pct": 0.54,
-      "t_round_win_pct": 0.25,
-      "matches_3m": 2
+      "map_win_pct": 0.23,
+      "ct_round_win_pct": 0.5,
+      "t_round_win_pct": 0.27,
+      "matches_3m": 5,
+      "entry_kill_rate": 0.08,
+      "entry_death_rate": 0.12,
+      "post_plant_t_win_pct": 0.6
     },
     "Nuke": {
       "map_win_pct": 0.5,
-      "ct_round_win_pct": 0.69,
-      "t_round_win_pct": 0.54,
-      "matches_3m": 2
+      "ct_round_win_pct": 0.57,
+      "t_round_win_pct": 0.49,
+      "matches_3m": 4,
+      "entry_kill_rate": 0.11,
+      "entry_death_rate": 0.09,
+      "post_plant_t_win_pct": 0.87
     },
     "Overpass": {
-      "map_win_pct": 0.75,
-      "ct_round_win_pct": 0.57,
-      "t_round_win_pct": 0.48,
-      "matches_3m": 4
+      "map_win_pct": 0.54,
+      "ct_round_win_pct": 0.58,
+      "t_round_win_pct": 0.46,
+      "matches_3m": 7,
+      "entry_kill_rate": 0.09,
+      "entry_death_rate": 0.11,
+      "post_plant_t_win_pct": 0.83
     }
   },
-  "generated_at": "2026-02-23T03:42:02Z",
+  "generated_at": "2026-02-24T18:41:34Z",
   "window_days": 90,
-  "latest_match_date": "2026-02-03",
-  "demo_count": 12
+  "latest_match_date": "2026-02-18",
+  "demo_count": 22,
+  "trade_net_rate": -0.01,
+  "eco_win_pct": 0.53,
+  "force_win_pct": 0.47,
+  "rating_floor": 0.91
 }

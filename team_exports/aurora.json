@@ -1,52 +1,83 @@
 {
   "team": "Aurora",
   "players_rating2_3m": [
-    1.17,
-    1.17,
-    1.04,
-    1,
-    0.97
+    1.29,
+    1.23,
+    1.15,
+    1.13,
+    0.94
   ],
   "maps": {
     "Ancient": {
       "map_win_pct": 0,
       "ct_round_win_pct": 0.52,
       "t_round_win_pct": 0.42,
-      "matches_3m": 1
+      "matches_3m": 1,
+      "entry_kill_rate": 0.12,
+      "entry_death_rate": 0.08,
+      "post_plant_t_win_pct": 0.54
     },
     "Anubis": {
-      "map_win_pct": 1,
-      "ct_round_win_pct": 0.67,
-      "t_round_win_pct": 0.63,
-      "matches_3m": 1
+      "map_win_pct": 0.73,
+      "ct_round_win_pct": 0.47,
+      "t_round_win_pct": 0.65,
+      "matches_3m": 4,
+      "entry_kill_rate": 0.11,
+      "entry_death_rate": 0.09,
+      "post_plant_t_win_pct": 0.8
     },
     "Dust2": {
-      "map_win_pct": 0.5,
-      "ct_round_win_pct": 0.6,
+      "map_win_pct": 0.77,
+      "ct_round_win_pct": 0.71,
       "t_round_win_pct": 0.4,
-      "matches_3m": 2
+      "matches_3m": 4,
+      "entry_kill_rate": 0.11,
+      "entry_death_rate": 0.09,
+      "post_plant_t_win_pct": 0.86
     },
     "Inferno": {
-      "map_win_pct": 1,
-      "ct_round_win_pct": 0.71,
-      "t_round_win_pct": 0.5,
-      "matches_3m": 2
+      "map_win_pct": 0.42,
+      "ct_round_win_pct": 0.53,
+      "t_round_win_pct": 0.44,
+      "matches_3m": 4,
+      "entry_kill_rate": 0.08,
+      "entry_death_rate": 0.12,
+      "post_plant_t_win_pct": 0.67
     },
     "Mirage": {
+      "map_win_pct": 0.44,
+      "ct_round_win_pct": 0.48,
+      "t_round_win_pct": 0.43,
+      "matches_3m": 5,
+      "entry_kill_rate": 0.09,
+      "entry_death_rate": 0.11,
+      "post_plant_t_win_pct": 0.76
+    },
+    "Nuke": {
       "map_win_pct": 0,
-      "ct_round_win_pct": 0.38,
-      "t_round_win_pct": 0.32,
-      "matches_3m": 2
+      "ct_round_win_pct": 0.5,
+      "t_round_win_pct": 0.36,
+      "matches_3m": 1,
+      "entry_kill_rate": 0.1,
+      "entry_death_rate": 0.1,
+      "post_plant_t_win_pct": 0.8
     },
     "Overpass": {
-      "map_win_pct": 0,
-      "ct_round_win_pct": 0.33,
-      "t_round_win_pct": 0.38,
-      "matches_3m": 1
+      "map_win_pct": 0.42,
+      "ct_round_win_pct": 0.47,
+      "t_round_win_pct": 0.5,
+      "matches_3m": 5,
+      "entry_kill_rate": 0.11,
+      "entry_death_rate": 0.09,
+      "post_plant_t_win_pct": 0.86
     }
   },
-  "generated_at": "2026-02-23T03:42:02Z",
+  "generated_at": "2026-02-24T18:41:34Z",
   "window_days": 90,
-  "latest_match_date": "2026-02-06",
-  "demo_count": 9
+  "latest_match_date": "2026-02-20",
+  "demo_count": 24,
+  "trade_net_rate": -0.01,
+  "eco_win_pct": 0.5,
+  "force_win_pct": 0.47,
+  "rating_floor": 0.94
 }
