@@ -16,6 +16,7 @@ type MatchMapSpec struct {
 	Map      string `json:"map"`
 	Picker   string `json:"picker"`               // "A", "B", or "D"
 	AStartCT *bool  `json:"a_start_ct,omitempty"` // true=A started CT, false=A started T, nil=unknown
+	AWon     *bool  `json:"a_won,omitempty"`       // true=A won the map, false=B won, nil=unknown
 }
 
 // MatchSpec is one historical match entry in the JSON spec file.
@@ -49,6 +50,7 @@ type btMapRecord struct {
 	Map      string `json:"map"`
 	Picker   string `json:"picker"`
 	AStartCT *bool  `json:"a_start_ct,omitempty"`
+	AWon     *bool  `json:"a_won,omitempty"`
 }
 
 // btMatchRecord is a simbo3-compatible MatchRecord for the backtest dataset.
@@ -138,7 +140,7 @@ func runBacktestDataset(_ *cobra.Command, _ []string) error {
 
 		maps := make([]btMapRecord, len(spec.Maps))
 		for i, m := range spec.Maps {
-			maps[i] = btMapRecord{Map: m.Map, Picker: m.Picker, AStartCT: m.AStartCT}
+			maps[i] = btMapRecord{Map: m.Map, Picker: m.Picker, AStartCT: m.AStartCT, AWon: m.AWon}
 		}
 
 		records = append(records, btMatchRecord{

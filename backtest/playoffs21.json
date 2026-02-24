@@ -102,12 +102,14 @@
       {
         "map": "Dust2",
         "picker": "A",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": false
       },
       {
         "map": "Mirage",
         "picker": "B",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": false
       }
     ],
     "a_won_series": false
@@ -203,12 +205,14 @@
       {
         "map": "Overpass",
         "picker": "B",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": false
       },
       {
         "map": "Dust2",
         "picker": "A",
-        "a_start_ct": false
+        "a_start_ct": false,
+        "a_won": false
       }
     ],
     "a_won_series": false
@@ -316,17 +320,20 @@
       {
         "map": "Mirage",
         "picker": "B",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": false
       },
       {
         "map": "Dust2",
         "picker": "A",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": true
       },
       {
         "map": "Nuke",
         "picker": "D",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": false
       }
     ],
     "a_won_series": false
@@ -428,12 +435,14 @@
       {
         "map": "Nuke",
         "picker": "B",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": true
       },
       {
         "map": "Dust2",
         "picker": "A",
-        "a_start_ct": false
+        "a_start_ct": false,
+        "a_won": true
       }
     ],
     "a_won_series": true
@@ -535,12 +544,14 @@
       {
         "map": "Dust2",
         "picker": "A",
-        "a_start_ct": false
+        "a_start_ct": false,
+        "a_won": true
       },
       {
         "map": "Mirage",
         "picker": "B",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": true
       }
     ],
     "a_won_series": true
@@ -648,22 +659,26 @@
       {
         "map": "Mirage",
         "picker": "A",
-        "a_start_ct": false
+        "a_start_ct": false,
+        "a_won": true
       },
       {
         "map": "Inferno",
         "picker": "B",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": false
       },
       {
         "map": "Nuke",
         "picker": "A",
-        "a_start_ct": false
+        "a_start_ct": false,
+        "a_won": false
       },
       {
         "map": "Overpass",
         "picker": "B",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": false
       }
     ],
     "a_won_series": false
@@ -771,12 +786,14 @@
       {
         "map": "Nuke",
         "picker": "B",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": true
       },
       {
         "map": "Dust2",
         "picker": "A",
-        "a_start_ct": false
+        "a_start_ct": false,
+        "a_won": true
       }
     ],
     "a_won_series": true
@@ -884,12 +901,14 @@
       {
         "map": "Mirage",
         "picker": "B",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": true
       },
       {
         "map": "Dust2",
         "picker": "A",
-        "a_start_ct": false
+        "a_start_ct": false,
+        "a_won": true
       }
     ],
     "a_won_series": true
@@ -1003,12 +1022,14 @@
       {
         "map": "Nuke",
         "picker": "A",
-        "a_start_ct": false
+        "a_start_ct": false,
+        "a_won": true
       },
       {
         "map": "Inferno",
         "picker": "B",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": true
       }
     ],
     "a_won_series": true
@@ -1110,17 +1131,20 @@
       {
         "map": "Mirage",
         "picker": "A",
-        "a_start_ct": false
+        "a_start_ct": false,
+        "a_won": true
       },
       {
         "map": "Inferno",
         "picker": "B",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": true
       },
       {
         "map": "Train",
         "picker": "D",
-        "a_start_ct": false
+        "a_start_ct": false,
+        "a_won": true
       }
     ],
     "a_won_series": true
@@ -1228,12 +1252,14 @@
       {
         "map": "Mirage",
         "picker": "A",
-        "a_start_ct": false
+        "a_start_ct": false,
+        "a_won": true
       },
       {
         "map": "Dust2",
         "picker": "B",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": true
       }
     ],
     "a_won_series": true
@@ -1341,17 +1367,20 @@
       {
         "map": "Ancient",
         "picker": "B",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": false
       },
       {
         "map": "Nuke",
         "picker": "A",
-        "a_start_ct": false
+        "a_start_ct": false,
+        "a_won": true
       },
       {
         "map": "Inferno",
         "picker": "D",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": true
       }
     ],
     "a_won_series": true
@@ -1465,22 +1494,26 @@
       {
         "map": "Nuke",
         "picker": "A",
-        "a_start_ct": false
+        "a_start_ct": false,
+        "a_won": true
       },
       {
         "map": "Dust2",
         "picker": "B",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": false
       },
       {
         "map": "Inferno",
         "picker": "A",
-        "a_start_ct": false
+        "a_start_ct": false,
+        "a_won": false
       },
       {
         "map": "Overpass",
         "picker": "B",
-        "a_start_ct": true
+        "a_start_ct": true,
+        "a_won": false
       }
     ],
     "a_won_series": false
@@ -1587,15 +1620,18 @@
     "maps": [
       {
         "map": "Dust2",
-        "picker": "B"
+        "picker": "B",
+        "a_won": false
       },
       {
         "map": "Mirage",
-        "picker": "A"
+        "picker": "A",
+        "a_won": true
       },
       {
         "map": "Ancient",
-        "picker": "D"
+        "picker": "D",
+        "a_won": false
       }
     ],
     "a_won_series": false
@@ -1714,15 +1750,18 @@
     "maps": [
       {
         "map": "Ancient",
-        "picker": "B"
+        "picker": "B",
+        "a_won": false
       },
       {
         "map": "Inferno",
-        "picker": "A"
+        "picker": "A",
+        "a_won": true
       },
       {
         "map": "Mirage",
-        "picker": "D"
+        "picker": "D",
+        "a_won": true
       }
     ],
     "a_won_series": true
@@ -1847,11 +1886,13 @@
     "maps": [
       {
         "map": "Inferno",
-        "picker": "B"
+        "picker": "B",
+        "a_won": true
       },
       {
         "map": "Overpass",
-        "picker": "A"
+        "picker": "A",
+        "a_won": true
       }
     ],
     "a_won_series": true
@@ -1958,15 +1999,18 @@
     "maps": [
       {
         "map": "Mirage",
-        "picker": "B"
+        "picker": "B",
+        "a_won": false
       },
       {
         "map": "Dust2",
-        "picker": "A"
+        "picker": "A",
+        "a_won": true
       },
       {
         "map": "Nuke",
-        "picker": "D"
+        "picker": "D",
+        "a_won": false
       }
     ],
     "a_won_series": false
@@ -2079,11 +2123,13 @@
     "maps": [
       {
         "map": "Dust2",
-        "picker": "A"
+        "picker": "A",
+        "a_won": true
       },
       {
         "map": "Inferno",
-        "picker": "B"
+        "picker": "B",
+        "a_won": true
       }
     ],
     "a_won_series": true
@@ -2196,11 +2242,13 @@
     "maps": [
       {
         "map": "Mirage",
-        "picker": "B"
+        "picker": "B",
+        "a_won": true
       },
       {
         "map": "Dust2",
-        "picker": "A"
+        "picker": "A",
+        "a_won": true
       }
     ],
     "a_won_series": true
@@ -2307,11 +2355,13 @@
     "maps": [
       {
         "map": "Mirage",
-        "picker": "B"
+        "picker": "B",
+        "a_won": true
       },
       {
         "map": "Inferno",
-        "picker": "A"
+        "picker": "A",
+        "a_won": true
       }
     ],
     "a_won_series": true
@@ -2430,15 +2480,18 @@
     "maps": [
       {
         "map": "Overpass",
-        "picker": "B"
+        "picker": "B",
+        "a_won": false
       },
       {
         "map": "Dust2",
-        "picker": "A"
+        "picker": "A",
+        "a_won": false
       },
       {
         "map": "Inferno",
-        "picker": "B"
+        "picker": "B",
+        "a_won": false
       }
     ],
     "a_won_series": false
