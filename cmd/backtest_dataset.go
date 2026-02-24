@@ -36,6 +36,7 @@ type btMapStats struct {
 	CTRoundWinPct float64 `json:"ct_round_win_pct"`
 	TRoundWinPct  float64 `json:"t_round_win_pct"`
 	Matches3m     int     `json:"matches_3m"`
+	EntryKillRate float64 `json:"entry_kill_rate,omitempty"`
 }
 
 // btTeamStats matches the simbo3 TeamStats JSON schema.
@@ -43,6 +44,7 @@ type btTeamStats struct {
 	Team              string                `json:"team"`
 	PlayersRating2_3m []float64             `json:"players_rating2_3m"`
 	Maps              map[string]btMapStats `json:"maps"`
+	TradeNetRate      float64               `json:"trade_net_rate,omitempty"`
 }
 
 // btMapRecord is one map in the output MatchRecord.
@@ -238,9 +240,36 @@ func buildBTTeamStats(db *storage.DB, rosterPath string, since, before time.Time
 	}
 	ratings := buildWeightedRatings(byDemo, weights)
 
+	// Populate per-map entry kill rates.
+	entryByMap, err := db.MapEntryStats(rf.Players, allHashes)
+	if err != nil {
+		return nil, fmt.Errorf("map entry stats: %w", err)
+	}
+	for mapName, es := range entryByMap {
+		ms, ok := maps[mapName]
+		if !ok {
+			continue
+		}
+		if es.RoundsPlayed > 0 {
+			ms.EntryKillRate = roundTo2dp(float64(es.OpeningKills) / float64(es.RoundsPlayed))
+		}
+		maps[mapName] = ms
+	}
+
+	// Compute team-level trade net rate.
+	tradeStats, err := db.TeamTradeStats(rf.Players, allHashes)
+	if err != nil {
+		return nil, fmt.Errorf("team trade stats: %w", err)
+	}
+	var tradeNetRate float64
+	if tradeStats.RoundsPlayed > 0 {
+		tradeNetRate = roundTo2dp(float64(tradeStats.TradeKills-tradeStats.TradeDeaths) / float64(tradeStats.RoundsPlayed))
+	}
+
 	return &btTeamStats{
 		Team:              rf.Team,
 		PlayersRating2_3m: ratings,
 		Maps:              maps,
+		TradeNetRate:      tradeNetRate,
 	}, nil
 }
