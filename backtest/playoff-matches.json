@@ -261,5 +261,147 @@
       {"map": "Inferno", "picker": "B", "a_won": false}
     ],
     "a_won_series": false
+  },
+
+  {
+    "match_id": "epl-s22-qf1-faze-vs-spirit",
+    "event_date": "2025-10-04",
+    "format": "bo3",
+    "team_a_roster": "rosters/faze.json",
+    "team_b_roster": "rosters/spirit.json",
+    "maps": [
+      {"map": "Nuke",   "picker": "A", "a_won": true},
+      {"map": "Mirage", "picker": "B", "a_won": true}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "epl-s22-qf2-mouz-vs-navi",
+    "event_date": "2025-10-04",
+    "format": "bo3",
+    "team_a_roster": "rosters/mouz.json",
+    "team_b_roster": "rosters/navi.json",
+    "maps": [
+      {"map": "Ancient", "picker": "B", "a_won": false},
+      {"map": "Inferno", "picker": "A", "a_won": true},
+      {"map": "Train",   "picker": "D", "a_won": true}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "epl-s22-qf3-vitality-vs-furia",
+    "event_date": "2025-10-04",
+    "format": "bo3",
+    "team_a_roster": "rosters/vitality.json",
+    "team_b_roster": "rosters/furia.json",
+    "maps": [
+      {"map": "Overpass", "picker": "B", "a_won": false},
+      {"map": "Inferno",  "picker": "A", "a_won": true},
+      {"map": "Nuke",     "picker": "D", "a_won": true}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "epl-s22-qf4-falcons-vs-3dmax",
+    "event_date": "2025-10-04",
+    "format": "bo3",
+    "team_a_roster": "rosters/falcons.json",
+    "team_b_roster": "rosters/3dmax.json",
+    "maps": [
+      {"map": "Inferno", "picker": "B", "a_won": false},
+      {"map": "Ancient", "picker": "A", "a_won": true},
+      {"map": "Nuke",    "picker": "D", "a_won": true}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "epl-s22-sf1-faze-vs-vitality",
+    "event_date": "2025-10-07",
+    "format": "bo3",
+    "team_a_roster": "rosters/faze.json",
+    "team_b_roster": "rosters/vitality.json",
+    "maps": [
+      {"map": "Mirage",  "picker": "A", "a_won": true},
+      {"map": "Inferno", "picker": "B", "a_won": false},
+      {"map": "Dust2",   "picker": "D", "a_won": false}
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "epl-s22-sf2-mouz-vs-falcons",
+    "event_date": "2025-10-07",
+    "format": "bo3",
+    "team_a_roster": "rosters/mouz.json",
+    "team_b_roster": "rosters/falcons.json",
+    "maps": [
+      {"map": "Inferno", "picker": "A", "a_won": false},
+      {"map": "Ancient", "picker": "B", "a_won": false}
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "epl-s22-gf-vitality-vs-falcons",
+    "event_date": "2025-10-13",
+    "format": "bo5",
+    "team_a_roster": "rosters/vitality.json",
+    "team_b_roster": "rosters/falcons.json",
+    "maps": [
+      {"map": "Inferno", "picker": "A", "a_won": true},
+      {"map": "Train",   "picker": "B", "a_won": true},
+      {"map": "Dust2",   "picker": "A", "a_won": true}
+    ],
+    "a_won_series": true
+  },
+
+  {
+    "match_id": "blast-rivals-s2-qf2-vitality-vs-spirit",
+    "event_date": "2025-11-12",
+    "format": "bo3",
+    "team_a_roster": "rosters/vitality.json",
+    "team_b_roster": "rosters/spirit.json",
+    "maps": [
+      {"map": "Dust2",  "picker": "B", "a_won": false},
+      {"map": "Nuke",   "picker": "A", "a_won": true},
+      {"map": "Mirage", "picker": "D", "a_won": true}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "blast-rivals-s2-sf1-furia-vs-pain",
+    "event_date": "2025-11-12",
+    "format": "bo3",
+    "team_a_roster": "rosters/furia.json",
+    "team_b_roster": "rosters/pain.json",
+    "maps": [
+      {"map": "Nuke",     "picker": "A", "a_won": true},
+      {"map": "Overpass", "picker": "B", "a_won": true}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "blast-rivals-s2-sf2-falcons-vs-vitality",
+    "event_date": "2025-11-12",
+    "format": "bo3",
+    "team_a_roster": "rosters/falcons.json",
+    "team_b_roster": "rosters/vitality.json",
+    "maps": [
+      {"map": "Inferno", "picker": "B", "a_won": true},
+      {"map": "Nuke",    "picker": "A", "a_won": true}
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "blast-rivals-s2-gf-furia-vs-falcons",
+    "event_date": "2025-11-12",
+    "format": "bo5",
+    "team_a_roster": "rosters/furia.json",
+    "team_b_roster": "rosters/falcons.json",
+    "maps": [
+      {"map": "Inferno", "picker": "A", "a_won": false},
+      {"map": "Nuke",    "picker": "B", "a_won": true},
+      {"map": "Train",   "picker": "A", "a_won": true},
+      {"map": "Mirage",  "picker": "B", "a_won": true}
+    ],
+    "a_won_series": true
   }
 ]

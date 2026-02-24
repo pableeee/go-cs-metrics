@@ -2785,5 +2785,1358 @@
       }
     ],
     "a_won_series": false
+  },
+  {
+    "match_id": "epl-s22-qf1-faze-vs-spirit",
+    "format": "bo3",
+    "team_a": {
+      "team": "FaZe",
+      "players_rating2_3m": [
+        1.37,
+        1.25,
+        1,
+        0.84,
+        0.58
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.66,
+          "ct_round_win_pct": 0.58,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.07
+        },
+        "Inferno": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.42,
+          "t_round_win_pct": 0.45,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.07
+        },
+        "Mirage": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.6,
+          "t_round_win_pct": 0.61,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.08
+        },
+        "Nuke": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.48,
+          "t_round_win_pct": 0.39,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.07
+        }
+      },
+      "trade_net_rate": 0.01
+    },
+    "team_b": {
+      "team": "Spirit",
+      "players_rating2_3m": [
+        1.56,
+        1.45,
+        1.34,
+        1.12,
+        1
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.79,
+          "ct_round_win_pct": 0.59,
+          "t_round_win_pct": 0.53,
+          "matches_3m": 5,
+          "entry_kill_rate": 0.12
+        },
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.67,
+          "t_round_win_pct": 0.58,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.19
+        },
+        "Mirage": {
+          "map_win_pct": 0.66,
+          "ct_round_win_pct": 0.59,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.09
+        },
+        "Nuke": {
+          "map_win_pct": 0.74,
+          "ct_round_win_pct": 0.68,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.15
+        },
+        "Overpass": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.67,
+          "t_round_win_pct": 0.71,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.23
+        }
+      },
+      "trade_net_rate": -0.01
+    },
+    "maps": [
+      {
+        "map": "Nuke",
+        "picker": "A",
+        "a_won": true
+      },
+      {
+        "map": "Mirage",
+        "picker": "B",
+        "a_won": true
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "epl-s22-qf2-mouz-vs-navi",
+    "format": "bo3",
+    "team_a": {
+      "team": "MOUZ",
+      "players_rating2_3m": [
+        1.38,
+        1.18,
+        1.14,
+        1.1,
+        1.08
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.41,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.08
+        },
+        "Inferno": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.7,
+          "t_round_win_pct": 0.45,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.13
+        },
+        "Mirage": {
+          "map_win_pct": 0.42,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.44,
+          "matches_3m": 7,
+          "entry_kill_rate": 0.09
+        },
+        "Nuke": {
+          "map_win_pct": 0.47,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.29,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.11
+        },
+        "Overpass": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.29,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.05
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.09
+        }
+      }
+    },
+    "team_b": {
+      "team": "NaVi",
+      "players_rating2_3m": [
+        1.33,
+        1.3,
+        1.27,
+        1.15,
+        0.92
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.62,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.11
+        },
+        "Inferno": {
+          "map_win_pct": 0.87,
+          "ct_round_win_pct": 0.61,
+          "t_round_win_pct": 0.58,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.11
+        },
+        "Mirage": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.42,
+          "t_round_win_pct": 0.56,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.11
+        },
+        "Nuke": {
+          "map_win_pct": 0.41,
+          "ct_round_win_pct": 0.74,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 5,
+          "entry_kill_rate": 0.08
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.67,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.1
+        }
+      },
+      "trade_net_rate": -0.01
+    },
+    "maps": [
+      {
+        "map": "Ancient",
+        "picker": "B",
+        "a_won": false
+      },
+      {
+        "map": "Inferno",
+        "picker": "A",
+        "a_won": true
+      },
+      {
+        "map": "Train",
+        "picker": "D",
+        "a_won": true
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "epl-s22-qf3-vitality-vs-furia",
+    "format": "bo3",
+    "team_a": {
+      "team": "Vitality",
+      "players_rating2_3m": [
+        1.27,
+        1.27,
+        1.24,
+        1.06,
+        1.03
+      ],
+      "maps": {
+        "Inferno": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.62,
+          "t_round_win_pct": 0.72,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.1
+        },
+        "Mirage": {
+          "map_win_pct": 0.66,
+          "ct_round_win_pct": 0.67,
+          "t_round_win_pct": 0.36,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.09
+        },
+        "Nuke": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.67,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.1
+        },
+        "Overpass": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.44,
+          "t_round_win_pct": 0.75,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.1
+        },
+        "Train": {
+          "map_win_pct": 0.47,
+          "ct_round_win_pct": 0.44,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.1
+        }
+      },
+      "trade_net_rate": -0.02
+    },
+    "team_b": {
+      "team": "FURIA",
+      "players_rating2_3m": [
+        1.42,
+        1.28,
+        1.18,
+        1.15,
+        1.05
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.85,
+          "t_round_win_pct": 0.61,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.14
+        },
+        "Inferno": {
+          "map_win_pct": 0.65,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.51,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.11
+        },
+        "Mirage": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.42,
+          "t_round_win_pct": 0.7,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.11
+        },
+        "Train": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.3,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.09
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Overpass",
+        "picker": "B",
+        "a_won": false
+      },
+      {
+        "map": "Inferno",
+        "picker": "A",
+        "a_won": true
+      },
+      {
+        "map": "Nuke",
+        "picker": "D",
+        "a_won": true
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "epl-s22-qf4-falcons-vs-3dmax",
+    "format": "bo3",
+    "team_a": {
+      "team": "Falcons",
+      "players_rating2_3m": [
+        1.52,
+        1.23,
+        1,
+        0.98,
+        0.96
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.55,
+          "t_round_win_pct": 0.2,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.07
+        },
+        "Mirage": {
+          "map_win_pct": 0.49,
+          "ct_round_win_pct": 0.45,
+          "t_round_win_pct": 0.56,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.12
+        },
+        "Nuke": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.58,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.1
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.75,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.15
+        }
+      },
+      "trade_net_rate": 0.01
+    },
+    "team_b": {
+      "team": "3DMAX",
+      "players_rating2_3m": [
+        1.16,
+        1.13,
+        1,
+        0.95,
+        0.9
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.38,
+          "t_round_win_pct": 0.43,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.07
+        },
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.38,
+          "t_round_win_pct": 0.67,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.11
+        },
+        "Inferno": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.46,
+          "t_round_win_pct": 0.42,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.11
+        },
+        "Nuke": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0,
+          "t_round_win_pct": 0.17,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.03
+        },
+        "Overpass": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.57,
+          "t_round_win_pct": 0.17,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.09
+        }
+      },
+      "trade_net_rate": -0.01
+    },
+    "maps": [
+      {
+        "map": "Inferno",
+        "picker": "B",
+        "a_won": false
+      },
+      {
+        "map": "Ancient",
+        "picker": "A",
+        "a_won": true
+      },
+      {
+        "map": "Nuke",
+        "picker": "D",
+        "a_won": true
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "epl-s22-sf1-faze-vs-vitality",
+    "format": "bo3",
+    "team_a": {
+      "team": "FaZe",
+      "players_rating2_3m": [
+        1.39,
+        1.3,
+        1.29,
+        1.05,
+        1
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.86,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.55,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.09
+        },
+        "Dust2": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.59,
+          "t_round_win_pct": 0.58,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.12
+        },
+        "Inferno": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.42,
+          "t_round_win_pct": 0.45,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.07
+        },
+        "Mirage": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.6,
+          "t_round_win_pct": 0.61,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.08
+        },
+        "Nuke": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.48,
+          "t_round_win_pct": 0.39,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.07
+        },
+        "Train": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.3,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.13
+        }
+      },
+      "trade_net_rate": -0.01
+    },
+    "team_b": {
+      "team": "Vitality",
+      "players_rating2_3m": [
+        1.49,
+        1.4,
+        1.37,
+        1.25,
+        1.04
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.87,
+          "t_round_win_pct": 0.79,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.12
+        },
+        "Inferno": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.62,
+          "t_round_win_pct": 0.72,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.1
+        },
+        "Mirage": {
+          "map_win_pct": 0.66,
+          "ct_round_win_pct": 0.67,
+          "t_round_win_pct": 0.36,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.09
+        },
+        "Nuke": {
+          "map_win_pct": 0.11,
+          "ct_round_win_pct": 0.47,
+          "t_round_win_pct": 0.23,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.1
+        },
+        "Overpass": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.76,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.11
+        },
+        "Train": {
+          "map_win_pct": 0.17,
+          "ct_round_win_pct": 0.48,
+          "t_round_win_pct": 0.44,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.1
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Mirage",
+        "picker": "A",
+        "a_won": true
+      },
+      {
+        "map": "Inferno",
+        "picker": "B",
+        "a_won": false
+      },
+      {
+        "map": "Dust2",
+        "picker": "D",
+        "a_won": false
+      }
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "epl-s22-sf2-mouz-vs-falcons",
+    "format": "bo3",
+    "team_a": {
+      "team": "MOUZ",
+      "players_rating2_3m": [
+        1.47,
+        1.31,
+        1.31,
+        1.25,
+        1.12
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.41,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.08
+        },
+        "Inferno": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.68,
+          "t_round_win_pct": 0.72,
+          "matches_3m": 5,
+          "entry_kill_rate": 0.13
+        },
+        "Mirage": {
+          "map_win_pct": 0.62,
+          "ct_round_win_pct": 0.54,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 8,
+          "entry_kill_rate": 0.09
+        },
+        "Nuke": {
+          "map_win_pct": 0.81,
+          "ct_round_win_pct": 0.47,
+          "t_round_win_pct": 0.75,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.12
+        },
+        "Overpass": {
+          "map_win_pct": 0.77,
+          "ct_round_win_pct": 0.75,
+          "t_round_win_pct": 0.31,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.09
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.09
+        }
+      }
+    },
+    "team_b": {
+      "team": "Falcons",
+      "players_rating2_3m": [
+        1.54,
+        1.31,
+        1.25,
+        1.11,
+        1.04
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.6,
+          "t_round_win_pct": 0.47,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.11
+        },
+        "Dust2": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.55,
+          "t_round_win_pct": 0.2,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.07
+        },
+        "Inferno": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.42,
+          "t_round_win_pct": 0.89,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.14
+        },
+        "Mirage": {
+          "map_win_pct": 0.74,
+          "ct_round_win_pct": 0.71,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 5,
+          "entry_kill_rate": 0.12
+        },
+        "Nuke": {
+          "map_win_pct": 0.92,
+          "ct_round_win_pct": 0.78,
+          "t_round_win_pct": 0.75,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.13
+        },
+        "Train": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.75,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.15
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Inferno",
+        "picker": "A",
+        "a_won": false
+      },
+      {
+        "map": "Ancient",
+        "picker": "B",
+        "a_won": false
+      }
+    ],
+    "a_won_series": false
+  },
+  {
+    "match_id": "epl-s22-gf-vitality-vs-falcons",
+    "format": "bo5",
+    "team_a": {
+      "team": "Vitality",
+      "players_rating2_3m": [
+        1.5,
+        1.29,
+        1.27,
+        1.25,
+        1.05
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.69,
+          "t_round_win_pct": 0.75,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.12
+        },
+        "Inferno": {
+          "map_win_pct": 0.81,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.67,
+          "matches_3m": 7,
+          "entry_kill_rate": 0.11
+        },
+        "Mirage": {
+          "map_win_pct": 0.53,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.37,
+          "matches_3m": 5,
+          "entry_kill_rate": 0.1
+        },
+        "Nuke": {
+          "map_win_pct": 0.41,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.3,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.1
+        },
+        "Overpass": {
+          "map_win_pct": 0.67,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.54,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.1
+        },
+        "Train": {
+          "map_win_pct": 0.53,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.47,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.1
+        }
+      },
+      "trade_net_rate": -0.01
+    },
+    "team_b": {
+      "team": "Falcons",
+      "players_rating2_3m": [
+        1.42,
+        1.2,
+        1.19,
+        1,
+        0.9
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.61,
+          "t_round_win_pct": 0.59,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.12
+        },
+        "Dust2": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.28,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.07
+        },
+        "Inferno": {
+          "map_win_pct": 0.49,
+          "ct_round_win_pct": 0.37,
+          "t_round_win_pct": 0.56,
+          "matches_3m": 6,
+          "entry_kill_rate": 0.1
+        },
+        "Mirage": {
+          "map_win_pct": 0.74,
+          "ct_round_win_pct": 0.71,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 5,
+          "entry_kill_rate": 0.12
+        },
+        "Nuke": {
+          "map_win_pct": 0.97,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.64,
+          "matches_3m": 5,
+          "entry_kill_rate": 0.12
+        },
+        "Train": {
+          "map_win_pct": 0.18,
+          "ct_round_win_pct": 0.55,
+          "t_round_win_pct": 0.35,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.12
+        }
+      },
+      "trade_net_rate": -0.01
+    },
+    "maps": [
+      {
+        "map": "Inferno",
+        "picker": "A",
+        "a_won": true
+      },
+      {
+        "map": "Train",
+        "picker": "B",
+        "a_won": true
+      },
+      {
+        "map": "Dust2",
+        "picker": "A",
+        "a_won": true
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "blast-rivals-s2-qf2-vitality-vs-spirit",
+    "format": "bo3",
+    "team_a": {
+      "team": "Vitality",
+      "players_rating2_3m": [
+        1.53,
+        1.29,
+        1.27,
+        1.27,
+        1.05
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.69,
+          "t_round_win_pct": 0.75,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.12
+        },
+        "Inferno": {
+          "map_win_pct": 0.79,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.67,
+          "matches_3m": 5,
+          "entry_kill_rate": 0.11
+        },
+        "Mirage": {
+          "map_win_pct": 0.48,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.37,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.1
+        },
+        "Nuke": {
+          "map_win_pct": 0.36,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.27,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.11
+        },
+        "Overpass": {
+          "map_win_pct": 0.65,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.51,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.1
+        },
+        "Train": {
+          "map_win_pct": 0.54,
+          "ct_round_win_pct": 0.59,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.1
+        }
+      }
+    },
+    "team_b": {
+      "team": "Spirit",
+      "players_rating2_3m": [
+        1.4,
+        1.3,
+        1.14,
+        1,
+        1
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.67,
+          "t_round_win_pct": 1,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.06
+        },
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.74,
+          "t_round_win_pct": 0.57,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.11
+        },
+        "Mirage": {
+          "map_win_pct": 0.64,
+          "ct_round_win_pct": 0.46,
+          "t_round_win_pct": 0.48,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.11
+        },
+        "Nuke": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.47,
+          "t_round_win_pct": 0.24,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.1
+        },
+        "Overpass": {
+          "map_win_pct": 0.75,
+          "ct_round_win_pct": 0.75,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.1
+        }
+      },
+      "trade_net_rate": 0.03
+    },
+    "maps": [
+      {
+        "map": "Dust2",
+        "picker": "B",
+        "a_won": false
+      },
+      {
+        "map": "Nuke",
+        "picker": "A",
+        "a_won": true
+      },
+      {
+        "map": "Mirage",
+        "picker": "D",
+        "a_won": true
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "blast-rivals-s2-sf1-furia-vs-pain",
+    "format": "bo3",
+    "team_a": {
+      "team": "FURIA",
+      "players_rating2_3m": [
+        1.31,
+        1.31,
+        1.27,
+        1.21,
+        1.02
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.12
+        },
+        "Inferno": {
+          "map_win_pct": 0.49,
+          "ct_round_win_pct": 0.66,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.09
+        },
+        "Mirage": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.68,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.14
+        },
+        "Nuke": {
+          "map_win_pct": 0.47,
+          "ct_round_win_pct": 0.74,
+          "t_round_win_pct": 0.26,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.1
+        },
+        "Overpass": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.64,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.11
+        },
+        "Train": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.58,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.11
+        }
+      },
+      "trade_net_rate": -0.02
+    },
+    "team_b": {
+      "team": "paiN",
+      "players_rating2_3m": [
+        1.3,
+        1.18,
+        1.16,
+        1,
+        1
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.61,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.07
+        },
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.74,
+          "t_round_win_pct": 0.45,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.11
+        },
+        "Inferno": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.33,
+          "t_round_win_pct": 0.38,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.13
+        },
+        "Mirage": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.61,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.15
+        },
+        "Nuke": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.4,
+          "t_round_win_pct": 0.39,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.09
+        },
+        "Overpass": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.92,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.13
+        }
+      },
+      "trade_net_rate": -0.03
+    },
+    "maps": [
+      {
+        "map": "Nuke",
+        "picker": "A",
+        "a_won": true
+      },
+      {
+        "map": "Overpass",
+        "picker": "B",
+        "a_won": true
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "blast-rivals-s2-sf2-falcons-vs-vitality",
+    "format": "bo3",
+    "team_a": {
+      "team": "Falcons",
+      "players_rating2_3m": [
+        1.53,
+        1.24,
+        1.22,
+        1.01,
+        0.97
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.66,
+          "t_round_win_pct": 0.64,
+          "matches_3m": 5,
+          "entry_kill_rate": 0.12
+        },
+        "Dust2": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.18,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.07
+        },
+        "Inferno": {
+          "map_win_pct": 0.6,
+          "ct_round_win_pct": 0.45,
+          "t_round_win_pct": 0.55,
+          "matches_3m": 7,
+          "entry_kill_rate": 0.1
+        },
+        "Mirage": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 1,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.13
+        },
+        "Nuke": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.65,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.12
+        },
+        "Train": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.09
+        }
+      },
+      "trade_net_rate": -0.01
+    },
+    "team_b": {
+      "team": "Vitality",
+      "players_rating2_3m": [
+        1.53,
+        1.29,
+        1.27,
+        1.27,
+        1.05
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.69,
+          "t_round_win_pct": 0.75,
+          "matches_3m": 4,
+          "entry_kill_rate": 0.12
+        },
+        "Inferno": {
+          "map_win_pct": 0.79,
+          "ct_round_win_pct": 0.63,
+          "t_round_win_pct": 0.67,
+          "matches_3m": 5,
+          "entry_kill_rate": 0.11
+        },
+        "Mirage": {
+          "map_win_pct": 0.48,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.37,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.1
+        },
+        "Nuke": {
+          "map_win_pct": 0.36,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.27,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.11
+        },
+        "Overpass": {
+          "map_win_pct": 0.65,
+          "ct_round_win_pct": 0.64,
+          "t_round_win_pct": 0.51,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.1
+        },
+        "Train": {
+          "map_win_pct": 0.54,
+          "ct_round_win_pct": 0.59,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.1
+        }
+      }
+    },
+    "maps": [
+      {
+        "map": "Inferno",
+        "picker": "B",
+        "a_won": true
+      },
+      {
+        "map": "Nuke",
+        "picker": "A",
+        "a_won": true
+      }
+    ],
+    "a_won_series": true
+  },
+  {
+    "match_id": "blast-rivals-s2-gf-furia-vs-falcons",
+    "format": "bo5",
+    "team_a": {
+      "team": "FURIA",
+      "players_rating2_3m": [
+        1.31,
+        1.31,
+        1.27,
+        1.21,
+        1.02
+      ],
+      "maps": {
+        "Dust2": {
+          "map_win_pct": 0.33,
+          "ct_round_win_pct": 0.56,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.12
+        },
+        "Inferno": {
+          "map_win_pct": 0.49,
+          "ct_round_win_pct": 0.66,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.09
+        },
+        "Mirage": {
+          "map_win_pct": 0.5,
+          "ct_round_win_pct": 0.68,
+          "t_round_win_pct": 0.46,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.14
+        },
+        "Nuke": {
+          "map_win_pct": 0.47,
+          "ct_round_win_pct": 0.74,
+          "t_round_win_pct": 0.26,
+          "matches_3m": 2,
+          "entry_kill_rate": 0.1
+        },
+        "Overpass": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.64,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.11
+        },
+        "Train": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.58,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.11
+        }
+      },
+      "trade_net_rate": -0.02
+    },
+    "team_b": {
+      "team": "Falcons",
+      "players_rating2_3m": [
+        1.53,
+        1.24,
+        1.22,
+        1.01,
+        0.97
+      ],
+      "maps": {
+        "Ancient": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.66,
+          "t_round_win_pct": 0.64,
+          "matches_3m": 5,
+          "entry_kill_rate": 0.12
+        },
+        "Dust2": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.18,
+          "t_round_win_pct": 0.52,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.07
+        },
+        "Inferno": {
+          "map_win_pct": 0.6,
+          "ct_round_win_pct": 0.45,
+          "t_round_win_pct": 0.55,
+          "matches_3m": 7,
+          "entry_kill_rate": 0.1
+        },
+        "Mirage": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 1,
+          "t_round_win_pct": 0.5,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.13
+        },
+        "Nuke": {
+          "map_win_pct": 1,
+          "ct_round_win_pct": 0.65,
+          "t_round_win_pct": 0.65,
+          "matches_3m": 3,
+          "entry_kill_rate": 0.12
+        },
+        "Train": {
+          "map_win_pct": 0,
+          "ct_round_win_pct": 0.5,
+          "t_round_win_pct": 0.33,
+          "matches_3m": 1,
+          "entry_kill_rate": 0.09
+        }
+      },
+      "trade_net_rate": -0.01
+    },
+    "maps": [
+      {
+        "map": "Inferno",
+        "picker": "A",
+        "a_won": false
+      },
+      {
+        "map": "Nuke",
+        "picker": "B",
+        "a_won": true
+      },
+      {
+        "map": "Train",
+        "picker": "A",
+        "a_won": true
+      },
+      {
+        "map": "Mirage",
+        "picker": "B",
+        "a_won": true
+      }
+    ],
+    "a_won_series": true
   }
 ]
