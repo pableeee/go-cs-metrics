@@ -28,7 +28,7 @@ Schema overview:
   player_duel_segments(demo_hash, steam_id TEXT, weapon_bucket, distance_bin,
     duel_count, first_hit_count, first_hit_hs_count, median_corr_deg, median_expo_win_ms)
 
-Note: steam_id is stored as TEXT. Use quotes: WHERE steam_id = '76561198031906602'`,
+Note: steam_id is stored as TEXT. Use quotes: WHERE steam_id = '76561198012345678'`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runSQL,
 }

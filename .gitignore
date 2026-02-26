@@ -5,6 +5,9 @@ go-cs-metrics.exe
 # Private / local analysis notes
 .mine/
 
+# Generated team export files (session output, not source)
+team_exports/
+
 # Local Claude Code settings (may contain personal paths/IDs)
 .claude/
 
