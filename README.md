@@ -248,6 +248,43 @@ Outputs the same tables as `parse` with one addition: a **per-side breakdown** (
 
 ---
 
+### info
+
+Show basic metadata and database status for one or more demo files without performing a full parse. Only the first 64 KB of each file is read (for the quick hash), so it completes in milliseconds even for multi-gigabyte demos.
+
+```
+./go-cs-metrics info <demo.dem> [<demo.dem>...]
+```
+
+**Example output — demo already stored:**
+```
+File:   g2-vs-mouz-m1-overpass.dem
+Size:   1.1 GB
+Mtime:  2026-01-15 14:32:00
+Hash:   abc123def456789a  (quick, 64 KB)
+Status: IN DB
+  Hash:  abc123def456789a
+  Map:   de_overpass
+  Date:  2026-01-15
+  Score: CT 8 — T 13
+  Tier:  pro
+  Event: iem_krakow_2026
+  Tick:  64
+```
+
+**Example output — demo not yet parsed:**
+```
+File:   new-match.dem
+Size:   740.2 MB
+Mtime:  2026-02-25 10:00:00
+Hash:   xyz789abc123def4  (quick, 64 KB)
+Status: NOT IN DB
+```
+
+Useful for quickly checking whether a demo is already in the database before deciding whether to run `parse`.
+
+---
+
 ### player
 
 Aggregate all stored demo data for one or more SteamID64s and print a full cross-match performance report. Each player gets a sequential report with four tables.

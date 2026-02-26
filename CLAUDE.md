@@ -33,6 +33,7 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 |---------|-------------|
 | `parse [<demo.dem>...] [--dir <dir>]` | Parse + store one or more demos; bulk mode parses in parallel (`--workers N`, default `NumCPU`) with serialised DB writes; prints compact status per demo |
 | `list` | List all stored demos |
+| `info <demo.dem>...` | Show file metadata (size, mtime), quick hash, and DB status without parsing; instant even for large files |
 | `show <hash-prefix>` | Re-display a stored demo's tables |
 | `fetch` | *(disabled — not registered as a CLI command; non-functional due to platform auth changes; see `docs/demo-download-automation.md`)* |
 | `player <steamid64>...` | Cross-match aggregate report for one or more players (`--map`, `--since`, `--last` filters); `--top N` appends the top N players by Rating 2.0 proxy for comparison |
