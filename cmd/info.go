@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/pable/go-cs-metrics/internal/model"
 	"github.com/pable/go-cs-metrics/internal/parser"
 	"github.com/pable/go-cs-metrics/internal/storage"
 )
@@ -91,7 +92,38 @@ func printDemoInfo(db *storage.DB, path string) error {
 		fmt.Printf("  Event: %s\n", demo.EventID)
 	}
 	fmt.Printf("  Tick:  %.0f\n", demo.Tickrate)
+
+	players, err := db.GetPlayerMatchStats(demo.DemoHash)
+	if err == nil && len(players) > 0 {
+		fmt.Println()
+		printInfoRoster(players)
+	}
 	return nil
+}
+
+// printInfoRoster prints a compact two-sided roster table (CT then T).
+func printInfoRoster(players []model.PlayerMatchStats) {
+	printSide := func(side model.Team, label string) {
+		fmt.Printf("  %-22s  %3s  %3s  %5s  %s\n", label, "K", "D", "ADR", "STEAM ID")
+		fmt.Printf("  %-22s  %3s  %3s  %5s  %s\n", "----------------------", "---", "---", "-----", "------------------")
+		for _, p := range players {
+			if p.Team != side {
+				continue
+			}
+			adr := 0.0
+			if p.RoundsPlayed > 0 {
+				adr = float64(p.TotalDamage) / float64(p.RoundsPlayed)
+			}
+			name := p.Name
+			if len(name) > 22 {
+				name = name[:19] + "..."
+			}
+			fmt.Printf("  %-22s  %3d  %3d  %5.1f  %d\n", name, p.Kills, p.Deaths, adr, p.SteamID)
+		}
+	}
+	printSide(model.TeamCT, "CT")
+	fmt.Println()
+	printSide(model.TeamT, "T")
 }
 
 // humanBytes formats a byte count as a human-readable string (e.g. "1.1 GB").
