@@ -108,6 +108,7 @@ events:
     hltv_event_id: 8038           # numeric event ID from hltv.org/events/<id>/...
     map_filter: []                # [] = all maps; ["mirage","inferno"] = subset
     team_filter: []               # [] = all teams; ["Vitality","FaZe"] = subset
+    force: false                  # if true, reset all demos to pending and re-download
 ```
 
 ### Key fields
@@ -118,6 +119,7 @@ events:
 | `hltv_event_id` | Used to scrape `hltv.org/results?event=<id>` |
 | `map_filter` | Case-insensitive substring match on map name in RAR filename |
 | `team_filter` | Case-insensitive substring match on team name in match page |
+| `force` | If `true`, resets all demos for the event to `pending` before phase 3, triggering a full re-download. Remove or set to `false` after sync completes. |
 
 Filters are applied during download — match pages are still visited, but
 non-matching archives are not downloaded.
@@ -894,7 +896,7 @@ Any subset of Config fields. Missing fields keep their defaults.
 
 ### Idempotency
 
-- **demoget sync**: each phase checks existing DB state; already-processed items are skipped
+- **demoget sync**: each phase checks existing DB state; already-processed items are skipped. Set `force: true` on an event in `events.yaml` to override this and re-download all demos for that event (resets demo statuses to `pending`; RAR archives are already deleted post-extraction so no manual cleanup is needed). Remove `force: true` after sync completes.
 - **go-cs-metrics parse**: quick-hash (SHA-256 of first 64 KB) checked before full parse; existing demos skipped
 - **go-cs-metrics export**: read-only; always safe to re-run
 
