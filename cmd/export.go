@@ -175,6 +175,26 @@ func runExport(_ *cobra.Command, _ []string) error {
 
 	weights := demoWeights(demos, refDate, exportHalfLife)
 
+	tierFactor := computeTierFactor(demos)
+	fmt.Fprintf(os.Stderr, "  tier factor: %.3f  (%d top-tier / %d total demos)\n",
+		tierFactor, func() int {
+			n := 0
+			for _, d := range demos {
+				if isTopTier(d.EventID) {
+					n++
+				}
+			}
+			return n
+		}(), len(demos))
+
+	// normPct shrinks a win-rate deviation from 0.50 by tierFactor.
+	// A team whose demos are all from top-tier events (tierFactor=1.0) is
+	// unaffected; a team from all regional events (tierFactor=0.5) has its
+	// map win-rate deviations halved toward 0.50.
+	normPct := func(pct float64) float64 {
+		return roundTo2dp(0.50 + (pct-0.50)*tierFactor)
+	}
+
 	// Compute per-map stats.
 	maps := make(map[string]simbo3MapStats, len(byMap))
 	for mapName, hashes := range byMap {
@@ -193,13 +213,13 @@ func runExport(_ *cobra.Command, _ []string) error {
 		ctPct, tPct := weightedSideStats(sidesByDemo, weights)
 
 		maps[mapName] = simbo3MapStats{
-			MapWinPct:     roundTo2dp(mapWinPct),
-			CTRoundWinPct: roundTo2dp(ctPct),
-			TRoundWinPct:  roundTo2dp(tPct),
+			MapWinPct:     normPct(mapWinPct),
+			CTRoundWinPct: normPct(ctPct),
+			TRoundWinPct:  normPct(tPct),
 			Matches3m:     n,
 		}
-		fmt.Fprintf(os.Stderr, "  %-12s  %2d matches  win=%.2f  CT=%.2f  T=%.2f\n",
-			mapName, n, mapWinPct, ctPct, tPct)
+		fmt.Fprintf(os.Stderr, "  %-12s  %2d matches  win=%.2f→%.2f  CT=%.2f→%.2f  T=%.2f→%.2f\n",
+			mapName, n, mapWinPct, normPct(mapWinPct), ctPct, normPct(ctPct), tPct, normPct(tPct))
 	}
 
 	// Compute HLTV Rating 2.0 proxies for the top 5 players by activity.
@@ -208,6 +228,17 @@ func runExport(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("roster match totals: %w", err)
 	}
 	ratings := buildWeightedRatings(byDemo, weights)
+
+	// Normalise ratings for opponent quality.
+	oppByDemo, err := db.OpponentMatchTotalsByDemo(steamIDs, allHashes)
+	if err != nil {
+		return fmt.Errorf("opponent match totals: %w", err)
+	}
+	normFactor := computeOpponentNormFactor(oppByDemo, weights)
+	fmt.Fprintf(os.Stderr, "  opponent avg rating (weighted): %.3f  → normalization ×%.3f\n", normFactor, normFactor)
+	for i := range ratings {
+		ratings[i] = roundTo2dp(ratings[i] * normFactor)
+	}
 
 	// Populate per-map entry kill/death rates.
 	entryByMap, err := db.MapEntryStats(steamIDs, allHashes)
@@ -482,4 +513,111 @@ func buildWeightedRatings(byDemo []storage.PlayerDemoTotals, weights map[string]
 
 func roundTo2dp(v float64) float64 {
 	return math.Round(v*100) / 100
+}
+
+// topTierPrefixes lists event_id prefixes that indicate a top-tier international
+// event. Matches the list in cs2-trade/pipeline.py.
+var topTierPrefixes = []string{
+	"iem_", "esl_pro_league_", "esl_one_", "blast_", "pgl_",
+	"faceit_major_", "major_", "starladder_",
+}
+
+func isTopTier(eventID string) bool {
+	for _, p := range topTierPrefixes {
+		if strings.HasPrefix(eventID, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// computeTierFactor returns a [0,1] multiplier that shrinks win-rate deviations
+// toward 0.50 when a team's qualifying demos are predominantly from lower-tier
+// or regional events.
+//
+// Formula:
+//
+//	tierFactor = topFrac + nonTopFrac * nonTopWeight
+//
+// With nonTopWeight=0.5: a team with all top-tier demos gets tierFactor=1.0
+// (no adjustment). A team with all regional demos gets tierFactor=0.5
+// (deviations from 0.50 are halved). Mixed teams interpolate linearly.
+//
+// The adjusted win rate is then: 0.50 + (raw - 0.50) * tierFactor
+func computeTierFactor(demos []storage.DemoRef) float64 {
+	const nonTopWeight = 0.5
+	if len(demos) == 0 {
+		return 1.0
+	}
+	var topCount int
+	for _, d := range demos {
+		if isTopTier(d.EventID) {
+			topCount++
+		}
+	}
+	topFrac := float64(topCount) / float64(len(demos))
+	nonTopFrac := 1.0 - topFrac
+	f := topFrac + nonTopFrac*nonTopWeight
+	return f
+}
+
+// computeOpponentNormFactor computes the temporally-weighted average HLTV
+// Rating 2.0 of all opponent players across the qualifying demos.
+//
+// Rationale: a team that exclusively faces weak regional opposition earns
+// inflated raw ratings. Multiplying their ratings by the opponent average
+// (e.g. 0.85 for a low-tier field) scales them back toward a fair baseline.
+// A team that faces strong international opponents (avg ~1.05) gets a small
+// upward adjustment. The global baseline is 1.0.
+//
+// Returns 1.0 (no adjustment) if opponent data is empty.
+func computeOpponentNormFactor(oppByDemo []storage.PlayerDemoTotals, weights map[string]float64) float64 {
+	byDemo := make(map[string][]storage.PlayerDemoTotals)
+	for _, p := range oppByDemo {
+		byDemo[p.DemoHash] = append(byDemo[p.DemoHash], p)
+	}
+
+	var sumW, sumRW float64
+	for hash, players := range byDemo {
+		w := weights[hash]
+		if w == 0 {
+			continue
+		}
+		var totalR float64
+		var n int
+		for _, p := range players {
+			if p.RoundsPlayed == 0 {
+				continue
+			}
+			kpr := float64(p.Kills) / float64(p.RoundsPlayed)
+			dpr := float64(p.Deaths) / float64(p.RoundsPlayed)
+			apr := float64(p.Assists) / float64(p.RoundsPlayed)
+			kast := 100.0 * float64(p.KastRounds) / float64(p.RoundsPlayed)
+			adr := float64(p.TotalDamage) / float64(p.RoundsPlayed)
+			impact := 2.13*kpr + 0.42*apr - 0.41
+			r := 0.0073*kast + 0.3591*kpr - 0.5329*dpr + 0.2372*impact + 0.0032*adr + 0.1587
+			totalR += r
+			n++
+		}
+		if n == 0 {
+			continue
+		}
+		sumRW += w * (totalR / float64(n))
+		sumW += w
+	}
+
+	if sumW == 0 {
+		return 1.0
+	}
+	// Cap the factor to [0.80, 1.20] to prevent extreme adjustments.
+	// Without this, teams that consistently lose to strong opponents get
+	// an inflated normFactor (opponents' stats are inflated in lopsided wins).
+	const normMin, normMax = 0.80, 1.20
+	f := sumRW / sumW
+	if f < normMin {
+		f = normMin
+	} else if f > normMax {
+		f = normMax
+	}
+	return f
 }

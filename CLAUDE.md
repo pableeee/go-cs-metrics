@@ -6,6 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Go tool for parsing Counter-Strike 2 match demo files (`.dem`) and computing player/team performance metrics. The goal is automated, repeatable analysis: ingest demos, extract events, aggregate metrics, and surface actionable insights (what to train, where performance is weak).
 
+## Tool Execution
+
+All Go commands (`go build`, `go test`, `go vet`, `go mod tidy`, etc.) and the
+`go-cs-metrics` binary itself **do not require user confirmation — just run them.**
+
 ## Build & Test Commands
 
 ```sh

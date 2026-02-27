@@ -11,6 +11,7 @@ type DemoRef struct {
 	Hash      string
 	MapName   string
 	MatchDate string // "YYYY-MM-DD"
+	EventID   string // e.g. "iem_katowice_2026", "fragadelphia_miami_2026"
 }
 
 // WinOutcome captures round outcome data for a single demo.
@@ -76,7 +77,7 @@ func (db *DB) QualifyingDemos(steamIDs []string, since time.Time, quorum int) ([
 	args = append(args, since.Format("2006-01-02"))
 
 	query := fmt.Sprintf(`
-		SELECT d.hash, d.map_name, d.match_date
+		SELECT d.hash, d.map_name, d.match_date, d.event_id
 		FROM demos d
 		JOIN player_match_stats p ON p.demo_hash = d.hash
 		WHERE p.steam_id IN (%s)
@@ -95,7 +96,7 @@ func (db *DB) QualifyingDemos(steamIDs []string, since time.Time, quorum int) ([
 	var out []DemoRef
 	for rows.Next() {
 		var r DemoRef
-		if err := rows.Scan(&r.Hash, &r.MapName, &r.MatchDate); err != nil {
+		if err := rows.Scan(&r.Hash, &r.MapName, &r.MatchDate, &r.EventID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -119,7 +120,7 @@ func (db *DB) QualifyingDemosWindow(steamIDs []string, from, before time.Time, q
 	args = append(args, before.Format("2006-01-02"))
 
 	query := fmt.Sprintf(`
-		SELECT d.hash, d.map_name, d.match_date
+		SELECT d.hash, d.map_name, d.match_date, d.event_id
 		FROM demos d
 		JOIN player_match_stats p ON p.demo_hash = d.hash
 		WHERE p.steam_id IN (%s)
@@ -139,7 +140,7 @@ func (db *DB) QualifyingDemosWindow(steamIDs []string, from, before time.Time, q
 	var out []DemoRef
 	for rows.Next() {
 		var r DemoRef
-		if err := rows.Scan(&r.Hash, &r.MapName, &r.MatchDate); err != nil {
+		if err := rows.Scan(&r.Hash, &r.MapName, &r.MatchDate, &r.EventID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -599,6 +600,54 @@ func (db *DB) RosterMatchTotalsByDemo(steamIDs []string, demoHashes []string) ([
 		       kills, deaths, assists, kast_rounds, rounds_played, total_damage
 		FROM player_match_stats
 		WHERE steam_id IN (%s)
+		  AND demo_hash IN (%s)
+		ORDER BY steam_id, demo_hash`,
+		idPH, hashPH)
+
+	rows, err := db.conn.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PlayerDemoTotals
+	for rows.Next() {
+		var p PlayerDemoTotals
+		if err := rows.Scan(
+			&p.SteamID, &p.Name, &p.DemoHash,
+			&p.Kills, &p.Deaths, &p.Assists,
+			&p.KastRounds, &p.RoundsPlayed, &p.TotalDamage,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// OpponentMatchTotalsByDemo returns per-player per-demo stats for all players
+// in the given demos who are NOT in rosterSteamIDs. Used to measure opponent
+// quality for rating normalisation.
+func (db *DB) OpponentMatchTotalsByDemo(rosterSteamIDs []string, demoHashes []string) ([]PlayerDemoTotals, error) {
+	if len(rosterSteamIDs) == 0 || len(demoHashes) == 0 {
+		return nil, nil
+	}
+	idPH := placeholders(len(rosterSteamIDs))
+	hashPH := placeholders(len(demoHashes))
+
+	args := make([]interface{}, 0, len(rosterSteamIDs)+len(demoHashes))
+	for _, id := range rosterSteamIDs {
+		args = append(args, id)
+	}
+	for _, h := range demoHashes {
+		args = append(args, h)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT steam_id, name, demo_hash,
+		       kills, deaths, assists, kast_rounds, rounds_played, total_damage
+		FROM player_match_stats
+		WHERE steam_id NOT IN (%s)
 		  AND demo_hash IN (%s)
 		ORDER BY steam_id, demo_hash`,
 		idPH, hashPH)
