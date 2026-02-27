@@ -25,6 +25,13 @@ func Open(path string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
+	// SQLite is single-writer; one connection per process is correct.
+	// busy_timeout makes concurrent processes wait instead of immediately returning SQLITE_BUSY.
+	conn.SetMaxOpenConns(1)
+	if _, err := conn.Exec("PRAGMA busy_timeout = 30000"); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("set busy timeout: %w", err)
+	}
 	if _, err := conn.Exec(schemaSQL); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)

@@ -29,7 +29,7 @@ func TestDemoInsertAndExists(t *testing.T) {
 		TScore:    10,
 	}
 
-	if err := db.InsertDemo(summary); err != nil {
+	if err := db.InsertDemo(summary, ""); err != nil {
 		t.Fatalf("InsertDemo: %v", err)
 	}
 
@@ -55,7 +55,7 @@ func TestListDemos(t *testing.T) {
 		{DemoHash: "h2", MapName: "de_mirage", MatchDate: "2025-02-01", MatchType: "Premier", Tickrate: 128},
 	}
 	for _, s := range summaries {
-		if err := db.InsertDemo(s); err != nil {
+		if err := db.InsertDemo(s, ""); err != nil {
 			t.Fatalf("InsertDemo: %v", err)
 		}
 	}
@@ -76,7 +76,7 @@ func TestListDemos(t *testing.T) {
 func TestGetDemoByPrefix(t *testing.T) {
 	db := openMemDB(t)
 
-	db.InsertDemo(model.MatchSummary{DemoHash: "deadbeef1234", MapName: "de_inferno", MatchDate: "2025-01-01", MatchType: "Wingman", Tickrate: 64})
+	db.InsertDemo(model.MatchSummary{DemoHash: "deadbeef1234", MapName: "de_inferno", MatchDate: "2025-01-01", MatchType: "Wingman", Tickrate: 64}, "")
 
 	s, err := db.GetDemoByPrefix("deadb")
 	if err != nil {
@@ -101,7 +101,7 @@ func TestGetDemoByPrefix(t *testing.T) {
 func TestPlayerMatchStatsRoundTrip(t *testing.T) {
 	db := openMemDB(t)
 
-	db.InsertDemo(model.MatchSummary{DemoHash: "h1", MapName: "de_dust2", MatchDate: "2025-01-01", MatchType: "Competitive", Tickrate: 64})
+	db.InsertDemo(model.MatchSummary{DemoHash: "h1", MapName: "de_dust2", MatchDate: "2025-01-01", MatchType: "Competitive", Tickrate: 64}, "")
 
 	stats := []model.PlayerMatchStats{
 		{
@@ -189,7 +189,7 @@ func TestMapNameNormalization(t *testing.T) {
 				MatchDate: "2025-01-01",
 				MatchType: "pro",
 				Tickrate:  128,
-			}); err != nil {
+			}, ""); err != nil {
 				t.Fatalf("InsertDemo: %v", err)
 			}
 
@@ -226,9 +226,9 @@ func TestInsertIdempotency(t *testing.T) {
 	db := openMemDB(t)
 
 	s := model.MatchSummary{DemoHash: "idem1", MapName: "de_nuke", MatchDate: "2025-01-01", MatchType: "Competitive", Tickrate: 64}
-	db.InsertDemo(s)
+	db.InsertDemo(s, "")
 	// Second insert should not error (INSERT OR REPLACE).
-	if err := db.InsertDemo(s); err != nil {
+	if err := db.InsertDemo(s, ""); err != nil {
 		t.Errorf("second InsertDemo should succeed (idempotent): %v", err)
 	}
 }
