@@ -35,7 +35,7 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `list` | List all stored demos |
 | `info <demo.dem>...` | Show file metadata (size, mtime), quick hash, and DB status without parsing; instant even for large files |
 | `show <hash-prefix>` | Re-display a stored demo's tables |
-| `fetch` | *(disabled — not registered as a CLI command; non-functional due to platform auth changes; see `docs/demo-download-automation.md`)* |
+| `fetch` | *(disabled — not registered as a CLI command; non-functional due to platform auth changes)* |
 | `player <steamid64>...` | Cross-match aggregate report for one or more players (`--map`, `--since`, `--last` filters); `--top N` appends the top N players by Rating 2.0 proxy for comparison |
 | `rounds <hash-prefix> <steamid64>` | Per-round drill-down with buy type, flags (POST_PLT, CLUTCH_1vN); `--clutch`, `--post-plant`, `--side`, `--buy` filters |
 | `trend <steamid64>` | Chronological per-match performance trend (KPR/ADR/KAST% + TTK/TTD/CS%) |
@@ -43,7 +43,7 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `drop [--force]` | Delete the metrics database file; requires `--force` to actually delete |
 | `analyze player <steamid64> <question>` | AI-powered grounded analysis of a player's aggregate stats (requires `ANTHROPIC_API_KEY`) |
 | `analyze match <hash-prefix> <question>` | AI-powered grounded analysis of a single match (requires `ANTHROPIC_API_KEY`) |
-| `export` | Export team stats as a simbo3-compatible JSON file (`--team`, `--players`, `--roster`, `--since`, `--quorum`, `--out`); see Integration section |
+| `export` | Export team stats as a JSON file compatible with Monte Carlo match simulators (`--team`, `--players`, `--roster`, `--since`, `--quorum`, `--out`) |
 | `summary` | High-level database overview: match count, date range, map breakdown, top players, match type distribution |
 
 All commands share `--db` to point at an alternate database and `--silent` / `-s` to suppress column legends (verbose output is on by default).
@@ -88,10 +88,10 @@ The demoinfocs library allocates heavily during parsing — each demo creates a 
 Always set `GOMEMLIMIT` when parsing a directory of demos:
 
 ```sh
-GOMEMLIMIT=4294967296 ./go-cs-metrics parse --dir ~/demos/pro/iem_krakow_2026/ --workers 1
+GOMEMLIMIT=4294967296 ./go-cs-metrics parse --dir /path/to/event/ --workers 1
 ```
 
-- `GOMEMLIMIT=4294967296` (4 GB) tells the GC to scavenge and return pages to the OS aggressively. It does **not** hard-cap RSS at 4 GB — it caps the managed heap, so RSS can still exceed 4 GB for pathological demos (observed peak: ~19–24 GB during krakow batch). What it prevents is RSS ballooning to ~29 GB and triggering the WSL OOM killer.
+- `GOMEMLIMIT=4294967296` (4 GB) tells the GC to scavenge and return pages to the OS aggressively. It does **not** hard-cap RSS at 4 GB — it caps the managed heap, so RSS can still exceed 4 GB for pathological demos (observed peak: ~19–24 GB during a large batch). What it prevents is RSS ballooning to ~29 GB and triggering the WSL OOM killer.
 - `--workers 1` ensures demos are parsed sequentially. After each demo, `debug.FreeOSMemory()` is called explicitly (in the sequential code path) and all references to the parsed `RawMatch` are nil'd before the next parse begins.
 - **Do not use `--workers > 1`** for large event directories — N concurrent parses multiply the GC pressure and reliably OOM.
 
@@ -116,8 +116,8 @@ The `parse --dir` command computes a SHA-256 of the first 64 KB of each file and
 - **`player` command aggregation**: integers summed directly; float medians averaged across matches (approximate); FHHS rate recomputed from raw segment count totals (accurate).
 - **Schema migrations**: new columns are added automatically at startup via `ALTER TABLE ... ADD COLUMN ... DEFAULT` statements (duplicate-column errors silently ignored). Existing rows default to `0`/`''`. A full DB rebuild is only required if a column type or a table structure changes (not just additions).
 - **Parse skips already-stored demos**: `parse --dir` skips any demo whose hash is already in the `demos` table. Passing the same directory again after a schema migration will NOT backfill new columns for old rows — see below.
-- **`match_date` comes from file mtime**: the parser reads the `.dem` file's filesystem modification time, not anything inside the demo. `demoget sync` sets mtime to the extraction date (today). Always run `demoget touch-dates --out <dir>` after downloading and before the first parse, otherwise every demo gets `match_date = today` and `--since` filtering in `export` breaks silently.
-- **`--dir` is not recursive**: only finds `.dem` files directly in the given directory. Pass each event subdirectory individually (`--dir ~/demos/pro/iem_cologne_2025/`), not the parent.
+- **`match_date` comes from file mtime**: the parser reads the `.dem` file's filesystem modification time, not anything inside the demo. Always fix file mtimes to actual match dates before the first parse, otherwise every demo gets `match_date = today` and `--since` filtering in `export` breaks silently.
+- **`--dir` is not recursive**: only finds `.dem` files directly in the given directory. Pass each event subdirectory individually, not the parent.
 
 ## Recovering from a Schema Migration (New Columns on Old Demos)
 
@@ -161,12 +161,11 @@ FROM player_match_stats;
 
 ### Recovering from wrong match_dates (forgot touch-dates)
 
-If `demoget touch-dates` was not run before parsing, all affected demos will have `match_date = <parse date>` instead of the actual match date. This silently breaks `export --since` filtering. There is no SQL-only fix — the correct date can only be obtained by re-parsing the file after fixing its mtime.
+If file mtimes were not fixed before parsing, all affected demos will have `match_date = <parse date>` instead of the actual match date. This silently breaks `export --since` filtering. There is no SQL-only fix — the correct date can only be obtained by re-parsing the file after fixing its mtime.
 
 ```sh
 # 1. Fix file mtimes
-cd ~/git/cs-demo-downloader
-./demoget touch-dates --out ~/demos/pro
+./demoget touch-dates --out /path/to/demos
 
 # 2. Delete affected demos from DB (all tables, respecting foreign keys)
 #    Adjust the WHERE clause to target the specific wrong date(s)
@@ -179,7 +178,7 @@ DELETE FROM demos WHERE match_date = 'YYYY-MM-DD' AND tier = 'pro';
 "
 
 # 3. Re-parse (now reads correct mtime from fixed files)
-for dir in ~/demos/pro/*/; do
+for dir in /path/to/demos/*/; do
   ./go-cs-metrics parse --dir "$dir" --tier pro
 done
 ```
@@ -196,57 +195,31 @@ The parser won't re-parse demos already in the DB. To force a full rebuild:
 ```sh
 ./go-cs-metrics drop --force
 # Then re-parse all events:
-for dir in ~/demos/pro/*/; do
+for dir in /path/to/demos/*/; do
   ./go-cs-metrics parse --dir "$dir" --tier pro
 done
 ```
 
-Note: `--dir` does a flat search for `.dem` files — pass each event subdirectory individually, not the parent `pro/` directory.
-
-## Known Issues / Improvement Backlog
-
-See `docs/prediction-analysis.md` for a full analysis of model accuracy vs actual results across three tier-1 events (Budapest Major 2025, IEM Krakow 2026, PGL Cluj-Napoca 2026).
-
-Priority issues identified:
-1. ~~**simbo3 map pool is stale**~~ — fixed: pool updated to Mirage/Inferno/Nuke/Ancient/Overpass/Dust2/Train.
-2. ~~**PARIVISION stand-in skew**~~ — fixed: PARIVISION and Spirit rosters updated to correct 5-player lineups.
-3. ~~**Single-event DB**~~ — fixed: 7 events ingested (612 demos, Feb 2025 – Feb 2026), covering pre-Budapest window with ESL Pro League S22, PGL Masters Bucharest 2025, and BLAST Rivals S2.
-4. ~~**MOUZ systematically overrated**~~ — addressed by multi-event coverage; group-stage-only stats no longer dominate the export window.
+Note: `--dir` does a flat search for `.dem` files — pass each event subdirectory individually, not the parent directory.
 
 ## Documentation Rule
 
 **Every change — bug fix, feature, refactor, or behavioural tweak — must be reflected in ALL relevant docs files before the work is considered done.** This includes `README.md`, `docs/architecture.md`, and any other file under `docs/` that covers the modified area. When adding or changing a command, flag, metric, output table, or pipeline behaviour, update those files as part of the same change. Do not commit code changes without the corresponding doc updates.
 
-### Cross-repo pipeline flow doc
+## Export: Rating 2.0 Proxy
 
-The workspace-level file **`docs/cs2-pipeline-flow.md`** (in this repo) is the authoritative
-specification for the full three-tool pipeline. **Update it in the same commit** whenever
-you change anything that affects the pipeline flow from this repo, including:
+The `export` command computes a community approximation of HLTV Rating 2.0:
 
-- Any field added to or removed from `simbo3MapStats` or `simbo3TeamStats` in `cmd/export.go`
-- Any new query function added to `internal/storage/export_queries.go` that feeds into export
-- Any prior or fallback value used when computing export fields
-- Any flag added, removed, or changed on the `export` command
-- The `--dir` non-recursive behaviour, the mtime/match_date contract, or GOMEMLIMIT guidance
-- The metrics.db schema (any table or column referenced by the export pipeline)
-
-## Integration with cs2-pro-match-simulator (simbo3)
-
-The `export` command bridges go-cs-metrics to
-[cs2-pro-match-simulator](https://github.com/pable/cs2-pro-match-simulator).
-
-New files added for this feature:
-- `internal/storage/export_queries.go` — `QualifyingDemos`, `MapWinOutcomes`, `RoundSideStats`, `RosterMatchTotals` query functions + supporting structs (`DemoRef`, `WinOutcome`, `SideStats`, `PlayerTotals`)
-- `cmd/export.go` — Cobra command, roster resolution, per-map stat aggregation, Rating 2.0 proxy computation, JSON output
-
-**Rating proxy** (community approximation of HLTV Rating 2.0):
 ```
 Rating ≈ 0.0073*KAST% + 0.3591*KPR − 0.5329*DPR + 0.2372*Impact + 0.0032*ADR + 0.1587
 Impact  = 2.13*KPR + 0.42*APR − 0.41
 ```
-Top 5 players by rounds_played are selected; extras padded with 1.00. **Not official HLTV math** — expect ±0.05–0.10 deviation.
 
-See `README.md` Integration section and `docs/integration-simbo3.md` for full usage.
+Key files:
+- `internal/storage/export_queries.go` — `QualifyingDemos`, `MapWinOutcomes`, `RoundSideStats`, `RosterMatchTotals`
+- `cmd/export.go` — roster resolution, per-map stat aggregation, Rating 2.0 proxy, JSON output
+
+Top 5 players by `rounds_played` are selected; extras padded with 1.00. **Not official HLTV math** — expect ±0.05–0.10 deviation.
 
 ## Key Validation Rules
 
