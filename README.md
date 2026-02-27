@@ -614,7 +614,7 @@ The top 5 players by rounds played are selected. Fewer than 5 are padded with `1
 ```sh
 ./go-cs-metrics export \
   --team "NaVi" \
-  --players "76561198034202275,76561197992321696,76561198040577200,76561198121220486,76561198155383140" \
+  --players "76561198XXXXXXXXX,76561198XXXXXXXXX,76561198XXXXXXXXX,76561198XXXXXXXXX,76561198XXXXXXXXX" \
   --since 90 \
   --quorum 3 \
   --out navi.json
@@ -624,7 +624,7 @@ The top 5 players by rounds played are selected. Fewer than 5 are padded with `1
 
 ```sh
 # navi-roster.json
-# {"team": "Natus Vincere", "players": ["76561198034202275", ...]}
+# {"team": "Natus Vincere", "players": ["76561198XXXXXXXXX", ...]}
 
 ./go-cs-metrics export --roster navi-roster.json --out navi.json
 ```
@@ -697,8 +697,7 @@ forecasts CS2 BO3 match outcomes via Monte Carlo simulation.
   --out faze.json
 
 # 3. Run the simulator
-cd ~/git/cs2-pro-match-simulator
-go run ./cmd/simbo3/ run --teamA navi.json --teamB faze.json
+./simbo3 run --teamA navi.json --teamB faze.json
 ```
 
 **Roster file format:**
@@ -707,11 +706,11 @@ go run ./cmd/simbo3/ run --teamA navi.json --teamB faze.json
 {
   "team": "Natus Vincere",
   "players": [
-    "76561198034202275",
-    "76561197992321696",
-    "76561198040577200",
-    "76561198121220486",
-    "76561198155383140"
+    "76561198XXXXXXXXX",
+    "76561198XXXXXXXXX",
+    "76561198XXXXXXXXX",
+    "76561198XXXXXXXXX",
+    "76561198XXXXXXXXX"
   ]
 }
 ```
