@@ -19,6 +19,7 @@ var (
 	exportPlayers  string
 	exportRoster   string
 	exportSince    int
+	exportBefore   string
 	exportQuorum   int
 	exportOut      string
 	exportHalfLife float64
@@ -77,7 +78,7 @@ Player ratings are estimated using the community approximation of HLTV Rating 2.
   Impact  = 2.13*KPR + 0.42*APR - 0.41
 
 Example:
-  csmetrics export --team "NaVi" --players "76561198034202275,76561197992321696,..." --out navi.json
+  csmetrics export --team "NaVi" --players "76561198XXXXXXXXX,76561198XXXXXXXXX,..." --out navi.json
   csmetrics export --roster navi.json --out navi-simbo3.json`,
 	RunE: runExport,
 }
@@ -87,6 +88,7 @@ func init() {
 	exportCmd.Flags().StringVar(&exportPlayers, "players", "", "comma-separated SteamID64s")
 	exportCmd.Flags().StringVar(&exportRoster, "roster", "", `roster JSON file: {"team":"...","players":["...",...]}`)
 	exportCmd.Flags().IntVar(&exportSince, "since", 90, "look-back window in days")
+	exportCmd.Flags().StringVar(&exportBefore, "before", "", "exclude demos on or after this date (YYYY-MM-DD); --since becomes relative to this date")
 	exportCmd.Flags().IntVar(&exportQuorum, "quorum", 3, "min roster players per demo to include it")
 	exportCmd.Flags().StringVar(&exportOut, "out", "", "output file path (default: stdout)")
 	exportCmd.Flags().Float64Var(&exportHalfLife, "half-life", 35,
@@ -111,11 +113,28 @@ func runExport(_ *cobra.Command, _ []string) error {
 	}
 	defer db.Close()
 
-	since := time.Now().AddDate(0, 0, -exportSince)
-	fmt.Fprintf(os.Stderr, "Querying demos for %d players since %s (quorum=%d)...\n",
-		len(steamIDs), since.Format("2006-01-02"), exportQuorum)
+	// refDate is today unless --before is set, in which case it anchors the
+	// look-back window and the temporal decay to the cutoff date.
+	refDate := time.Now()
+	if exportBefore != "" {
+		refDate, err = time.Parse("2006-01-02", exportBefore)
+		if err != nil {
+			return fmt.Errorf("parse --before date %q: %w", exportBefore, err)
+		}
+	}
 
-	demos, err := db.QualifyingDemos(steamIDs, since, exportQuorum)
+	since := refDate.AddDate(0, 0, -exportSince)
+
+	var demos []storage.DemoRef
+	if exportBefore != "" {
+		fmt.Fprintf(os.Stderr, "Querying demos for %d players [%s, %s) (quorum=%d)...\n",
+			len(steamIDs), since.Format("2006-01-02"), refDate.Format("2006-01-02"), exportQuorum)
+		demos, err = db.QualifyingDemosWindow(steamIDs, since, refDate, exportQuorum)
+	} else {
+		fmt.Fprintf(os.Stderr, "Querying demos for %d players since %s (quorum=%d)...\n",
+			len(steamIDs), since.Format("2006-01-02"), exportQuorum)
+		demos, err = db.QualifyingDemos(steamIDs, since, exportQuorum)
+	}
 	if err != nil {
 		return fmt.Errorf("query qualifying demos: %w", err)
 	}
@@ -154,7 +173,7 @@ func runExport(_ *cobra.Command, _ []string) error {
 		allHashes = append(allHashes, d.Hash)
 	}
 
-	weights := demoWeights(demos, time.Now(), exportHalfLife)
+	weights := demoWeights(demos, refDate, exportHalfLife)
 
 	// Compute per-map stats.
 	maps := make(map[string]simbo3MapStats, len(byMap))
