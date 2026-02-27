@@ -1,3 +1,9 @@
+# -------------------------------------------------------
+# Privacy rule: NO personal paths, SteamIDs, local config,
+# or cross-repo integration data in this repo.
+# Keep those in the private workspace repo.
+# -------------------------------------------------------
+
 # Build output
 go-cs-metrics
 go-cs-metrics.exe
@@ -7,6 +13,15 @@ go-cs-metrics.exe
 
 # Generated team export files (session output, not source)
 team_exports/
+
+# Roster files (contain SteamID64s — live in private workspace)
+rosters/
+
+# Backtest datasets (operational match data — live in private workspace)
+backtest/
+
+# Stray team export / session output JSONs at repo root
+/*.json
 
 # Local Claude Code settings (may contain personal paths/IDs)
 .claude/
