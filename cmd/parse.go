@@ -406,19 +406,9 @@ func runParse(cmd *cobra.Command, args []string) error {
 		tag := fmt.Sprintf("[%d/%d] %s", i+1, len(paths), name)
 
 		if isCSDEM(p) {
-			// .csdem.gz: read the embedded DemoHash for the pre-check.
-			uf, err := model.LoadUnifiedMatchFile(p)
-			if err != nil {
-				// Unreadable file — add to pending so the worker reports the error.
-				pendingJobs = append(pendingJobs, parseJob{idx: i, path: p})
-				continue
-			}
-			found, dbErr := db.DemoExists(uf.Match.DemoHash)
-			if dbErr == nil && found {
-				fmt.Fprintf(os.Stdout, "  %s  skipped (already stored)\n", tag)
-				skipped++
-				continue
-			}
+			// .csdem.gz: no cheap pre-check equivalent — loading the full file just
+			// to read the hash is as expensive as letting the worker do it.
+			// Send directly to workers; writeDemoResult handles the DemoExists check.
 			pendingJobs = append(pendingJobs, parseJob{idx: i, path: p})
 			continue
 		}
