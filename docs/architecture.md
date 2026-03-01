@@ -13,7 +13,10 @@ go-cs-metrics/
 ├── main.go                          # entry point — delegates to cmd.Execute()
 ├── cmd/
 │   ├── root.go                      # root cobra command, --db flag
-│   ├── parse.go                     # "parse <demo.dem>" — full pipeline
+│   ├── parse.go                     # "parse <demo.dem|.csdem.gz>" — full pipeline; accepts both formats
+│   ├── convert.go                   # "convert --dir <dir> --tier <tier>" — .dem → .csdem.gz (one demoinfocs pass, no DB)
+│   ├── replay.go                    # "replay --dir <dir>" — .csdem.gz → DB (no demoinfocs, 32+ workers)
+│   ├── info.go                      # "info <demo.dem|.csdem.gz>" — file metadata + DB status
 │   ├── fetch.go                     # "fetch" — FACEIT demo download (non-functional, not registered; see docs/demo-download-automation.md)
 │   ├── fetchmm.go                   # "fetch-mm" — Valve MM share code walker (non-functional download; not registered)
 │   ├── list.go                      # "list" — tabulate stored demos
@@ -24,7 +27,12 @@ go-cs-metrics/
 │   ├── sql.go                       # "sql <query>" — ad-hoc SQL query
 │   └── drop.go                      # "drop [--force]" — delete the metrics database
 └── internal/
-    ├── model/model.go               # all shared types; no external deps
+    ├── model/
+    │   ├── model.go                 # all shared types; no external deps (RawMatch, PlayerMatchStats, …)
+    │   ├── unified.go               # UnifiedMatchFile + all Unified* event structs
+    │   └── unified_io.go            # Save(path) + LoadUnifiedMatchFile(path)
+    ├── converter/
+    │   └── converter.go             # ConvertDemo: single demoinfocs pass → *UnifiedMatchFile
     ├── parser/parser.go             # .dem → RawMatch
     ├── aggregator/
     │   ├── aggregator.go            # RawMatch → PlayerMatchStats + all segment types
@@ -48,17 +56,22 @@ All business logic lives under `internal/`. The `cmd/` layer is thin: it only wi
 
 ## Processing Pipeline
 
+Two equivalent paths feed the same aggregator → storage → report chain:
+
 ```
-.dem file
-    │
-    ▼
-[parser]       ParseDemo(path, matchType) → *RawMatch
-    │           • SHA-256 hash for idempotency key
-    │           • streams events; builds flat slices of raw events
-    │           • captures: kills, damages (with positions), flashes,
-    │             first-sight angles, weapon fires (with positions)
-    │
-    ▼
+.dem file                              .csdem.gz file
+    │                                       │
+    ▼                                       ▼
+[parser]   ParseDemo → *RawMatch    [model] LoadUnifiedMatchFile
+    │       • SHA-256 hash                  │  → *UnifiedMatchFile
+    │       • streams events                │  → .ToRawMatch() → *RawMatch
+    │       • RAM: 4–29 GB peak             │  • RAM: negligible
+    │       • workers: 1 (forced)           │  • workers: 32+
+    │       • speed: ~3 min/demo            │  • speed: ~130 ms/demo
+    │                                       │
+    └──────────────────┬────────────────────┘
+                       │  *RawMatch
+                       ▼
 [aggregator]   Aggregate(raw) → ([]PlayerMatchStats, []PlayerRoundStats,
     │                            []PlayerWeaponStats, []PlayerDuelSegment, error)
     │           • 11-pass algorithm over raw event slices
@@ -83,7 +96,58 @@ The parser and aggregator are intentionally decoupled by the `RawMatch` intermed
 
 - The aggregator can be unit-tested with hand-crafted fixtures (no demo file required).
 - The parser can be swapped or extended without touching metric logic.
+- `.csdem.gz` files bypass the demoinfocs parser entirely — `ToRawMatch()` reconstructs the same `*RawMatch` struct from the pre-extracted event slices.
 - Future output targets (JSON, HTML, Postgres) only need to replace the storage/report stages.
+
+---
+
+## `.csdem.gz` Intermediate Format
+
+### Motivation
+
+Parsing `.dem` files with demoinfocs-golang is memory-intensive (~10 GB of cumulative allocation per demo) and constrained to a single worker to avoid OOM. For large datasets (hundreds to thousands of demos), this becomes a bottleneck:
+
+| Scenario | `.dem` via `parse` | `.csdem.gz` via `replay`/`parse` |
+|---|---|---|
+| Workers | 1 (forced — OOM with >1) | 32+ (no demoinfocs pressure) |
+| RAM peak | 4–29 GB per demo | negligible |
+| GOMEMLIMIT required | yes | no |
+| Speed (1,100 demos) | ~55 hours | **~80 seconds (~2,500× faster)** |
+| Re-ingest after schema change | re-parse .dem (slow) | `replay` from .csdem.gz (fast) |
+
+### Format
+
+`.csdem.gz` is a gzip-compressed JSON file (`UnifiedMatchFile`) containing:
+
+- **Metadata** — embedded SHA-256 hash, map name, match date, tier
+- **Event slices** — kills, damages, flashes, weapon fires, first-sight angles, rounds (same events as demoinfocs produces, pre-extracted and serialised)
+
+The format is intentionally a lossless intermediate: `ToRawMatch()` reconstructs the identical `*RawMatch` the parser would have produced, so the aggregator sees no difference between the two ingestion paths.
+
+### Disk savings
+
+Validated across 1,123 professional CS2 demos:
+
+| | `.dem` | `.csdem.gz` | Ratio |
+|---|---|---|---|
+| Total size | 519 GB | 821 MB | **647× smaller** |
+| Per-demo range | 200 MB – 1.1 GB | 0.4 MB – 1.5 MB | 545–718× |
+
+### Accuracy
+
+Results are identical across all tables for 989 demos parsed both ways. Two demos (< 0.3%) show a 1-round discrepancy in `won_round` on the final round of the match only — a known last-round edge case in the converter.
+
+### Recommended workflow
+
+```sh
+# Step 1 — one-time convert (requires GOMEMLIMIT; --workers 1)
+GOMEMLIMIT=4294967296 ./go-cs-metrics convert --dir ~/demos/pro/<event>/ --tier pro
+
+# Step 2 — fast re-ingest (no GOMEMLIMIT; --workers 32)
+./go-cs-metrics replay --dir ~/demos/converted-pro/<event>/
+```
+
+See `docs/csdem-spec.md` for the full format specification.
 
 ---
 
@@ -316,7 +380,10 @@ All tables use `CREATE TABLE IF NOT EXISTS`; new columns are added at startup vi
 Subcommands, all accessed via a persistent `--db` flag on the root command:
 
 ```
-csmetrics parse [<demo.dem>...] [--dir <dir>] [--player <steamid64>] [--type Label] [--tier Label] [--baseline] [--workers N]
+csmetrics parse [<demo.dem|.csdem.gz>...] [--dir <dir>] [--player <steamid64>] [--type Label] [--tier Label] [--baseline] [--workers N]
+csmetrics convert --dir <event_dir> --tier <tier> [--out-dir <dir>] [--workers N] [--force]
+csmetrics replay --dir <event_dir> [--workers N] [--force]
+csmetrics info <demo.dem|.csdem.gz> [...]
 csmetrics list
 csmetrics show <hash-prefix> [--player <steamid64>]
 csmetrics player <steamid64> [<steamid64>...] [--map <name>] [--since <date>] [--last <N>] [--top <N>] [--top-min <N>]

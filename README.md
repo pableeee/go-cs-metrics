@@ -12,6 +12,9 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
 - [Quick Start](#quick-start)
 - [Commands](#commands)
   - [parse](#parse)
+  - [convert](#convert)
+  - [replay](#replay)
+  - [info](#info)
   - [list](#list)
   - [show](#show)
   - [player](#player)
@@ -56,6 +59,7 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
 - **Cross-match player analysis** — `player` command aggregates stats across all stored demos for one or more SteamID64s, producing a full overview + duel + AWP + FHHS + aim timing report per player.
 - **Per-round drill-down** — `rounds` command shows per-round side, buy type, K/A/damage, KAST, and tactical flags for one player in one match, with a buy profile summary.
 - **Per-weapon breakdown** — kills, HS%, assists, deaths, damage, hits, damage-per-hit per weapon per player.
+- **`.csdem.gz` intermediate format** — `convert` extracts all events in a single demoinfocs pass and saves a gzip-compressed JSON file 545–718× smaller than the raw `.dem`. The `replay` command re-ingests from `.csdem.gz` without the original demo: 1,100 demos in ~80 seconds with 32 workers vs ~55 hours sequential `.dem` parsing (~2,500× faster). No RAM constraint, no `GOMEMLIMIT` needed.
 - **Idempotent ingestion** — demos are SHA-256 hashed; re-parsing the same file is a no-op.
 - **SQLite storage** — portable single-file database at `~/.csmetrics/metrics.db`; no server required.
 - **Focus mode** — any output command accepts `--player <SteamID64>` to highlight your row and filter weapon tables to your stats only.
@@ -89,23 +93,39 @@ The binary is named `go-cs-metrics` (or `csmetrics` if you install via `go insta
 
 ## Quick Start
 
+**Single demo (quickest start):**
+
 ```sh
-# 1. Parse a demo and store its metrics
+# Parse a demo and store its metrics
 ./go-cs-metrics parse /path/to/match.dem
 
-# 2. Highlight your stats (replace with your Steam ID64)
+# Highlight your stats (replace with your Steam ID64)
 ./go-cs-metrics parse /path/to/match.dem --player 76561198XXXXXXXXX
+```
 
-# 3. List all stored demos
+**Batch workflow (preferred for large event directories):**
+
+```sh
+# Step 1 — convert .dem → .csdem.gz (one demoinfocs pass per demo, ~650× smaller)
+GOMEMLIMIT=4294967296 ./go-cs-metrics convert --dir ~/demos/pro/iem_katowice_2025/ --tier pro
+
+# Step 2 — ingest into DB (no demoinfocs, 32 workers, ~80 s for 1,100 demos)
+./go-cs-metrics replay --dir ~/demos/pro/iem_katowice_2025/
+```
+
+**Querying stored data:**
+
+```sh
+# List all stored demos
 ./go-cs-metrics list
 
-# 4. Re-inspect a stored match by its hash prefix
+# Re-inspect a stored match by its hash prefix
 ./go-cs-metrics show a3f9c2 --player 76561198XXXXXXXXX
 
-# 5. Cross-match analysis for a player (all stored demos)
+# Cross-match analysis for a player (all stored demos)
 ./go-cs-metrics player 76561198XXXXXXXXX
 
-# 6. Compare two players side-by-side
+# Compare two players side-by-side
 ./go-cs-metrics player 76561198XXXXXXXXX 76561198012345678
 ```
 
@@ -129,15 +149,17 @@ All commands share two global flags:
 
 ### parse
 
-Parse one or more `.dem` files, aggregate all metrics, and store the results. If a demo was already parsed (same SHA-256 hash), the cached results are shown (single mode) or the file is skipped (bulk mode).
+Parse one or more `.dem` or `.csdem.gz` files, aggregate all metrics, and store the results. If a demo was already parsed (same SHA-256 hash), the cached results are shown (single mode) or the file is skipped (bulk mode).
 
 ```
-./go-cs-metrics parse [<demo.dem>...] [--dir <directory>] [flags]
+./go-cs-metrics parse [<demo.dem|.csdem.gz>...] [--dir <directory>] [flags]
 ```
+
+Accepts both raw `.dem` files and pre-converted `.csdem.gz` files interchangeably. For batch work with `.csdem.gz`, the dedicated [`replay`](#replay) command is faster (skips the per-file duplicate check overhead and supports many workers without RAM pressure). For `.dem` files, `--workers 1` is strongly recommended to avoid OOM — see [Memory behaviour](#known-limitations--roadmap).
 
 **Bulk mode** — triggered when more than one demo is provided (via multiple args or `--dir`). Full tables are suppressed; a compact status line is printed per demo instead, followed by a stored/skipped/failed summary. Parse and aggregate elapsed times are included in the status line.
 
-**Parallelism** — in bulk mode, demos are parsed and aggregated in parallel across multiple worker goroutines (default: `NumCPU`). Database writes are always serialised on the main goroutine, so there is no SQLite contention regardless of worker count. Use `--workers 1` to restore sequential behaviour (e.g. on HDDs where parallel disk seeks hurt throughput).
+**Parallelism** — in bulk mode, demos are parsed and aggregated in parallel across multiple worker goroutines (default: `NumCPU`). Database writes are always serialised on the main goroutine, so there is no SQLite contention regardless of worker count. For `.dem` files use `--workers 1` to prevent OOM. For `.csdem.gz` files, 32+ workers are safe and recommended.
 
 **Timing** — after each successfully processed demo, elapsed times for the parse and aggregate stages (and their total) are printed. In single mode this appears as a line before the tables; in bulk mode it is appended to the per-demo status line.
 
@@ -147,8 +169,8 @@ Parse one or more `.dem` files, aggregate all metrics, and store the results. If
 | `--type` | `Competitive` | Match type label stored in the database (e.g. `FACEIT`, `Scrim`) |
 | `--tier` | `""` | Tier label for baseline comparisons (e.g. `faceit-5`, `premier-10k`); auto-detected from an `event.json` sidecar in the demo directory if present |
 | `--baseline` | `false` | Mark this demo as a baseline reference match |
-| `--dir` | `""` | Directory containing `.dem` files to parse in bulk (all `*.dem` files inside) |
-| `--workers` | `0` | Number of parallel parse+aggregate workers in bulk mode (`0` = `NumCPU`) |
+| `--dir` | `""` | Directory containing `.dem` and/or `.csdem.gz` files to parse in bulk |
+| `--workers` | `0` | Number of parallel parse+aggregate workers in bulk mode (`0` = `NumCPU`); use `1` for `.dem` files |
 
 **Output tables:**
 
@@ -204,6 +226,82 @@ Done: 2 stored, 1 skipped, 0 failed (total 3)
 
 ---
 
+### convert
+
+Convert `.dem` files to the `.csdem.gz` intermediate format. This runs one demoinfocs parse pass per demo and writes a gzip-compressed JSON file alongside (or separately from) the original. No database writes occur.
+
+```
+./go-cs-metrics convert --dir <event_dir> --tier <tier> [flags]
+```
+
+`.csdem.gz` files are ~545–718× smaller than the raw `.dem` and contain all events needed by both `go-cs-metrics` (re-ingest via `replay`) and `cs-demo-viewer` (2D replay). Once converted, the original `.dem` files can be deleted to reclaim disk space.
+
+> **Memory:** Each `.dem` parse still allocates 4–29 GB peak. Always set `GOMEMLIMIT` and keep `--workers 1` during conversion.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | *(required)* | Directory containing `.dem` files |
+| `--tier` | *(required)* | Tier label embedded in the output file (e.g. `pro`) |
+| `--out-dir` | same as `--dir` | Output directory for `.csdem.gz` files |
+| `--workers` | `1` | Parallel conversion workers; keep at 1 to avoid OOM |
+| `--force` | `false` | Overwrite existing `.csdem.gz` files |
+
+**Example:**
+
+```sh
+# Convert all demos in an event directory (sequential, GOMEMLIMIT required)
+GOMEMLIMIT=4294967296 ./go-cs-metrics convert --dir ~/demos/pro/iem_katowice_2025/ --tier pro
+
+# Write .csdem.gz to a separate output directory
+GOMEMLIMIT=4294967296 ./go-cs-metrics convert \
+  --dir ~/demos/pro/iem_katowice_2025/ \
+  --tier pro \
+  --out-dir ~/demos/converted-pro/iem_katowice_2025/
+```
+
+```
+Converting 47 demos with 1 worker(s)...
+  [1/47] astralis-vs-navi-m1-mirage.dem  converted  (2m14.3s)
+  [2/47] g2-vs-vitality-m1-inferno.dem   converted  (1m58.6s)
+  ...
+Done: 47 converted, 0 skipped, 0 failed (total 47)
+```
+
+---
+
+### replay
+
+Ingest `.csdem.gz` files into the database. No demoinfocs is involved — the pre-extracted events are decoded from JSON and fed directly to the aggregator. Supports many parallel workers without RAM pressure.
+
+```
+./go-cs-metrics replay --dir <event_dir> [flags]
+```
+
+This is the fast path for (re-)building the database from a set of `.csdem.gz` files. Benchmark: **1,103 demos in 79 seconds with 32 workers** (~130 ms parse + 1 ms aggregate per demo), compared to ~55 hours for the same demos via `parse --dir` on raw `.dem`.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | *(required)* | Directory containing `.csdem.gz` files |
+| `--workers` | `NumCPU` | Parallel worker count; 32 is a good default |
+| `--force` | `false` | Re-ingest demos already stored in the database |
+
+**Example:**
+
+```sh
+# Fast re-ingest from .csdem.gz files into the DB
+./go-cs-metrics replay --dir ~/demos/converted-pro/iem_katowice_2025/ --workers 32
+```
+
+```
+Parsing 47 demos with 32 worker(s)...
+  [3/47]  g2-vs-vitality-m1-inferno.csdem.gz    stored: Inferno  2025-01-22  ...  (parse 118ms  agg 1ms  total 119ms)
+  [1/47]  astralis-vs-navi-m1-mirage.csdem.gz   stored: Mirage   2025-01-21  ...  (parse 142ms  agg 1ms  total 143ms)
+  ...
+Done: 47 stored, 0 skipped, 0 failed (total 47)
+```
+
+---
+
 ### list
 
 List all demos stored in the database, ordered by match date (newest first).
@@ -250,18 +348,42 @@ Outputs the same tables as `parse` with one addition: a **per-side breakdown** (
 
 ### info
 
-Show basic metadata and database status for one or more demo files without performing a full parse. Only the first 64 KB of each file is read (for the quick hash), so it completes in milliseconds even for multi-gigabyte demos.
+Show basic metadata and database status for one or more demo files without performing a full parse.
 
 ```
-./go-cs-metrics info <demo.dem> [<demo.dem>...]
+./go-cs-metrics info <demo.dem|.csdem.gz> [<demo.dem|.csdem.gz>...]
 ```
 
-**Example output — demo already stored:**
+- **`.dem` files** — only the first 64 KB is read to compute the quick hash; completes in milliseconds even for multi-gigabyte demos.
+- **`.csdem.gz` files** — the embedded SHA-256 hash and metadata (map, date, tier, player count) are read directly from the file header; no demo parsing needed.
+
+**Example output — `.dem` already stored:**
 ```
 File:   g2-vs-mouz-m1-overpass.dem
 Size:   1.1 GB
 Mtime:  2026-01-15 14:32:00
 Hash:   abc123def456789a  (quick, 64 KB)
+Status: IN DB
+  Hash:  abc123def456789a
+  Map:   de_overpass
+  Date:  2026-01-15
+  Score: CT 8 — T 13
+  Tier:  pro
+  Event: iem_krakow_2026
+  Tick:  64
+```
+
+**Example output — `.csdem.gz` already stored:**
+```
+File:   g2-vs-mouz-m1-overpass.csdem.gz
+Size:   1.5 MB
+Mtime:  2026-01-15 14:45:00
+Format: csdem.gz
+Hash:   abc123def456789a  (embedded SHA-256)
+Map:    de_overpass
+Date:   2026-01-15
+Tier:   pro
+Players:10
 Status: IN DB
   Hash:  abc123def456789a
   Map:   de_overpass
@@ -281,7 +403,7 @@ Hash:   xyz789abc123def4  (quick, 64 KB)
 Status: NOT IN DB
 ```
 
-Useful for quickly checking whether a demo is already in the database before deciding whether to run `parse`.
+Useful for quickly checking whether a demo is already in the database before deciding whether to run `parse` or `replay`.
 
 ---
 
@@ -913,42 +1035,60 @@ Schema migrations run automatically at startup via `ALTER TABLE ... ADD COLUMN` 
 
 ## Architecture
 
+Two ingestion paths feed the same pipeline:
+
 ```
-.dem file
-    │
-    ▼
-┌──────────────────────────────┐
-│  parser (internal/parser)    │  tick-level event extraction
-│  demoinfocs-golang v4        │  kills, damage, flashes,
-│  SHA-256 hash for dedup      │  weapon fires, spotted flags
-└──────────────┬───────────────┘
-               │  RawMatch
-               ▼
-┌──────────────────────────────┐
-│  aggregator (internal/       │  11-pass aggregation:
-│  aggregator)                 │  trade annotation + timing,
-│                              │  opening kills, round W/L,
-│                              │  KAST, crosshair, duel engine,
-│                              │  AWP classifier, flash quality,
-│                              │  role, TTK/TTD, counter-strafe
-└──────────────┬───────────────┘
-               │  PlayerMatchStats
-               │  PlayerRoundStats
-               │  PlayerWeaponStats
-               ▼
-┌──────────────────────────────┐
-│  storage (internal/storage)  │  SQLite via modernc/sqlite
-│  schema.sql embedded         │  INSERT OR REPLACE idempotency
-│  WAL + foreign keys          │  automatic migrations
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│  report (internal/report)           │  terminal tables via
-│  cmd/{parse,show,list,player,rounds, │  tablewriter, focus highlighting
-│      trend,sql,analyze}             │
-└─────────────────────────────────────┘
+.dem file                              .csdem.gz file
+    │                                       │
+    ▼                                       ▼
+┌──────────────────────────────┐   ┌─────────────────────────────┐
+│  parser (internal/parser)    │   │  converter (internal/       │
+│  demoinfocs-golang v4        │   │  converter) → convert cmd   │
+│  SHA-256 hash for dedup      │   │                             │
+│  RAM: 4–29 GB peak/demo      │   │  model.LoadUnifiedMatchFile │
+│  workers: 1 (forced)         │   │  + ToRawMatch()             │
+└──────────────┬───────────────┘   │  RAM: negligible            │
+               │                   │  workers: 32+               │
+               │                   └────────────┬────────────────┘
+               │                                │
+               └──────────────┬─────────────────┘
+                              │  *RawMatch
+                              ▼
+               ┌──────────────────────────────┐
+               │  aggregator (internal/       │  11-pass aggregation:
+               │  aggregator)                 │  trade annotation + timing,
+               │                              │  opening kills, round W/L,
+               │                              │  KAST, crosshair, duel engine,
+               │                              │  AWP classifier, flash quality,
+               │                              │  role, TTK/TTD, counter-strafe
+               └──────────────┬───────────────┘
+                              │  PlayerMatchStats
+                              │  PlayerRoundStats
+                              │  PlayerWeaponStats
+                              ▼
+               ┌──────────────────────────────┐
+               │  storage (internal/storage)  │  SQLite via modernc/sqlite
+               │  schema.sql embedded         │  INSERT OR REPLACE idempotency
+               │  WAL + foreign keys          │  automatic migrations
+               └──────────────┬───────────────┘
+                              │
+                              ▼
+               ┌──────────────────────────────────────┐
+               │  report (internal/report)             │  terminal tables via
+               │  cmd/{parse,show,list,player,rounds,  │  tablewriter, focus
+               │      trend,sql,analyze,replay}        │  highlighting
+               └──────────────────────────────────────┘
 ```
+
+**`.csdem.gz` performance (validated on 1,123 pro demos):**
+
+| | `.dem` via `parse` | `.csdem.gz` via `replay` |
+|---|---|---|
+| Disk size | 519 GB total | **821 MB total (647× smaller)** |
+| Workers | 1 (forced) | 32+ |
+| RAM peak | 4–29 GB/demo | negligible |
+| Speed (1,100 demos) | ~55 hours | **~80 seconds (~2,500×)** |
+| Per-demo | ~3 min (parse) + 1 s (agg) | ~130 ms (decode) + 1 ms (agg) |
 
 **Package layout:**
 
@@ -957,7 +1097,10 @@ Schema migrations run automatically at startup via `ALTER TABLE ... ADD COLUMN` 
 ├── main.go
 ├── cmd/
 │   ├── root.go      # cobra root, --db flag
-│   ├── parse.go     # parse command
+│   ├── parse.go     # parse command (accepts .dem and .csdem.gz)
+│   ├── convert.go   # convert command (.dem → .csdem.gz, one demoinfocs pass)
+│   ├── replay.go    # replay command (.csdem.gz → DB, no demoinfocs)
+│   ├── info.go      # info command (file metadata + DB status; both formats)
 │   ├── list.go      # list command
 │   ├── show.go      # show command
 │   ├── player.go    # player command (cross-match aggregate report, --map/--since/--last)
@@ -966,8 +1109,9 @@ Schema migrations run automatically at startup via `ALTER TABLE ... ADD COLUMN` 
 │   ├── sql.go       # sql command (raw SQL query)
 │   └── analyze.go   # analyze command (AI-powered grounded analysis)
 ├── internal/
-│   ├── model/       # data model structs (RawMatch, PlayerMatchStats, ...)
-│   ├── parser/      # demo parsing, crosshair angle computation
+│   ├── model/       # data model structs (RawMatch, PlayerMatchStats, UnifiedMatchFile, …)
+│   ├── converter/   # ConvertDemo: single demoinfocs pass → *UnifiedMatchFile
+│   ├── parser/      # .dem → RawMatch (demoinfocs-golang v4)
 │   ├── aggregator/  # multi-pass metric aggregation
 │   ├── storage/     # SQLite schema + queries
 │   ├── report/      # terminal table rendering
@@ -1053,5 +1197,6 @@ go test ./internal/aggregator/... -run TestTradeKill -v
 - ~~**Round W/L tracking**~~ — done (`won_round` per round, aggregated as win rate; buy-profile and post-plant win rates in `analyze`).
 - ~~**Trade timing**~~ — done (median ms between trade kill and the traded kill, and between trade death and teammate's retaliatory kill; surfaced in `analyze` context).
 - ~~**AI-powered analysis**~~ — done (`analyze player` / `analyze match` via Anthropic API with grounded context; terminal markdown rendering via `glamour`).
+- ~~**`.csdem.gz` intermediate format**~~ — done (`convert` + `replay` commands; 647× disk savings, ~2,500× faster re-ingestion, 32-worker parallel support; `parse` and `info` accept both `.dem` and `.csdem.gz`).
 - **Percentile comparison**: given a tier corpus, automatically show where your stats land (p25 / p50 / p75).
 - **Local web UI**: lightweight browser-based dashboard for non-terminal users.
