@@ -43,13 +43,17 @@ var parseCmd = &cobra.Command{
 	Short: "Parse one or more CS2 demo files and store metrics",
 	Long: `Parse CS2 demo files and store all metrics in the database.
 
+Accepts both raw .dem files (full demoinfocs parse) and .csdem.gz unified
+intermediate files (fast load via LoadUnifiedMatchFile + ToRawMatch).
+
 Single file:
   parse match.dem
+  parse match.csdem.gz
 
 Multiple files (shell glob):
   parse /replays/*.dem
 
-Whole directory:
+Whole directory (picks up both .dem and .csdem.gz):
   parse --dir /path/to/replays
 
 When more than one demo is provided, full tables are suppressed and a
@@ -65,7 +69,7 @@ func init() {
 	parseCmd.Flags().StringVar(&matchType, "type", "Competitive", "match type label")
 	parseCmd.Flags().StringVar(&parseTier, "tier", "", "tier label for baseline comparisons (e.g. faceit-5)")
 	parseCmd.Flags().BoolVar(&parseBaseline, "baseline", false, "mark this demo as a baseline reference match")
-	parseCmd.Flags().StringVar(&parseDir, "dir", "", "directory containing .dem files to parse in bulk")
+	parseCmd.Flags().StringVar(&parseDir, "dir", "", "directory containing .dem or .csdem.gz files to parse in bulk")
 	parseCmd.Flags().IntVar(&parseWorkers, "workers", 0, "parallel parse+aggregate workers (0 = NumCPU)")
 }
 
@@ -117,6 +121,11 @@ type parseResult struct {
 	err          error
 }
 
+// isCSDEM reports whether path is a .csdem.gz unified demo file.
+func isCSDEM(path string) bool {
+	return strings.HasSuffix(path, ".csdem.gz")
+}
+
 // runDemoWorker consumes parseJobs, calls ParseDemo+Aggregate for each, and
 // sends a parseResult to results. It exits when jobs is closed.
 func runDemoWorker(jobs <-chan parseJob, results chan<- parseResult, mt string) {
@@ -124,7 +133,17 @@ func runDemoWorker(jobs <-chan parseJob, results chan<- parseResult, mt string) 
 		res := parseResult{idx: job.idx, path: job.path, quickHash: job.quickHash}
 
 		t0 := time.Now()
-		raw, err := parser.ParseDemo(job.path, mt)
+		var raw *model.RawMatch
+		var err error
+		if isCSDEM(job.path) {
+			var uf *model.UnifiedMatchFile
+			uf, err = model.LoadUnifiedMatchFile(job.path)
+			if err == nil {
+				raw = uf.Match.ToRawMatch()
+			}
+		} else {
+			raw, err = parser.ParseDemo(job.path, mt)
+		}
 		res.parseElapsed = time.Since(t0)
 		if err != nil {
 			res.err = fmt.Errorf("parse: %w", err)
@@ -163,7 +182,7 @@ func runParse(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("read dir: %w", err)
 		}
 		for _, e := range entries {
-			if !e.IsDir() && filepath.Ext(e.Name()) == ".dem" {
+			if !e.IsDir() && (filepath.Ext(e.Name()) == ".dem" || strings.HasSuffix(e.Name(), ".csdem.gz")) {
 				paths = append(paths, filepath.Join(parseDir, e.Name()))
 			}
 		}
@@ -251,38 +270,61 @@ func runParse(cmd *cobra.Command, args []string) error {
 		demoPath := paths[0]
 		fmt.Fprintf(os.Stdout, "Parsing %s...\n", demoPath)
 
-		// Cheap pre-check: hash only the first 64 KB before the expensive full parse.
-		singleQuickHash, _ := parser.QuickHash(demoPath)
-		if singleQuickHash != "" {
-			found, fullHash, _ := db.DemoExistsByQuickHash(singleQuickHash)
-			if found {
-				restoreStderr()
-				if err := db.UpdateDemoMeta(fullHash, singleQuickHash, matchType, effectiveTier, effectiveEventID, parseBaseline); err != nil {
+		var singleQuickHash string
+		var raw *model.RawMatch
+		var parseElapsed time.Duration
+
+		if isCSDEM(demoPath) {
+			// .csdem.gz: read embedded hash for the pre-check; no quick-hash concept.
+			t0 := time.Now()
+			uf, loadErr := model.LoadUnifiedMatchFile(demoPath)
+			parseElapsed = time.Since(t0)
+			restoreStderr()
+			if loadErr != nil {
+				return fmt.Errorf("load csdem: %w", loadErr)
+			}
+			exists, dbErr := db.DemoExists(uf.Match.DemoHash)
+			if dbErr != nil {
+				return fmt.Errorf("check demo: %w", dbErr)
+			}
+			if exists {
+				fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", uf.Match.DemoHash[:12])
+				return showByHash(db, uf.Match.DemoHash)
+			}
+			raw = uf.Match.ToRawMatch()
+		} else {
+			// .dem: cheap pre-check via quick-hash before the expensive full parse.
+			singleQuickHash, _ = parser.QuickHash(demoPath)
+			if singleQuickHash != "" {
+				found, fullHash, _ := db.DemoExistsByQuickHash(singleQuickHash)
+				if found {
+					restoreStderr()
+					if err := db.UpdateDemoMeta(fullHash, singleQuickHash, matchType, effectiveTier, effectiveEventID, parseBaseline); err != nil {
+						return fmt.Errorf("update demo meta: %w", err)
+					}
+					fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", fullHash[:12])
+					return showByHash(db, fullHash)
+				}
+			}
+			t0 := time.Now()
+			var parseErr error
+			raw, parseErr = parser.ParseDemo(demoPath, matchType)
+			parseElapsed = time.Since(t0)
+			restoreStderr() // no more library stderr output after this point
+			if parseErr != nil {
+				return fmt.Errorf("parse demo: %w", parseErr)
+			}
+			exists, dbErr := db.DemoExists(raw.DemoHash)
+			if dbErr != nil {
+				return fmt.Errorf("check demo: %w", dbErr)
+			}
+			if exists {
+				if err := db.UpdateDemoMeta(raw.DemoHash, singleQuickHash, matchType, effectiveTier, effectiveEventID, parseBaseline); err != nil {
 					return fmt.Errorf("update demo meta: %w", err)
 				}
-				fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", fullHash[:12])
-				return showByHash(db, fullHash)
+				fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", raw.DemoHash[:12])
+				return showByHash(db, raw.DemoHash)
 			}
-		}
-
-		t0 := time.Now()
-		raw, err := parser.ParseDemo(demoPath, matchType)
-		parseElapsed := time.Since(t0)
-		restoreStderr() // no more library stderr output after this point
-		if err != nil {
-			return fmt.Errorf("parse demo: %w", err)
-		}
-
-		exists, err := db.DemoExists(raw.DemoHash)
-		if err != nil {
-			return fmt.Errorf("check demo: %w", err)
-		}
-		if exists {
-			if err := db.UpdateDemoMeta(raw.DemoHash, singleQuickHash, matchType, effectiveTier, effectiveEventID, parseBaseline); err != nil {
-				return fmt.Errorf("update demo meta: %w", err)
-			}
-			fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", raw.DemoHash[:12])
-			return showByHash(db, raw.DemoHash)
 		}
 
 		t1 := time.Now()
@@ -363,6 +405,25 @@ func runParse(cmd *cobra.Command, args []string) error {
 		name := filepath.Base(p)
 		tag := fmt.Sprintf("[%d/%d] %s", i+1, len(paths), name)
 
+		if isCSDEM(p) {
+			// .csdem.gz: read the embedded DemoHash for the pre-check.
+			uf, err := model.LoadUnifiedMatchFile(p)
+			if err != nil {
+				// Unreadable file — add to pending so the worker reports the error.
+				pendingJobs = append(pendingJobs, parseJob{idx: i, path: p})
+				continue
+			}
+			found, dbErr := db.DemoExists(uf.Match.DemoHash)
+			if dbErr == nil && found {
+				fmt.Fprintf(os.Stdout, "  %s  skipped (already stored)\n", tag)
+				skipped++
+				continue
+			}
+			pendingJobs = append(pendingJobs, parseJob{idx: i, path: p})
+			continue
+		}
+
+		// .dem: cheap quick-hash pre-check.
 		qh, err := parser.QuickHash(p)
 		if err == nil {
 			found, fullHash, dbErr := db.DemoExistsByQuickHash(qh)
@@ -463,7 +524,17 @@ func runParse(cmd *cobra.Command, args []string) error {
 		for _, job := range pendingJobs {
 			res := parseResult{idx: job.idx, path: job.path, quickHash: job.quickHash}
 			t0 := time.Now()
-			raw, parseErr := parser.ParseDemo(job.path, matchType)
+			var raw *model.RawMatch
+			var parseErr error
+			if isCSDEM(job.path) {
+				var uf *model.UnifiedMatchFile
+				uf, parseErr = model.LoadUnifiedMatchFile(job.path)
+				if parseErr == nil {
+					raw = uf.Match.ToRawMatch()
+				}
+			} else {
+				raw, parseErr = parser.ParseDemo(job.path, matchType)
+			}
 			res.parseElapsed = time.Since(t0)
 			if parseErr != nil {
 				res.err = fmt.Errorf("parse: %w", parseErr)

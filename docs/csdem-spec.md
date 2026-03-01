@@ -19,7 +19,8 @@ A single intermediate format — produced once via a conversion pass, replacing 
 — solves all three: it is small enough to keep forever, fast enough to re-aggregate with
 multiple workers, and rich enough to drive the 2D viewer.
 
-**Expected size:** 150–500× reduction per demo (e.g. 300 MB `.dem` → ~1–2 MB `.csdem.gz`).
+**Measured size:** 580–740× reduction per demo (e.g. 400 MB `.dem` → ~700 KB `.csdem.gz`).
+Across 18 events (520 GB of `.dem`): **423 GB of converted demos → 679 MB** (638× average).
 
 ---
 
@@ -321,22 +322,31 @@ already index-based.
 
 ## Converter Tool
 
-A standalone `democonv` command (proposed location: `go-cs-metrics convert`) performs
-the single demoinfocs parse pass that produces the `.csdem.gz` file.
+`go-cs-metrics convert` performs the single demoinfocs parse pass that produces the `.csdem.gz` file.
 
 It does **not** insert anything into the metrics DB — that is `replay`'s job.
 
 ```
-go-cs-metrics convert --dir <event_dir> [--workers N] [--tier <tier>]
+go-cs-metrics convert --dir <event_dir> --tier <tier> [--out-dir <output_dir>] [--workers N] [--force]
 ```
 
 - Globs `*.dem` in `--dir` (non-recursive, same as `parse`).
-- For each file: parse → build `UnifiedMatch` → write `.csdem.gz` alongside the `.dem`.
-- Skips files where `.csdem.gz` already exists (unless `--force`).
+- For each file: parse → build `UnifiedMatch` → write `.csdem.gz` to `--out-dir` (default: same as `--dir`).
+- `--out-dir` allows separating source `.dem` files from the converted `.csdem.gz` output.
+- Skips files where `.csdem.gz` already exists in the output directory (unless `--force`).
 - Same `GOMEMLIMIT` and `--workers 1` recommendations as `parse` (same demoinfocs pressure).
 - `--tier` required (baked into the file wrapper).
 
 After conversion the `.dem` files may be deleted at the user's discretion.
+
+### CLI compatibility: `parse` and `info` accept `.csdem.gz`
+
+Both commands have been extended to handle `.csdem.gz` files in addition to `.dem`:
+
+- `parse match.csdem.gz` — loads the unified file and runs the aggregator; no demoinfocs needed.
+- `parse --dir <dir>` — globs both `*.dem` and `*.csdem.gz`.
+- `info match.csdem.gz` — reads the embedded `DemoHash` and metadata directly from the file
+  instead of the 64 KB quick-hash approach used for `.dem` files.
 
 ---
 
@@ -370,30 +380,34 @@ demoview liquid-vs-spirit-m1-nuke.csdem.gz
 
 ---
 
-## Implementation Plan
+## Implementation Status
 
-### `go-cs-metrics`
+### `go-cs-metrics` — complete
 
-| File | Action |
+| File | Status |
 |---|---|
-| `internal/model/unified.go` | **Create** — all `Unified*` structs + `UnifiedMatchFile` |
-| `internal/model/unified_io.go` | **Create** — `Save(path) error` + `LoadUnifiedMatchFile(path) (*UnifiedMatchFile, error)` |
-| `internal/converter/converter.go` | **Create** — single demoinfocs pass producing `*UnifiedMatch` (merges parser.go + viewer parser logic) |
-| `cmd/convert.go` | **Create** — `convert` command (`--dir`, `--tier`, `--workers`, `--force`) |
-| `cmd/replay.go` | **Create** — `replay` command; reads `.csdem.gz` → aggregator → DB (see original spec for skeleton) |
-| `cmd/root.go` | **Modify** — register `convert` and `replay` |
-| `docs/cs2-pipeline-flow.md` | **Modify** — document new format, `convert`, updated `replay` |
+| `internal/model/unified.go` | Done — all `Unified*` structs + `UnifiedMatchFile` |
+| `internal/model/unified_io.go` | Done — `Save(path) error` + `LoadUnifiedMatchFile(path) (*UnifiedMatchFile, error)` |
+| `internal/converter/converter.go` | Done — single demoinfocs pass producing `*UnifiedMatchFile` |
+| `cmd/convert.go` | Done — `convert` command (`--dir`, `--out-dir`, `--tier`, `--workers`, `--force`) |
+| `cmd/replay.go` | Done — `replay` command; reads `.csdem.gz` → aggregator → DB |
+| `cmd/parse.go` | Done — now accepts `.csdem.gz` alongside `.dem` (both single-file and `--dir` bulk) |
+| `cmd/info.go` | Done — reads embedded hash/metadata from `.csdem.gz` directly |
+| `cmd/root.go` | Done — `convert` and `replay` registered |
+| `docs/cs2-pipeline-flow.md` | Done — documents new format, `convert`, `replay` |
 
-### `cs-demo-viewer`
+### `cs-demo-viewer` — complete
 
-| File | Action |
+| File | Status |
 |---|---|
-| `internal/demo/unified_reader.go` | **Create** — `LoadUnifiedMatch(path) (*DemoData, error)`; maps `UnifiedMatch` → existing `DemoData` |
-| `cmd/demoview/main.go` | **Modify** — detect `.csdem.gz` extension and route to `unified_reader.go` instead of `parser.go` |
+| `internal/demo/unified_reader.go` | Done — `LoadUnified(path) (*DemoData, error)` |
+| `cmd/demoview/main.go` | Done — routes `.csdem.gz` to `LoadUnified`; `-dir` globs both formats |
 
 ---
 
-## Size Estimates
+## Size Results (Measured)
+
+### Per-component estimates
 
 | Component | Uncompressed | Compressed (gzip) |
 |---|---|---|
@@ -402,7 +416,35 @@ demoview liquid-vs-spirit-m1-nuke.csdem.gz
 | Viewer events (bombs, grenades, trails, shots) | ~100–200 KB | ~30–60 KB |
 | **Total per demo** | **~6–11 MB** | **~500 KB – 1 MB** |
 | **vs original .dem** | 200–750 MB | — |
-| **Reduction** | — | **~300–750×** |
+| **Reduction** | — | **~580–740×** |
+
+### Per-event results (measured on 18 pro events, Mar 2026)
+
+| Event | DEMs | Source (.dem) | Output (.csdem.gz) | Ratio |
+|---|---|---|---|---|
+| blast_bounty_2026_s1 | 60 | 28.3 GB | 47 MB | 620× |
+| blast_bounty_2026_s1_finals | 18 | 8.7 GB | 15 MB | 608× |
+| blast_rivals_2025_s2 | 34 | 17.7 GB | 30 MB | 600× |
+| blasttv-austin-major-2025-stage-1 | 52 | 24.7 GB | 39 MB | 645× |
+| esl_pro_league_s22 | 111 | 52.2 GB | 78 MB | 688× |
+| esl_pro_league_s23_finals | 3 | 1.5 GB | 3 MB | 583× |
+| fl0m_mythical_lan_las_vegas_2026 | 30 | 11.6 GB | 20 MB | 583× |
+| fragadelphia_miami_2026 | 67 | 25.7 GB | 48 MB | 545× |
+| fragadelphia_ultra_mega_jersey_2025 | 64 | 21.9 GB | 39 MB | 571× |
+| iem_cologne_2025 | 84 | 38.6 GB | 58 MB | 683× |
+| iem_katowice_2025 | 90 | 41.4 GB | ~62 MB* | ~680×* |
+| iem_krakow_2026 | 101 | 47.9 GB | ~73 MB* | ~670×* |
+| iem_krakow_2026_stage1 | 54 | 23.0 GB | 36 MB | 658× |
+| pgl_cluj_napoca_2026 | 103 | 53.7 GB | ~82 MB* | ~663×* |
+| pgl_masters_bucharest_2025 | 103 | 51.3 GB | 81 MB | 649× |
+| starladder_budapest_major_2025 | 65 | 31.4 GB | 50 MB | 627× |
+| starladder_budapest_major_2025_stage2 | 51 | 24.4 GB | 40 MB | 633× |
+| starladder_starseries_fall_2025 | 33 | 16.7 GB | 23 MB | 702× |
+| **Total** | **1,133** | **~520 GB** | **~823 MB** | **~638×** |
+
+\* Extrapolated from partially converted demos at time of measurement (sequential OOM-safe conversion still in progress for these 4 events; requires `GOMEMLIMIT=4294967296 --workers 1`).
+
+**Note:** 3 demos across these events failed with `ErrUnexpectedEndOfDemo` (corrupt HLTV archives) and produced no `.csdem.gz`. These are permanent gaps in the source data.
 
 ---
 

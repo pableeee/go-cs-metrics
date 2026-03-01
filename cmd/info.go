@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -15,10 +16,12 @@ import (
 var infoCmd = &cobra.Command{
 	Use:   "info <demo.dem> [<demo.dem>...]",
 	Short: "Show basic info about a demo file and its DB status",
-	Long: `Show file metadata, quick hash, and database status for one or more demo files.
+	Long: `Show file metadata and database status for one or more demo files.
 
-No full parse is performed — only the first 64 KB is read to compute the quick
-hash. If the demo is already stored, its recorded map, date, score, tier, and
+For .dem files: only the first 64 KB is read to compute the quick hash.
+For .csdem.gz files: the embedded SHA-256 hash and metadata are read directly.
+
+If the demo is already stored, its recorded map, date, score, tier, and
 event are printed.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runInfo,
@@ -56,6 +59,10 @@ func printDemoInfo(db *storage.DB, path string) error {
 	fmt.Printf("Size:   %s\n", humanBytes(fi.Size()))
 	fmt.Printf("Mtime:  %s\n", fi.ModTime().Format("2006-01-02 15:04:05"))
 
+	if strings.HasSuffix(path, ".csdem.gz") {
+		return printCSDEMInfo(db, path)
+	}
+
 	qh, err := parser.QuickHash(path)
 	if err != nil {
 		fmt.Printf("Hash:   (error: %v)\n", err)
@@ -77,6 +84,64 @@ func printDemoInfo(db *storage.DB, path string) error {
 	demo, err := db.GetDemoByPrefix(fullHash)
 	if err != nil || demo == nil {
 		fmt.Printf("Status: IN DB  hash=%s  (no metadata)\n", fullHash[:12])
+		return nil
+	}
+
+	fmt.Printf("Status: IN DB\n")
+	fmt.Printf("  Hash:  %s\n", demo.DemoHash[:16])
+	fmt.Printf("  Map:   %s\n", demo.MapName)
+	fmt.Printf("  Date:  %s\n", demo.MatchDate)
+	fmt.Printf("  Score: CT %d — T %d\n", demo.CTScore, demo.TScore)
+	if demo.Tier != "" {
+		fmt.Printf("  Tier:  %s\n", demo.Tier)
+	}
+	if demo.EventID != "" {
+		fmt.Printf("  Event: %s\n", demo.EventID)
+	}
+	fmt.Printf("  Tick:  %.0f\n", demo.Tickrate)
+
+	players, err := db.GetPlayerMatchStats(demo.DemoHash)
+	if err == nil && len(players) > 0 {
+		fmt.Println()
+		printInfoRoster(players)
+	}
+	return nil
+}
+
+// printCSDEMInfo prints info about a .csdem.gz file and its DB status.
+// It reads the embedded metadata directly from the file rather than using
+// the quick-hash approach used for .dem files.
+func printCSDEMInfo(db *storage.DB, path string) error {
+	uf, err := model.LoadUnifiedMatchFile(path)
+	if err != nil {
+		fmt.Printf("Format: csdem.gz (load error: %v)\n", err)
+		fmt.Printf("Status: UNKNOWN\n")
+		return nil
+	}
+	m := uf.Match
+
+	fmt.Printf("Format: csdem.gz\n")
+	fmt.Printf("Hash:   %s  (embedded SHA-256)\n", m.DemoHash[:16])
+	fmt.Printf("Map:    %s\n", m.MapName)
+	fmt.Printf("Date:   %s\n", m.MatchDate)
+	if uf.Tier != "" {
+		fmt.Printf("Tier:   %s\n", uf.Tier)
+	}
+	fmt.Printf("Players:%d\n", len(m.Players))
+
+	exists, dbErr := db.DemoExists(m.DemoHash)
+	if dbErr != nil {
+		fmt.Printf("Status: DB ERROR: %v\n", dbErr)
+		return nil
+	}
+	if !exists {
+		fmt.Printf("Status: NOT IN DB\n")
+		return nil
+	}
+
+	demo, err := db.GetDemoByPrefix(m.DemoHash)
+	if err != nil || demo == nil {
+		fmt.Printf("Status: IN DB  hash=%s  (no metadata)\n", m.DemoHash[:12])
 		return nil
 	}
 
