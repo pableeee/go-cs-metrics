@@ -352,7 +352,7 @@ Same as `parse` — writes to `metrics.db` tables: `demos`, `player_match_stats`
 6. **Opponent norm**: weighted average opponent rating → scales team ratings toward baseline.
 7. **VRS stratification** (if `--vrs-db` present):
    - Each demo's opponent is matched to a VRS team via player name lookup
-   - Demos partitioned: all → vs_top30 → vs_top20
+   - Demos partitioned: all → vs_top30 → vs_top20 → vs_top10
    - Per-stratum map stats and ratings computed separately
    - Own team's VRS rank matched from roster player names
 
@@ -372,7 +372,7 @@ Community approximation of HLTV Rating 2.0. Expect ±0.05–0.10 vs. official HL
 - A match requires ≥ 3/5 player names (case-insensitive). Score of 2 is accepted
   if uniquely the best-matching team (absorbs stand-ins / accent variants).
 - Unmatched demos are excluded from stratified stats but included in all-demos stats.
-- `stderr` reports: `X/N demos matched (top30: Y, top20: Z, unmatched: Z)`.
+- `stderr` reports: `X/N demos matched (top30: Y, top20: Z, top10: W, unmatched: Z)`.
 
 ---
 
@@ -394,12 +394,13 @@ When both team JSONs contain `vrs_global_rank` fields:
 
 - For Team A's stats when facing Team B: selects the best available stratum
   based on Team B's `vrs_global_rank`:
+  - B rank ≤ 10 and `vs_top10` stats present → use `vs_top10`
   - B rank ≤ 20 and `vs_top20` stats present → use `vs_top20`
   - B rank ≤ 30 and `vs_top30` stats present → use `vs_top30`
   - Otherwise → use all-demos baseline
 - Same logic applies symmetrically for Team B facing Team A.
 - Applies to map win%, CT/T win%, and player ratings.
-- Falls back to all-demos stats if the stratum has `matches_3m < 2`.
+- Falls back to the next broader stratum if the current one has `matches_3m < 2`.
 
 ### Key flags
 
@@ -443,7 +444,13 @@ When both team JSONs contain `vrs_global_rank` fields:
       "map_win_pct_vs_top20": 0.55,
       "ct_round_win_pct_vs_top20": 0.50,
       "t_round_win_pct_vs_top20": 0.48,
-      "matches_3m_vs_top20": 4
+      "matches_3m_vs_top20": 4,
+
+      // vs_top10 stratum (omitempty — present only when matches_3m_vs_top10 >= 2)
+      "map_win_pct_vs_top10": 0.50,
+      "ct_round_win_pct_vs_top10": 0.48,
+      "t_round_win_pct_vs_top10": 0.46,
+      "matches_3m_vs_top10": 2
     }
   },
   "generated_at": "2026-02-27T12:00:00Z",
@@ -458,8 +465,10 @@ When both team JSONs contain `vrs_global_rank` fields:
   // VRS-stratified ratings (omitempty)
   "players_rating_vs_top30": [1.12, 1.08, 1.04, 0.99, 0.97],
   "players_rating_vs_top20": [1.09, 1.05, 1.01, 0.96, 0.94],
+  "players_rating_vs_top10": [1.05, 1.01, 0.98, 0.93, 0.91],
   "demo_count_vs_top30": 9,
   "demo_count_vs_top20": 4,
+  "demo_count_vs_top10": 2,
 
   // Own VRS rank (omitempty)
   "vrs_global_rank": 2,
@@ -497,7 +506,14 @@ Community formula, expect ±0.05–0.10 vs. official HLTV.
 
 ### Small Map Samples
 Maps with `matches_3m < 5` default heavily toward 0.50 prior (shrinkage k=10).
-Stratified strata with `matches_3m_vs_top30 < 2` are omitted entirely.
+Stratified strata with fewer than 2 qualifying matches are omitted entirely.
+
+### top10 Stratum Activation
+The `vs_top10` stratum only activates when a team has faced VRS top-10 opponents
+in their qualifying window. For online/regional events (EPL group stage, ESL
+Challenger), this stratum will typically be **inactive for all teams** — the field
+is ranks ~15–60 and contains no top-10 opponents. The stratum engages at IEM,
+BLAST, PGL, and other events where top-10 teams regularly meet each other.
 
 ### Stale Exports
 Check `latest_match_date` in the team JSON before simulating.
@@ -521,8 +537,12 @@ the given directory. Always pass the event subdirectory
 - `LatestSnapshotBefore(matchDate)` is used — up to ~30 days of roster drift
   for monthly snapshots.
 - Unmatched demos are excluded from stratified buckets but included in all-demos stats.
-- Monte, Gaimin, SemperFi (EPL group stage teams) may have zero VRS presence
-  if no VRS snapshot covers the relevant time window.
+- EPL group-stage invitees (e.g. Gaimin Gladiators, SemperFi) often have
+  **zero demos in the metrics DB** — they do not appear at top-tier LAN events.
+  Export will fail even with `--quorum 1`. Use a prior-only JSON for these teams:
+  `{"team":"Name","players_rating2_3m":[1.0,1.0,1.0,1.0,1.0],"maps":{}}`.
+- These teams also typically have zero VRS presence if no snapshot covers their
+  relevant time window.
 
 ### No-Data Teams
 Teams without any parsed demos produce a JSON with `players_rating2_3m: [1.0, ...]`

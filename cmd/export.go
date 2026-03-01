@@ -57,8 +57,10 @@ type simbo3TeamStats struct {
 	// VRS-stratified player ratings — only present when enough demos matched.
 	PlayersRatingVsTop30 []float64 `json:"players_rating_vs_top30,omitempty"`
 	PlayersRatingVsTop20 []float64 `json:"players_rating_vs_top20,omitempty"`
+	PlayersRatingVsTop10 []float64 `json:"players_rating_vs_top10,omitempty"`
 	DemoCountVsTop30     int       `json:"demo_count_vs_top30,omitempty"`
 	DemoCountVsTop20     int       `json:"demo_count_vs_top20,omitempty"`
+	DemoCountVsTop10     int       `json:"demo_count_vs_top10,omitempty"`
 
 	// Own VRS rank (matched by roster player names against the latest snapshot).
 	VRSGlobalRank   int    `json:"vrs_global_rank,omitempty"`
@@ -84,6 +86,10 @@ type simbo3MapStats struct {
 	CTRoundWinPctVsTop20 float64 `json:"ct_round_win_pct_vs_top20,omitempty"`
 	TRoundWinPctVsTop20  float64 `json:"t_round_win_pct_vs_top20,omitempty"`
 	Matches3mVsTop20     int     `json:"matches_3m_vs_top20,omitempty"`
+	MapWinPctVsTop10     float64 `json:"map_win_pct_vs_top10,omitempty"`
+	CTRoundWinPctVsTop10 float64 `json:"ct_round_win_pct_vs_top10,omitempty"`
+	TRoundWinPctVsTop10  float64 `json:"t_round_win_pct_vs_top10,omitempty"`
+	Matches3mVsTop10     int     `json:"matches_3m_vs_top10,omitempty"`
 }
 
 var exportCmd = &cobra.Command{
@@ -333,10 +339,10 @@ func runExport(_ *cobra.Command, _ []string) error {
 	// VRS roster data, then partition hashes into top30/top20 strata and
 	// compute per-stratum map and rating stats.
 	var (
-		vrsRatingsTop30, vrsRatingsTop20 []float64
-		vrsDemoCountTop30, vrsDemoCountTop20 int
-		vrsOwnRank                           int
-		vrsOwnSnapshotDate                   string
+		vrsRatingsTop30, vrsRatingsTop20, vrsRatingsTop10 []float64
+		vrsDemoCountTop30, vrsDemoCountTop20, vrsDemoCountTop10 int
+		vrsOwnRank                                               int
+		vrsOwnSnapshotDate                                       string
 	)
 	vrsStore := openVRSStore(exportVRSDB)
 	if vrsStore != nil {
@@ -355,6 +361,7 @@ func runExport(_ *cobra.Command, _ []string) error {
 		// Partition into strata.
 		top30HashSet := make(map[string]bool)
 		top20HashSet := make(map[string]bool)
+		top10HashSet := make(map[string]bool)
 		matchedCount := 0
 		for hash, rank := range opponentRank {
 			matchedCount++
@@ -364,11 +371,14 @@ func runExport(_ *cobra.Command, _ []string) error {
 			if rank <= 20 {
 				top20HashSet[hash] = true
 			}
+			if rank <= 10 {
+				top10HashSet[hash] = true
+			}
 		}
 		unmatchedCount := len(demos) - matchedCount
 		fmt.Fprintf(os.Stderr,
-			"  VRS matching: %d/%d demos matched (top30: %d, top20: %d, unmatched: %d)\n",
-			matchedCount, len(demos), len(top30HashSet), len(top20HashSet), unmatchedCount)
+			"  VRS matching: %d/%d demos matched (top30: %d, top20: %d, top10: %d, unmatched: %d)\n",
+			matchedCount, len(demos), len(top30HashSet), len(top20HashSet), len(top10HashSet), unmatchedCount)
 
 		// Compute own team's VRS rank from roster player names.
 		rosterNames := playerNamesFromTotals(byDemo)
@@ -434,6 +444,31 @@ func runExport(_ *cobra.Command, _ []string) error {
 				vrsRatingsTop20 = r20
 			}
 		}
+
+		// top10 stratum.
+		if len(top10HashSet) > 0 {
+			top10Hashes := hashSetSlice(top10HashSet)
+			vrsDemoCountTop10 = len(top10Hashes)
+			if err := addStratifiedMapStats(db, steamIDs, byMap, top10HashSet, weights, normPct, maps, "top10"); err != nil {
+				return fmt.Errorf("stratified top10 map stats: %w", err)
+			}
+			if len(top10Hashes) >= exportQuorum {
+				byDemoTop10, err := db.RosterMatchTotalsByDemo(steamIDs, top10Hashes)
+				if err != nil {
+					return fmt.Errorf("roster match totals (top10): %w", err)
+				}
+				oppTop10, err := db.OpponentMatchTotalsByDemo(steamIDs, top10Hashes)
+				if err != nil {
+					return fmt.Errorf("opponent match totals (top10): %w", err)
+				}
+				r10 := buildWeightedRatings(byDemoTop10, weights)
+				nf10 := computeOpponentNormFactor(oppTop10, weights)
+				for i := range r10 {
+					r10[i] = roundTo2dp(r10[i] * nf10)
+				}
+				vrsRatingsTop10 = r10
+			}
+		}
 	}
 	// --- end VRS-stratified stats ---
 
@@ -452,8 +487,10 @@ func runExport(_ *cobra.Command, _ []string) error {
 
 		PlayersRatingVsTop30: vrsRatingsTop30,
 		PlayersRatingVsTop20: vrsRatingsTop20,
+		PlayersRatingVsTop10: vrsRatingsTop10,
 		DemoCountVsTop30:     vrsDemoCountTop30,
 		DemoCountVsTop20:     vrsDemoCountTop20,
+		DemoCountVsTop10:     vrsDemoCountTop10,
 		VRSGlobalRank:        vrsOwnRank,
 		VRSSnapshotDate:      vrsOwnSnapshotDate,
 	}
@@ -896,6 +933,11 @@ func addStratifiedMapStats(
 			ms.CTRoundWinPctVsTop20 = normPct(ctPct)
 			ms.TRoundWinPctVsTop20 = normPct(tPct)
 			ms.Matches3mVsTop20 = n
+		case "top10":
+			ms.MapWinPctVsTop10 = normPct(mapWinPct)
+			ms.CTRoundWinPctVsTop10 = normPct(ctPct)
+			ms.TRoundWinPctVsTop10 = normPct(tPct)
+			ms.Matches3mVsTop10 = n
 		}
 		maps[mapName] = ms
 	}
