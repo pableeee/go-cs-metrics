@@ -1,0 +1,432 @@
+# CS2 Toolchain Pipeline Flow
+
+Authoritative step-by-step specification of the full demo-to-forecast pipeline.
+Every input, output, file format, flag, and caveat is documented here.
+
+---
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Step 0 — VRS Sync](#step-0--vrs-sync)
+3. [Step 1 — Demo Download (demoget sync)](#step-1--demo-download)
+4. [Step 2 — Fix MTimes (demoget touch-dates)](#step-2--fix-mtimes)
+5. [Step 3 — Demo Parse (go-cs-metrics parse)](#step-3--demo-parse)
+6. [Step 4 — Team Export (go-cs-metrics export)](#step-4--team-export)
+7. [Step 5 — Match Simulation (simbo3 run)](#step-5--match-simulation)
+8. [JSON Schemas](#json-schemas)
+9. [Shared State](#shared-state)
+10. [Caveats](#caveats)
+
+---
+
+## Overview
+
+```
+[optional] vrs-sync
+    │  fetches VRS snapshot markdown from GitHub → ~/.csmetrics/vrs.db
+    ▼
+events.yaml  (HLTV event IDs + filters)
+    │
+    ▼
+demoget sync --out ~/demos/pro
+    │  scrapes HLTV results → resolves demo links → downloads + extracts .dem
+    │  state: ~/.csmetrics/demoget.db
+    ▼
+demoget touch-dates --out ~/demos/pro
+    │  fixes .dem mtimes to actual match dates encoded in RAR filenames
+    ▼
+go-cs-metrics parse --dir ~/demos/pro/<event-slug>/ --tier pro
+    │  11-pass aggregator → player/round/weapon/duel stats
+    │  storage: ~/.csmetrics/metrics.db
+    ▼
+go-cs-metrics export --roster <team>-roster.json --since 90 --quorum 3 --out <team>.json
+    │  map win%, CT/T round win%, Rating 2.0 proxy per player
+    │  optional: VRS-stratified stats (vs_top30, vs_top20) when --vrs-db present
+    ▼
+simbo3 run --teamA a.json --teamB b.json [--format bo3] [--mode veto]
+    │  Monte Carlo simulation → series win probabilities + score distribution
+    │  uses VRS-stratified stats when vrs_global_rank fields are present
+    ▼
+match forecast
+```
+
+---
+
+## Step 0 — VRS Sync
+
+**Binary:** `go-cs-metrics`
+**Command:** `go-cs-metrics vrs-sync`
+**When to run:** Once, then periodically (monthly VRS updates).
+
+### Inputs
+
+| Source | Description |
+|--------|-------------|
+| GitHub API | `api.github.com/repos/ValveSoftware/counter-strike_regional_standings/contents/live/{year}` |
+| Raw GitHub | `raw.githubusercontent.com/ValveSoftware/counter-strike_regional_standings/refs/heads/main/live/{year}/standings_global_YYYY_MM_DD.md` |
+
+### Outputs
+
+| Path | Description |
+|------|-------------|
+| `~/.csmetrics/vrs.db` | SQLite database of VRS snapshots |
+
+### Schema (`vrs.db`)
+
+```sql
+CREATE TABLE vrs_snapshots (
+    snapshot_date TEXT NOT NULL,   -- "YYYY-MM-DD"
+    vrs_rank      INTEGER NOT NULL,
+    team_name     TEXT NOT NULL,
+    vrs_points    REAL NOT NULL,
+    roster        TEXT NOT NULL,   -- JSON array: ["ZywOo","apEX","mezii","ropz","flameZ"]
+    PRIMARY KEY (snapshot_date, team_name)
+);
+CREATE INDEX idx_vrs_date ON vrs_snapshots(snapshot_date);
+```
+
+### Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--vrs-db` | `~/.csmetrics/vrs.db` | Path to VRS SQLite database |
+| `--year` | `2024,2025,2026` | Comma-separated years to fetch |
+| `--force` | false | Re-fetch all dates, ignoring existing |
+
+### Incremental Sync
+
+By default, only snapshot dates not yet in the database are fetched. The GitHub
+API directory listing is used to enumerate available files; the raw content URL
+is fetched for each new file without authentication (public repo).
+
+### Markdown Format Parsed
+
+Files are named `standings_global_YYYY_MM_DD.md` and contain a table like:
+
+```markdown
+### Standings as of 2026_02_02
+
+| Rank | Points | Team | Roster | Details |
+|------|--------|------|--------|---------|
+| 1  | 1951 | FURIA    | FalleN, KSCERATO, molodoy, YEKINDAR, yuurih | [details](...) |
+| 2  | 1843 | G2       | NiKo, huNter-, jks, nexa, ropz               | [details](...) |
+```
+
+The parser extracts: rank (col 1), points (col 2), team name (col 3), roster as
+comma-split player names (col 4, markdown links unwrapped).
+
+---
+
+## Step 1 — Demo Download
+
+**Binary:** `demoget`
+**Command:** `demoget sync --out ~/demos/pro`
+
+### Inputs
+
+| File | Description |
+|------|-------------|
+| `events.yaml` | List of HLTV event IDs and optional filters |
+
+### Outputs
+
+| Path | Description |
+|------|-------------|
+| `~/demos/pro/<event-slug>/*.dem` | Extracted CS2 demo files (mtime = extraction time, NOT match date) |
+| `~/.csmetrics/demoget.db` | Download state: match discovery, URL resolution, completion status |
+
+### Caveats
+
+- `demoget sync` sets `.dem` file mtimes to the extraction timestamp (today).
+- **Always run `demoget touch-dates` before `parse` to fix mtimes.**
+- Corrupt RARs at HLTV's end (`corrupt decode header`, `decoder expected more data`) will not recover on retry.
+- `--dir` mode only finds demos in the specific event subdirectory, not recursively.
+
+---
+
+## Step 2 — Fix MTimes
+
+**Binary:** `demoget`
+**Command:** `demoget touch-dates --out ~/demos/pro`
+
+### What it does
+
+Reads the actual match date from each RAR filename (HLTV encodes it there) and
+sets the `.dem` file's mtime accordingly. `go-cs-metrics parse` uses file mtime
+as `match_date` — incorrect mtimes produce wrong `match_date` values in the DB,
+silently breaking `--since` filtering in `export`.
+
+### When to run
+
+After every `demoget sync`, before the first `parse` of newly downloaded demos.
+
+---
+
+## Step 3 — Demo Parse
+
+**Binary:** `go-cs-metrics`
+**Command:** `go-cs-metrics parse --dir ~/demos/pro/<event-slug>/ --tier pro`
+
+### Inputs
+
+| Source | Description |
+|--------|-------------|
+| `*.dem` files | CS2 demo files in the given directory (flat, non-recursive) |
+| file mtime | Used as `match_date` — must be fixed by `touch-dates` first |
+
+### Outputs
+
+Written to `~/.csmetrics/metrics.db`:
+
+| Table | Description |
+|-------|-------------|
+| `demos` | One row per demo: hash, map_name, match_date, event_id, tier |
+| `player_match_stats` | Per-player per-demo aggregated stats (35+ columns) |
+| `player_round_stats` | Per-round breakdown for each player |
+| `player_weapon_stats` | Per-weapon kill/damage breakdown |
+| `player_duel_segments` | FHHS duel segments (weapon+distance bins) |
+
+### Key flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | required | Directory containing `.dem` files (non-recursive) |
+| `--tier` | `""` | Event tier tag stored in `demos.tier` (e.g. `pro`) |
+| `--workers` | NumCPU | Parallel parse workers (use 1 for large batches to avoid OOM) |
+
+### Memory
+
+Set `GOMEMLIMIT=4294967296` for large batches:
+
+```sh
+GOMEMLIMIT=4294967296 ./go-cs-metrics parse --dir ~/demos/pro/iem_cologne_2025/ --tier pro --workers 1
+```
+
+---
+
+## Step 4 — Team Export
+
+**Binary:** `go-cs-metrics`
+**Command:** `go-cs-metrics export --roster <team>-roster.json --since 90 --quorum 3 --out <team>.json`
+
+### Inputs
+
+| Source | Description |
+|--------|-------------|
+| `--roster` | JSON file: `{"team": "...", "players": ["steamid64", ...]}` |
+| `metrics.db` | Parsed demo data |
+| `vrs.db` (optional) | VRS snapshots for opponent quality stratification |
+
+### Outputs
+
+`<team>.json` — simbo3-compatible team stats JSON. See [JSON Schemas](#json-schemas).
+
+### Key flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--roster` | required | Roster JSON file (mutually exclusive with `--players`) |
+| `--players` | — | Comma-separated SteamID64s (overrides `--roster`) |
+| `--team` | from roster | Team name override |
+| `--since` | 90 | Look-back window in days |
+| `--before` | today | Exclude demos on or after this date (useful for backtesting) |
+| `--quorum` | 3 | Minimum roster players per demo to include it |
+| `--half-life` | 35 | Temporal decay half-life in days (0 = uniform weights) |
+| `--out` | stdout | Output file path |
+| `--vrs-db` | `~/.csmetrics/vrs.db` | VRS database for stratified stats (skipped if absent) |
+
+### Export Algorithm
+
+1. **Qualifying demos**: demos where ≥ `quorum` roster players appear within `--since` days.
+2. **Temporal weights**: `w(demo) = exp(-ln(2) / halfLife * days_before_refDate)`.
+3. **Tier factor**: shrinks win-rate deviations toward 0.50 for non-top-tier event demos.
+4. **Per-map stats**: `MapWinOutcomes` + `RoundSideStatsByDemo` → weighted win%/CT%/T%.
+5. **Player ratings**: HLTV Rating 2.0 proxy per player, weighted by rounds played.
+6. **Opponent norm**: weighted average opponent rating → scales team ratings toward baseline.
+7. **VRS stratification** (if `--vrs-db` present):
+   - Each demo's opponent is matched to a VRS team via player name lookup
+   - Demos partitioned: all → vs_top30 → vs_top20
+   - Per-stratum map stats and ratings computed separately
+   - Own team's VRS rank matched from roster player names
+
+### Rating Formula
+
+```
+Rating ≈ 0.0073*KAST% + 0.3591*KPR - 0.5329*DPR + 0.2372*Impact + 0.0032*ADR + 0.1587
+Impact  = 2.13*KPR + 0.42*APR - 0.41
+```
+
+Community approximation of HLTV Rating 2.0. Expect ±0.05–0.10 vs. official HLTV.
+
+### VRS Opponent Matching
+
+- For each qualifying demo, opponent player names are looked up in the VRS snapshot
+  dated on or before the match date.
+- A match requires ≥ 3/5 player names (case-insensitive). Score of 2 is accepted
+  if uniquely the best-matching team (absorbs stand-ins / accent variants).
+- Unmatched demos are excluded from stratified stats but included in all-demos stats.
+- `stderr` reports: `X/N demos matched (top30: Y, top20: Z, unmatched: Z)`.
+
+---
+
+## Step 5 — Match Simulation
+
+**Binary:** `simbo3`
+**Command:** `simbo3 run --teamA a.json --teamB b.json [--format bo3]`
+
+### Inputs
+
+| File | Description |
+|------|-------------|
+| `--teamA` / `--teamB` | Team stats JSON files |
+| `--config` (optional) | Coefficient override JSON |
+
+### VRS-Stratified Stat Selection
+
+When both team JSONs contain `vrs_global_rank` fields:
+
+- For Team A's stats when facing Team B: selects the best available stratum
+  based on Team B's `vrs_global_rank`:
+  - B rank ≤ 20 and `vs_top20` stats present → use `vs_top20`
+  - B rank ≤ 30 and `vs_top30` stats present → use `vs_top30`
+  - Otherwise → use all-demos baseline
+- Same logic applies symmetrically for Team B facing Team A.
+- Applies to map win%, CT/T win%, and player ratings.
+- Falls back to all-demos stats if the stratum has `matches_3m < 2`.
+
+### Key flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--format` | bo3 | Series format: `bo1`, `bo3`, `bo5` |
+| `--mode` | veto | Map selection: `veto` or `manual` |
+| `--trials` | 50000 | Monte Carlo trial count |
+| `--seed` | random | RNG seed for reproducibility |
+| `--config` | defaults | Coefficient override file |
+| `--explain` | false | Show intermediate stats and analytical breakdown |
+
+---
+
+## JSON Schemas
+
+### Team Stats JSON (`simbo3TeamStats`)
+
+```jsonc
+{
+  "team": "G2",
+  "players_rating2_3m": [1.18, 1.14, 1.10, 1.05, 1.02],
+  "maps": {
+    "Mirage": {
+      // All-demos baseline (always present)
+      "map_win_pct": 0.62,
+      "ct_round_win_pct": 0.53,
+      "t_round_win_pct": 0.51,
+      "matches_3m": 21,
+      "entry_kill_rate": 0.31,
+      "entry_death_rate": 0.19,
+      "post_plant_t_win_pct": 0.74,
+
+      // vs_top30 stratum (omitempty — present only when matches_3m_vs_top30 >= 2)
+      "map_win_pct_vs_top30": 0.58,
+      "ct_round_win_pct_vs_top30": 0.51,
+      "t_round_win_pct_vs_top30": 0.49,
+      "matches_3m_vs_top30": 9,
+
+      // vs_top20 stratum (omitempty — present only when matches_3m_vs_top20 >= 2)
+      "map_win_pct_vs_top20": 0.55,
+      "ct_round_win_pct_vs_top20": 0.50,
+      "t_round_win_pct_vs_top20": 0.48,
+      "matches_3m_vs_top20": 4
+    }
+  },
+  "generated_at": "2026-02-27T12:00:00Z",
+  "window_days": 90,
+  "latest_match_date": "2026-02-25",
+  "demo_count": 36,
+  "trade_net_rate": 0.02,
+  "eco_win_pct": 0.21,
+  "force_win_pct": 0.38,
+  "rating_floor": 1.02,
+
+  // VRS-stratified ratings (omitempty)
+  "players_rating_vs_top30": [1.12, 1.08, 1.04, 0.99, 0.97],
+  "players_rating_vs_top20": [1.09, 1.05, 1.01, 0.96, 0.94],
+  "demo_count_vs_top30": 9,
+  "demo_count_vs_top20": 4,
+
+  // Own VRS rank (omitempty)
+  "vrs_global_rank": 2,
+  "vrs_snapshot_date": "2026-02-02"
+}
+```
+
+### Roster File
+
+```json
+{
+  "team": "G2 Esports",
+  "players": ["76561198034202275", "76561198049926188", "76561198070377309", "76561198080748388", "76561197983956651"]
+}
+```
+
+---
+
+## Shared State
+
+| Path | Owner | Contents |
+|------|-------|----------|
+| `~/.csmetrics/demoget.db` | demoget | Match discovery + download status |
+| `~/.csmetrics/metrics.db` | go-cs-metrics | Parsed demo metrics |
+| `~/.csmetrics/vrs.db` | go-cs-metrics vrs-sync | VRS global standing snapshots |
+| `~/demos/pro/<event-slug>/` | demoget → go-cs-metrics | Extracted `.dem` files |
+
+---
+
+## Caveats
+
+### Rating 2.0 Approximation
+Community formula, expect ±0.05–0.10 vs. official HLTV.
+
+### Small Map Samples
+Maps with `matches_3m < 5` default heavily toward 0.50 prior (shrinkage k=10).
+Stratified strata with `matches_3m_vs_top30 < 2` are omitted entirely.
+
+### Stale Exports
+Check `latest_match_date` in the team JSON before simulating.
+
+### Quorum Tuning
+If `export` finds no qualifying demos, try `--quorum 2` or `--since 180`.
+
+### touch-dates Required
+`demoget sync` sets mtime = today. `go-cs-metrics` uses mtime as `match_date`.
+Skip `touch-dates` → every demo gets `match_date = extraction_date`, breaking
+`--since` filtering in `export`. Run `touch-dates` after every sync.
+
+### `--dir` Non-Recursive
+`parse --dir` only finds `.dem` files directly in the given directory. Always
+pass the event subdirectory (`~/demos/pro/iem_cologne_2025/`), not the parent.
+
+### VRS Player Name Matching
+- Names are matched case-insensitively against VRS roster strings.
+- Threshold of 3/5 absorbs 2 stand-ins or accent-stripped name variants per team.
+- `LatestSnapshotBefore(matchDate)` is used — up to ~30 days of roster drift
+  for monthly snapshots.
+- Unmatched demos are excluded from stratified buckets but included in all-demos stats.
+- Monte, Gaimin, SemperFi (EPL group stage teams) may have zero VRS presence
+  if no VRS snapshot covers the relevant time window.
+
+### No-Data Teams
+Teams without any parsed demos produce a JSON with `players_rating2_3m: [1.0, ...]`
+and an empty `maps: {}`. The simulator will use all-prior stats for every map.
+
+### Prior-Only Teams
+If a team cannot be matched to VRS (zero DB presence), hand-craft a JSON with:
+```json
+{
+  "team": "Unknown Team",
+  "players_rating2_3m": [1.0, 1.0, 1.0, 1.0, 1.0],
+  "maps": {}
+}
+```
+Treat simulation output as pure noise.

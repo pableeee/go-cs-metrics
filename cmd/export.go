@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pable/go-cs-metrics/internal/storage"
+	"github.com/pable/go-cs-metrics/internal/vrs"
 )
 
 var (
@@ -23,6 +25,7 @@ var (
 	exportQuorum   int
 	exportOut      string
 	exportHalfLife float64
+	exportVRSDB    string
 )
 
 // rosterFile is the schema for --roster JSON files.
@@ -50,6 +53,16 @@ type simbo3TeamStats struct {
 	EcoWinPct         float64                   `json:"eco_win_pct,omitempty"`
 	ForceWinPct       float64                   `json:"force_win_pct,omitempty"`
 	RatingFloor       float64                   `json:"rating_floor,omitempty"`
+
+	// VRS-stratified player ratings — only present when enough demos matched.
+	PlayersRatingVsTop30 []float64 `json:"players_rating_vs_top30,omitempty"`
+	PlayersRatingVsTop20 []float64 `json:"players_rating_vs_top20,omitempty"`
+	DemoCountVsTop30     int       `json:"demo_count_vs_top30,omitempty"`
+	DemoCountVsTop20     int       `json:"demo_count_vs_top20,omitempty"`
+
+	// Own VRS rank (matched by roster player names against the latest snapshot).
+	VRSGlobalRank   int    `json:"vrs_global_rank,omitempty"`
+	VRSSnapshotDate string `json:"vrs_snapshot_date,omitempty"`
 }
 
 // simbo3MapStats is the per-map block within the simbo3 team JSON.
@@ -61,6 +74,16 @@ type simbo3MapStats struct {
 	EntryKillRate    float64 `json:"entry_kill_rate,omitempty"`
 	EntryDeathRate   float64 `json:"entry_death_rate,omitempty"`
 	PostPlantTWinPct float64 `json:"post_plant_t_win_pct,omitempty"`
+
+	// VRS-stratified map stats — only present when ≥2 matches exist in the stratum.
+	MapWinPctVsTop30     float64 `json:"map_win_pct_vs_top30,omitempty"`
+	CTRoundWinPctVsTop30 float64 `json:"ct_round_win_pct_vs_top30,omitempty"`
+	TRoundWinPctVsTop30  float64 `json:"t_round_win_pct_vs_top30,omitempty"`
+	Matches3mVsTop30     int     `json:"matches_3m_vs_top30,omitempty"`
+	MapWinPctVsTop20     float64 `json:"map_win_pct_vs_top20,omitempty"`
+	CTRoundWinPctVsTop20 float64 `json:"ct_round_win_pct_vs_top20,omitempty"`
+	TRoundWinPctVsTop20  float64 `json:"t_round_win_pct_vs_top20,omitempty"`
+	Matches3mVsTop20     int     `json:"matches_3m_vs_top20,omitempty"`
 }
 
 var exportCmd = &cobra.Command{
@@ -93,6 +116,9 @@ func init() {
 	exportCmd.Flags().StringVar(&exportOut, "out", "", "output file path (default: stdout)")
 	exportCmd.Flags().Float64Var(&exportHalfLife, "half-life", 35,
 		"temporal decay half-life in days (0 = uniform weights)")
+	defaultVRSDB := filepath.Join(mustUserHome(), ".csmetrics", "vrs.db")
+	exportCmd.Flags().StringVar(&exportVRSDB, "vrs-db", defaultVRSDB,
+		"path to VRS database for stratified stats (skip if absent)")
 }
 
 func runExport(_ *cobra.Command, _ []string) error {
@@ -302,6 +328,115 @@ func runExport(_ *cobra.Command, _ []string) error {
 	// Rating floor: ratings is sorted descending; index 4 is the 5th player (lowest).
 	ratingFloor := ratings[4]
 
+	// --- VRS-stratified stats (optional; skipped when --vrs-db is absent) ---
+	// Identify each demo's opponent team by matching opponent player names to
+	// VRS roster data, then partition hashes into top30/top20 strata and
+	// compute per-stratum map and rating stats.
+	var (
+		vrsRatingsTop30, vrsRatingsTop20 []float64
+		vrsDemoCountTop30, vrsDemoCountTop20 int
+		vrsOwnRank                           int
+		vrsOwnSnapshotDate                   string
+	)
+	vrsStore := openVRSStore(exportVRSDB)
+	if vrsStore != nil {
+		defer vrsStore.Close()
+
+		// Build helper maps from existing data (no extra DB queries needed).
+		demoDate := make(map[string]string, len(demos))
+		for _, d := range demos {
+			demoDate[d.Hash] = d.MatchDate
+		}
+		oppNamesByDemo := groupNamesByDemo(oppByDemo)
+
+		// Tag each demo with its opponent's VRS rank.
+		opponentRank := tagDemosWithVRSRank(oppNamesByDemo, demoDate, vrsStore)
+
+		// Partition into strata.
+		top30HashSet := make(map[string]bool)
+		top20HashSet := make(map[string]bool)
+		matchedCount := 0
+		for hash, rank := range opponentRank {
+			matchedCount++
+			if rank <= 30 {
+				top30HashSet[hash] = true
+			}
+			if rank <= 20 {
+				top20HashSet[hash] = true
+			}
+		}
+		unmatchedCount := len(demos) - matchedCount
+		fmt.Fprintf(os.Stderr,
+			"  VRS matching: %d/%d demos matched (top30: %d, top20: %d, unmatched: %d)\n",
+			matchedCount, len(demos), len(top30HashSet), len(top20HashSet), unmatchedCount)
+
+		// Compute own team's VRS rank from roster player names.
+		rosterNames := playerNamesFromTotals(byDemo)
+		// Use today's date (or refDate) as the anchor for own-team rank lookup.
+		ownTeam, ownRank, ownOK := vrs.MatchOpponentToVRS(rosterNames, refDate.Format("2006-01-02"), vrsStore)
+		if ownOK {
+			vrsOwnRank = ownRank
+			// Retrieve snapshot date from the store for informational purposes.
+			if entries, _ := vrsStore.LatestSnapshotBefore(refDate.Format("2006-01-02")); len(entries) > 0 {
+				vrsOwnSnapshotDate = entries[0].SnapshotDate
+			}
+			fmt.Fprintf(os.Stderr, "  Own VRS rank: %d (%s)\n", vrsOwnRank, ownTeam)
+		} else {
+			fmt.Fprintf(os.Stderr, "  Own VRS rank: unmatched (no VRS rank; stratified stat selection disabled for this team)\n")
+		}
+
+		// top30 stratum.
+		if len(top30HashSet) > 0 {
+			top30Hashes := hashSetSlice(top30HashSet)
+			vrsDemoCountTop30 = len(top30Hashes)
+			if err := addStratifiedMapStats(db, steamIDs, byMap, top30HashSet, weights, normPct, maps, "top30"); err != nil {
+				return fmt.Errorf("stratified top30 map stats: %w", err)
+			}
+			if len(top30Hashes) >= exportQuorum {
+				byDemoTop30, err := db.RosterMatchTotalsByDemo(steamIDs, top30Hashes)
+				if err != nil {
+					return fmt.Errorf("roster match totals (top30): %w", err)
+				}
+				oppTop30, err := db.OpponentMatchTotalsByDemo(steamIDs, top30Hashes)
+				if err != nil {
+					return fmt.Errorf("opponent match totals (top30): %w", err)
+				}
+				r30 := buildWeightedRatings(byDemoTop30, weights)
+				nf30 := computeOpponentNormFactor(oppTop30, weights)
+				for i := range r30 {
+					r30[i] = roundTo2dp(r30[i] * nf30)
+				}
+				vrsRatingsTop30 = r30
+			}
+		}
+
+		// top20 stratum.
+		if len(top20HashSet) > 0 {
+			top20Hashes := hashSetSlice(top20HashSet)
+			vrsDemoCountTop20 = len(top20Hashes)
+			if err := addStratifiedMapStats(db, steamIDs, byMap, top20HashSet, weights, normPct, maps, "top20"); err != nil {
+				return fmt.Errorf("stratified top20 map stats: %w", err)
+			}
+			if len(top20Hashes) >= exportQuorum {
+				byDemoTop20, err := db.RosterMatchTotalsByDemo(steamIDs, top20Hashes)
+				if err != nil {
+					return fmt.Errorf("roster match totals (top20): %w", err)
+				}
+				oppTop20, err := db.OpponentMatchTotalsByDemo(steamIDs, top20Hashes)
+				if err != nil {
+					return fmt.Errorf("opponent match totals (top20): %w", err)
+				}
+				r20 := buildWeightedRatings(byDemoTop20, weights)
+				nf20 := computeOpponentNormFactor(oppTop20, weights)
+				for i := range r20 {
+					r20[i] = roundTo2dp(r20[i] * nf20)
+				}
+				vrsRatingsTop20 = r20
+			}
+		}
+	}
+	// --- end VRS-stratified stats ---
+
 	out := simbo3TeamStats{
 		Team:              teamName,
 		PlayersRating2_3m: ratings,
@@ -314,6 +449,13 @@ func runExport(_ *cobra.Command, _ []string) error {
 		EcoWinPct:         ecoWinPct,
 		ForceWinPct:       forceWinPct,
 		RatingFloor:       ratingFloor,
+
+		PlayersRatingVsTop30: vrsRatingsTop30,
+		PlayersRatingVsTop20: vrsRatingsTop20,
+		DemoCountVsTop30:     vrsDemoCountTop30,
+		DemoCountVsTop20:     vrsDemoCountTop20,
+		VRSGlobalRank:        vrsOwnRank,
+		VRSSnapshotDate:      vrsOwnSnapshotDate,
 	}
 	if exportSince != 90 {
 		fmt.Fprintf(os.Stderr,
@@ -620,4 +762,142 @@ func computeOpponentNormFactor(oppByDemo []storage.PlayerDemoTotals, weights map
 		f = normMax
 	}
 	return f
+}
+
+// --- VRS helper functions ---
+
+// openVRSStore opens the VRS database at path. Returns nil (with a warning to
+// stderr) if the file does not exist or cannot be opened.
+func openVRSStore(path string) *vrs.VRSStore {
+	if path == "" {
+		return nil
+	}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr,
+			"  VRS: db not found at %s — run 'go-cs-metrics vrs-sync' to enable stratified stats\n", path)
+		return nil
+	}
+	store, err := vrs.Open(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  VRS: cannot open %s: %v — stratified stats skipped\n", path, err)
+		return nil
+	}
+	return store
+}
+
+// groupNamesByDemo groups player names from PlayerDemoTotals by demo hash.
+func groupNamesByDemo(totals []storage.PlayerDemoTotals) map[string][]string {
+	out := make(map[string][]string)
+	for _, p := range totals {
+		out[p.DemoHash] = append(out[p.DemoHash], p.Name)
+	}
+	return out
+}
+
+// tagDemosWithVRSRank returns a map of demo hash → opponent VRS rank for demos
+// where the opponent could be identified. Demos where matching fails are omitted.
+func tagDemosWithVRSRank(
+	oppNamesByDemo map[string][]string,
+	demoDate map[string]string,
+	store *vrs.VRSStore,
+) map[string]int {
+	out := make(map[string]int, len(oppNamesByDemo))
+	for hash, names := range oppNamesByDemo {
+		date, ok := demoDate[hash]
+		if !ok {
+			continue
+		}
+		_, rank, matched := vrs.MatchOpponentToVRS(names, date, store)
+		if matched {
+			out[hash] = rank
+		}
+	}
+	return out
+}
+
+// playerNamesFromTotals extracts one canonical name per player from
+// RosterMatchTotalsByDemo results. Used to identify own team's VRS rank.
+func playerNamesFromTotals(totals []storage.PlayerDemoTotals) []string {
+	// Keep a map of steamID → most-recently-seen name (arbitrary choice; names
+	// rarely change mid-window and the VRS matcher is tolerant of 2 mismatches).
+	seen := make(map[string]string)
+	for _, p := range totals {
+		if p.Name != "" {
+			seen[p.SteamID] = p.Name
+		}
+	}
+	names := make([]string, 0, len(seen))
+	for _, n := range seen {
+		names = append(names, n)
+	}
+	return names
+}
+
+// hashSetSlice converts a set (map[string]bool) to a slice.
+func hashSetSlice(s map[string]bool) []string {
+	out := make([]string, 0, len(s))
+	for h := range s {
+		out = append(out, h)
+	}
+	return out
+}
+
+// addStratifiedMapStats computes per-map win/side stats for demos in hashSet
+// and stores the results in the appropriate stratum fields of maps.
+// stratum must be "top30" or "top20".
+func addStratifiedMapStats(
+	db *storage.DB,
+	steamIDs []string,
+	byMap map[string][]string,
+	hashSet map[string]bool,
+	weights map[string]float64,
+	normPct func(float64) float64,
+	maps map[string]simbo3MapStats,
+	stratum string,
+) error {
+	for mapName, allHashes := range byMap {
+		// Filter to hashes in the stratum.
+		var hashes []string
+		for _, h := range allHashes {
+			if hashSet[h] {
+				hashes = append(hashes, h)
+			}
+		}
+		if len(hashes) == 0 {
+			continue
+		}
+
+		outcomes, err := db.MapWinOutcomes(steamIDs, hashes)
+		if err != nil {
+			return fmt.Errorf("%s/%s: map win outcomes: %w", stratum, mapName, err)
+		}
+		mapWinPct := weightedMapWinPct(outcomes, weights)
+		n := len(outcomes)
+		if n < 2 {
+			// Too few matches to be meaningful; omit this stratum for this map.
+			continue
+		}
+
+		sidesByDemo, err := db.RoundSideStatsByDemo(steamIDs, hashes)
+		if err != nil {
+			return fmt.Errorf("%s/%s: round side stats: %w", stratum, mapName, err)
+		}
+		ctPct, tPct := weightedSideStats(sidesByDemo, weights)
+
+		ms := maps[mapName]
+		switch stratum {
+		case "top30":
+			ms.MapWinPctVsTop30 = normPct(mapWinPct)
+			ms.CTRoundWinPctVsTop30 = normPct(ctPct)
+			ms.TRoundWinPctVsTop30 = normPct(tPct)
+			ms.Matches3mVsTop30 = n
+		case "top20":
+			ms.MapWinPctVsTop20 = normPct(mapWinPct)
+			ms.CTRoundWinPctVsTop20 = normPct(ctPct)
+			ms.TRoundWinPctVsTop20 = normPct(tPct)
+			ms.Matches3mVsTop20 = n
+		}
+		maps[mapName] = ms
+	}
+	return nil
 }

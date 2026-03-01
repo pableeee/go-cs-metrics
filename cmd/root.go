@@ -58,6 +58,7 @@ func init() {
 	rootCmd.AddCommand(dropCmd)
 	rootCmd.AddCommand(analyzeCmd)
 	rootCmd.AddCommand(exportCmd)
+	rootCmd.AddCommand(vrsSyncCmd)
 	rootCmd.AddCommand(backtestDatasetCmd)
 	rootCmd.AddCommand(summaryCmd)
 }
