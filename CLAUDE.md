@@ -36,9 +36,9 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 
 | Command | Description |
 |---------|-------------|
-| `parse [<demo.dem>...] [--dir <dir>]` | Parse + store one or more demos; bulk mode parses in parallel (`--workers N`, default `NumCPU`) with serialised DB writes; prints compact status per demo |
+| `parse [<demo.dem or .csdem.gz>...] [--dir <dir>]` | Parse + store one or more demos; accepts both `.dem` and `.csdem.gz`; bulk mode parses in parallel (`--workers N`, default `NumCPU`) with serialised DB writes; prints compact status per demo |
 | `list` | List all stored demos |
-| `info <demo.dem>...` | Show file metadata (size, mtime), quick hash, and DB status without parsing; instant even for large files |
+| `info <demo.dem or .csdem.gz>...` | Show file metadata and DB status; for `.csdem.gz` reads embedded hash/metadata directly (no parse needed); for `.dem` uses quick 64 KB hash |
 | `show <hash-prefix>` | Re-display a stored demo's tables |
 | `fetch` | *(disabled — not registered as a CLI command; non-functional due to platform auth changes)* |
 | `player <steamid64>...` | Cross-match aggregate report for one or more players (`--map`, `--since`, `--last` filters); `--top N` appends the top N players by Rating 2.0 proxy for comparison |
@@ -48,10 +48,47 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `drop [--force]` | Delete the metrics database file; requires `--force` to actually delete |
 | `analyze player <steamid64> <question>` | AI-powered grounded analysis of a player's aggregate stats (requires `ANTHROPIC_API_KEY`) |
 | `analyze match <hash-prefix> <question>` | AI-powered grounded analysis of a single match (requires `ANTHROPIC_API_KEY`) |
+| `convert --dir <dir> --tier <tier>` | Convert `.dem` files to `.csdem.gz` intermediate format (one demoinfocs pass; no DB write); `--out-dir` writes output elsewhere; `--workers N`, `--force` |
+| `replay --dir <dir>` | Ingest `.csdem.gz` files into the DB without demoinfocs; fast, low RAM, supports many workers |
 | `export` | Export team stats as a JSON file compatible with Monte Carlo match simulators (`--team`, `--players`, `--roster`, `--since`, `--quorum`, `--out`) |
 | `summary` | High-level database overview: match count, date range, map breakdown, top players, match type distribution |
 
 All commands share `--db` to point at an alternate database and `--silent` / `-s` to suppress column legends (verbose output is on by default).
+
+## Preferred Parsing Method: `.csdem.gz` via `convert` + `replay`
+
+**Always prefer the `.csdem.gz` pipeline over direct `.dem` parsing for any batch work.**
+
+```sh
+# Step 1 — convert .dem → .csdem.gz (one-time, sequential, GOMEMLIMIT required)
+GOMEMLIMIT=4294967296 ./go-cs-metrics convert --dir ~/demos/pro/<event>/ --tier pro --workers 1
+
+# Step 2 — ingest into DB (fast, many workers, no GOMEMLIMIT needed)
+./go-cs-metrics replay --dir ~/demos/pro/<event>/
+# or equivalently:
+./go-cs-metrics parse --dir ~/demos/pro/<event>/ --workers 32
+```
+
+### Why
+
+| | `.dem` via `parse` | `.csdem.gz` via `replay`/`parse` |
+|---|---|---|
+| Workers | 1 (forced — OOM with >1) | 32+ (no demoinfocs pressure) |
+| RAM peak | 4–29 GB per demo | negligible |
+| GOMEMLIMIT required | yes | no |
+| Speed (1,100 demos) | ~55 hours | **~80 seconds** (~2,500× faster) |
+| Re-ingest after schema change | re-parse .dem (slow) | `replay` from .csdem.gz (fast) |
+| 2D viewer support | requires original .dem | works directly |
+
+### Accuracy
+
+Validated against 989 demos parsed both ways. Results are identical across all tables except 2 demos where `won_round` differs by 1 on the final round of the match (converter last-round edge case, <0.3% of demos). All other metrics — kills, deaths, damage, trades, KAST, TTK, counter-strafe, crosshair, duels, weapons — match exactly.
+
+### `.csdem.gz` archive
+
+Converted files live in `~/demos/converted-pro/<event>/` (same structure as `~/demos/pro/`). Total: **1,123 demos, 519 GB `.dem` → 821 MB `.csdem.gz`** (647× compression).
+
+The `parse` command accepts `.csdem.gz` directly (single file or `--dir`), making it a drop-in for `.dem` in all workflows.
 
 ## Data Model
 
