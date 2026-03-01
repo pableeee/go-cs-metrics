@@ -19,8 +19,8 @@ A single intermediate format — produced once via a conversion pass, replacing 
 — solves all three: it is small enough to keep forever, fast enough to re-aggregate with
 multiple workers, and rich enough to drive the 2D viewer.
 
-**Measured size:** 580–740× reduction per demo (e.g. 400 MB `.dem` → ~700 KB `.csdem.gz`).
-Across 18 events (520 GB of `.dem`): **423 GB of converted demos → 679 MB** (638× average).
+**Measured size:** 545–718× reduction per demo (e.g. 400 MB `.dem` → ~700 KB `.csdem.gz`).
+Across 18 events (1,123 demos): **519 GB of `.dem` → 821 MB `.csdem.gz`** (647× average).
 
 ---
 
@@ -432,19 +432,17 @@ demoview liquid-vs-spirit-m1-nuke.csdem.gz
 | fragadelphia_miami_2026 | 67 | 25.7 GB | 48 MB | 545× |
 | fragadelphia_ultra_mega_jersey_2025 | 64 | 21.9 GB | 39 MB | 571× |
 | iem_cologne_2025 | 84 | 38.6 GB | 58 MB | 683× |
-| iem_katowice_2025 | 90 | 41.4 GB | ~62 MB* | ~680×* |
-| iem_krakow_2026 | 101 | 47.9 GB | ~73 MB* | ~670×* |
+| iem_katowice_2025 | 90 | 41.4 GB | 59 MB | 718× |
+| iem_krakow_2026 | 101 | 47.9 GB | 73 MB | 668× |
 | iem_krakow_2026_stage1 | 54 | 23.0 GB | 36 MB | 658× |
-| pgl_cluj_napoca_2026 | 103 | 53.7 GB | ~82 MB* | ~663×* |
+| pgl_cluj_napoca_2026 | 103 | 53.7 GB | 83 MB | 666× |
 | pgl_masters_bucharest_2025 | 103 | 51.3 GB | 81 MB | 649× |
-| starladder_budapest_major_2025 | 65 | 31.4 GB | 50 MB | 627× |
+| starladder_budapest_major_2025 | 64† | 30.9 GB | 50 MB | 627× |
 | starladder_budapest_major_2025_stage2 | 51 | 24.4 GB | 40 MB | 633× |
-| starladder_starseries_fall_2025 | 33 | 16.7 GB | 23 MB | 702× |
-| **Total** | **1,133** | **~520 GB** | **~823 MB** | **~638×** |
+| starladder_starseries_fall_2025 | 31† | 15.8 GB | 23 MB | 702× |
+| **Total** | **1,123** | **519 GB** | **821 MB** | **647×** |
 
-\* Extrapolated from partially converted demos at time of measurement (sequential OOM-safe conversion still in progress for these 4 events; requires `GOMEMLIMIT=4294967296 --workers 1`).
-
-**Note:** 3 demos across these events failed with `ErrUnexpectedEndOfDemo` (corrupt HLTV archives) and produced no `.csdem.gz`. These are permanent gaps in the source data.
+† These events have 1–2 demos that failed conversion with `ErrUnexpectedEndOfDemo` (corrupt/truncated HLTV archives). These are permanent gaps in the source data — no `.csdem.gz` produced for those files.
 
 ---
 
