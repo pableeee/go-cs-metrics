@@ -12,11 +12,13 @@ Every input, output, file format, flag, and caveat is documented here.
 3. [Step 1 — Demo Download (demoget sync)](#step-1--demo-download)
 4. [Step 2 — Fix MTimes (demoget touch-dates)](#step-2--fix-mtimes)
 5. [Step 3 — Demo Parse (go-cs-metrics parse)](#step-3--demo-parse)
-6. [Step 4 — Team Export (go-cs-metrics export)](#step-4--team-export)
-7. [Step 5 — Match Simulation (simbo3 run)](#step-5--match-simulation)
-8. [JSON Schemas](#json-schemas)
-9. [Shared State](#shared-state)
-10. [Caveats](#caveats)
+6. [Step 3a — Demo Convert (go-cs-metrics convert)](#step-3a--demo-convert)
+7. [Step 3b — DB Replay (go-cs-metrics replay)](#step-3b--db-replay)
+8. [Step 4 — Team Export (go-cs-metrics export)](#step-4--team-export)
+9. [Step 5 — Match Simulation (simbo3 run)](#step-5--match-simulation)
+10. [JSON Schemas](#json-schemas)
+11. [Shared State](#shared-state)
+12. [Caveats](#caveats)
 
 ---
 
@@ -36,9 +38,22 @@ demoget sync --out ~/demos/pro
 demoget touch-dates --out ~/demos/pro
     │  fixes .dem mtimes to actual match dates encoded in RAR filenames
     ▼
-go-cs-metrics parse --dir ~/demos/pro/<event-slug>/ --tier pro
+go-cs-metrics parse --dir ~/demos/pro/<event-slug>/ --tier pro   ← direct path
     │  11-pass aggregator → player/round/weapon/duel stats
     │  storage: ~/.csmetrics/metrics.db
+    │
+    │   ── OR (recommended for long-term storage) ──
+    │
+go-cs-metrics convert --dir ~/demos/pro/<event-slug>/ --tier pro
+    │  single demoinfocs pass → .csdem.gz alongside each .dem (~150–500× smaller)
+    │  contains all data for both go-cs-metrics and cs-demo-viewer
+    ▼
+[optional] rm ~/demos/pro/<event-slug>/*.dem   ← reclaim disk space
+    │
+    ▼
+go-cs-metrics replay --dir ~/demos/pro/<event-slug>/
+    │  reads .csdem.gz → 11-pass aggregator → metrics.db
+    │  fast, low RAM; supports --workers > 1
     ▼
 go-cs-metrics export --roster <team>-roster.json --since 90 --quorum 3 --out <team>.json
     │  map win%, CT/T round win%, Rating 2.0 proxy per player
@@ -202,6 +217,97 @@ Set `GOMEMLIMIT=4294967296` for large batches:
 ```sh
 GOMEMLIMIT=4294967296 ./go-cs-metrics parse --dir ~/demos/pro/iem_cologne_2025/ --tier pro --workers 1
 ```
+
+---
+
+## Step 3a — Demo Convert
+
+**Binary:** `go-cs-metrics`
+**Command:** `go-cs-metrics convert --dir ~/demos/pro/<event-slug>/ --tier pro`
+
+Performs a single demoinfocs parse pass and writes a `.csdem.gz` file alongside
+each `.dem`. The intermediate format contains all data needed by both
+`go-cs-metrics replay` and `cs-demo-viewer` — original `.dem` files can be deleted
+after conversion to reclaim disk space.
+
+**Expected size:** ~150–500× smaller than the raw `.dem` (e.g. 300 MB → ~1 MB).
+
+### Inputs
+
+| Source | Description |
+|--------|-------------|
+| `*.dem` files | CS2 demo files in the given directory (flat, non-recursive) |
+| file mtime | Used as `match_date` — must be fixed by `touch-dates` first |
+
+### Outputs
+
+| Path | Description |
+|------|-------------|
+| `*.csdem.gz` | Unified intermediate file alongside each `.dem` |
+
+### File format (`.csdem.gz`)
+
+Gzip-compressed JSON. Top-level structure:
+
+```json
+{ "version": 1, "tier": "pro", "match": { ... } }
+```
+
+The `match` object contains flat event arrays (kills, damages, flashes, first_sights,
+weapon_fires, frames, bombs, grenades, trails, shots) with round numbers embedded.
+Full schema: `docs/csdem-spec.md`.
+
+### Key flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | required | Directory containing `.dem` files (non-recursive) |
+| `--tier` | required | Tier label baked into the file (e.g. `pro`) |
+| `--workers` | 1 | Parallel workers (same GOMEMLIMIT/RAM caveats as `parse`) |
+| `--force` | false | Overwrite existing `.csdem.gz` files |
+
+### Memory
+
+Same constraints as `parse` — the demoinfocs parse pass has identical memory pressure:
+
+```sh
+GOMEMLIMIT=4294967296 ./go-cs-metrics convert --dir ~/demos/pro/iem_cologne_2025/ --tier pro --workers 1
+```
+
+---
+
+## Step 3b — DB Replay
+
+**Binary:** `go-cs-metrics`
+**Command:** `go-cs-metrics replay --dir ~/demos/pro/<event-slug>/`
+
+Reads `.csdem.gz` files produced by `convert` and runs the 11-pass aggregator,
+writing results to `metrics.db`. Much faster and lower memory than `parse` because
+no demoinfocs parse is needed — only JSON deserialization and aggregation.
+
+Use `replay` for:
+- **Initial ingest** after `convert` has produced `.csdem.gz` files
+- **Full DB rebuild** after metric changes: `drop --force` then `replay` all events
+
+### Inputs
+
+| Source | Description |
+|--------|-------------|
+| `*.csdem.gz` files | Unified intermediate files in the given directory |
+| `event.json` sidecar | EventID and tier override (same as `parse`) |
+
+### Outputs
+
+Same as `parse` — writes to `metrics.db` tables: `demos`, `player_match_stats`,
+`player_round_stats`, `player_weapon_stats`, `player_duel_segments`.
+
+### Key flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir` | required | Directory containing `.csdem.gz` files (non-recursive) |
+| `--workers` | 1 | Parallel load+aggregate workers (safe to increase — low RAM) |
+| `--force` | false | Re-aggregate even if demo hash already in DB |
 
 ---
 
@@ -380,6 +486,7 @@ When both team JSONs contain `vrs_global_rank` fields:
 | `~/.csmetrics/metrics.db` | go-cs-metrics | Parsed demo metrics |
 | `~/.csmetrics/vrs.db` | go-cs-metrics vrs-sync | VRS global standing snapshots |
 | `~/demos/pro/<event-slug>/` | demoget → go-cs-metrics | Extracted `.dem` files |
+| `~/demos/pro/<event-slug>/*.csdem.gz` | go-cs-metrics convert | Unified intermediate files (replaces `.dem` for long-term storage) |
 
 ---
 
@@ -404,8 +511,9 @@ Skip `touch-dates` → every demo gets `match_date = extraction_date`, breaking
 `--since` filtering in `export`. Run `touch-dates` after every sync.
 
 ### `--dir` Non-Recursive
-`parse --dir` only finds `.dem` files directly in the given directory. Always
-pass the event subdirectory (`~/demos/pro/iem_cologne_2025/`), not the parent.
+`parse --dir` and `convert --dir` only find `.dem`/`.csdem.gz` files directly in
+the given directory. Always pass the event subdirectory
+(`~/demos/pro/iem_cologne_2025/`), not the parent.
 
 ### VRS Player Name Matching
 - Names are matched case-insensitively against VRS roster strings.

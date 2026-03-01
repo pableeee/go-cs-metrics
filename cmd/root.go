@@ -61,6 +61,8 @@ func init() {
 	rootCmd.AddCommand(vrsSyncCmd)
 	rootCmd.AddCommand(backtestDatasetCmd)
 	rootCmd.AddCommand(summaryCmd)
+	rootCmd.AddCommand(convertCmd)
+	rootCmd.AddCommand(replayCmd)
 }
 
 // mustUserHome returns the current user's home directory, falling back to "."
