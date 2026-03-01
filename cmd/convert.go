@@ -17,6 +17,7 @@ import (
 
 var (
 	convertDir     string
+	convertOutDir  string
 	convertTier    string
 	convertWorkers int
 	convertForce   bool
@@ -34,12 +35,14 @@ After converting, the original .dem files may be deleted to reclaim disk space.
 Use 'replay' to re-ingest from .csdem.gz files without needing the originals.
 
 Example:
-  GOMEMLIMIT=4294967296 go-cs-metrics convert --dir ~/demos/pro/iem_katowice_2025/ --tier pro`,
+  GOMEMLIMIT=4294967296 go-cs-metrics convert --dir ~/demos/pro/iem_katowice_2025/ --tier pro
+  GOMEMLIMIT=4294967296 go-cs-metrics convert --dir ~/demos/pro/iem_katowice_2025/ --tier pro --out-dir ~/demos/converted-pro/iem_katowice_2025/`,
 	RunE: runConvert,
 }
 
 func init() {
 	convertCmd.Flags().StringVar(&convertDir, "dir", "", "directory containing .dem files (required)")
+	convertCmd.Flags().StringVar(&convertOutDir, "out-dir", "", "output directory for .csdem.gz files (default: same as --dir)")
 	convertCmd.Flags().StringVar(&convertTier, "tier", "", "tier label, e.g. pro (required)")
 	convertCmd.Flags().IntVar(&convertWorkers, "workers", 1, "parallel conversion workers (default 1; see GOMEMLIMIT note)")
 	convertCmd.Flags().BoolVar(&convertForce, "force", false, "overwrite existing .csdem.gz files")
@@ -76,6 +79,14 @@ func runConvert(cmd *cobra.Command, args []string) error {
 	}
 	if len(paths) == 0 {
 		return fmt.Errorf("no .dem files found in %s", convertDir)
+	}
+
+	outDir := convertOutDir
+	if outDir == "" {
+		outDir = convertDir
+	}
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		return fmt.Errorf("create output dir: %w", err)
 	}
 
 	// Suppress "unknown grenade model N" lines from demoinfocs stderr.
@@ -131,7 +142,8 @@ func runConvert(cmd *cobra.Command, args []string) error {
 
 	doConvert := func(job convertJob) convertResult {
 		res := convertResult{idx: job.idx, path: job.path}
-		outPath := replaceExtConvert(job.path, ".csdem.gz")
+		base := filepath.Base(replaceExtConvert(job.path, ".csdem.gz"))
+		outPath := filepath.Join(outDir, base)
 		if !convertForce {
 			if _, err := os.Stat(outPath); err == nil {
 				res.skipped = true
