@@ -259,7 +259,7 @@ func runExport(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("roster match totals: %w", err)
 	}
-	ratings := buildWeightedRatings(byDemo, weights)
+	ratings, namedGlobal := buildWeightedRatings(byDemo, weights)
 
 	// Normalise ratings for opponent quality.
 	oppByDemo, err := db.OpponentMatchTotalsByDemo(steamIDs, allHashes)
@@ -267,10 +267,15 @@ func runExport(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("opponent match totals: %w", err)
 	}
 	normFactor := computeOpponentNormFactor(oppByDemo, weights)
-	fmt.Fprintf(os.Stderr, "  opponent avg rating (weighted): %.3f  → normalization ×%.3f\n", normFactor, normFactor)
 	for i := range ratings {
 		ratings[i] = roundTo2dp(ratings[i] * normFactor)
 	}
+	// Print compact global rating summary (one line).
+	parts := make([]string, len(namedGlobal))
+	for i, n := range namedGlobal {
+		parts[i] = fmt.Sprintf("%s=%.2f", n.name, roundTo2dp(n.rating*normFactor))
+	}
+	fmt.Fprintf(os.Stderr, "  ratings: %s\n", strings.Join(parts, "  "))
 
 	// Populate per-map entry kill/death rates.
 	entryByMap, err := db.MapEntryStats(steamIDs, allHashes)
@@ -411,12 +416,13 @@ func runExport(_ *cobra.Command, _ []string) error {
 				if err != nil {
 					return fmt.Errorf("opponent match totals (top30): %w", err)
 				}
-				r30 := buildWeightedRatings(byDemoTop30, weights)
+				r30, _ := buildWeightedRatings(byDemoTop30, weights)
 				nf30 := computeOpponentNormFactor(oppTop30, weights)
 				for i := range r30 {
 					r30[i] = roundTo2dp(r30[i] * nf30)
 				}
 				vrsRatingsTop30 = r30
+				fmt.Fprintf(os.Stderr, "  vs top30 (%d demos): %s\n", vrsDemoCountTop30, formatRatings(r30))
 			}
 		}
 
@@ -436,12 +442,13 @@ func runExport(_ *cobra.Command, _ []string) error {
 				if err != nil {
 					return fmt.Errorf("opponent match totals (top20): %w", err)
 				}
-				r20 := buildWeightedRatings(byDemoTop20, weights)
+				r20, _ := buildWeightedRatings(byDemoTop20, weights)
 				nf20 := computeOpponentNormFactor(oppTop20, weights)
 				for i := range r20 {
 					r20[i] = roundTo2dp(r20[i] * nf20)
 				}
 				vrsRatingsTop20 = r20
+				fmt.Fprintf(os.Stderr, "  vs top20 (%d demos): %s\n", vrsDemoCountTop20, formatRatings(r20))
 			}
 		}
 
@@ -461,12 +468,13 @@ func runExport(_ *cobra.Command, _ []string) error {
 				if err != nil {
 					return fmt.Errorf("opponent match totals (top10): %w", err)
 				}
-				r10 := buildWeightedRatings(byDemoTop10, weights)
+				r10, _ := buildWeightedRatings(byDemoTop10, weights)
 				nf10 := computeOpponentNormFactor(oppTop10, weights)
 				for i := range r10 {
 					r10[i] = roundTo2dp(r10[i] * nf10)
 				}
 				vrsRatingsTop10 = r10
+				fmt.Fprintf(os.Stderr, "  vs top10 (%d demos): %s\n", vrsDemoCountTop10, formatRatings(r10))
 			}
 		}
 	}
@@ -614,10 +622,17 @@ func weightedSideStats(byDemo []storage.DemoSideStats, weights map[string]float6
 	return
 }
 
+// namedRating pairs a player name with their computed Rating 2.0 proxy.
+type namedRating struct {
+	name   string
+	rating float64
+}
+
 // buildWeightedRatings groups PlayerDemoTotals by player, accumulates
 // weighted stat sums, computes KPR/DPR/APR/KAST/ADR from weighted totals.
-// Returns a 5-element slice sorted descending, padded with 1.00.
-func buildWeightedRatings(byDemo []storage.PlayerDemoTotals, weights map[string]float64) []float64 {
+// Returns a 5-element slice sorted descending (padded with 1.00) and the top
+// players by rounds in rounds-descending order for informational logging.
+func buildWeightedRatings(byDemo []storage.PlayerDemoTotals, weights map[string]float64) ([]float64, []namedRating) {
 	type acc struct {
 		name        string
 		kills       float64
@@ -664,6 +679,7 @@ func buildWeightedRatings(byDemo []storage.PlayerDemoTotals, weights map[string]
 		top = top[:5]
 	}
 
+	named := make([]namedRating, 0, len(top))
 	for i, p := range top {
 		if p.rounds == 0 {
 			continue
@@ -676,8 +692,7 @@ func buildWeightedRatings(byDemo []storage.PlayerDemoTotals, weights map[string]
 		impact := 2.13*kpr + 0.42*apr - 0.41
 		r := 0.0073*kast + 0.3591*kpr - 0.5329*dpr + 0.2372*impact + 0.0032*adr + 0.1587
 		ratings[i] = roundTo2dp(r)
-		fmt.Fprintf(os.Stderr, "  %-20s  wRounds=%.1f  KPR=%.2f DPR=%.2f KAST=%.0f%% ADR=%.1f  → rating %.2f\n",
-			p.name, p.rounds, kpr, dpr, kast, adr, r)
+		named = append(named, namedRating{p.name, roundTo2dp(r)})
 	}
 
 	if len(top) < 5 {
@@ -686,12 +701,21 @@ func buildWeightedRatings(byDemo []storage.PlayerDemoTotals, weights map[string]
 	}
 
 	sort.Slice(ratings, func(i, j int) bool { return ratings[i] > ratings[j] })
-	return ratings
+	return ratings, named
 }
 
 
 func roundTo2dp(v float64) float64 {
 	return math.Round(v*100) / 100
+}
+
+// formatRatings renders a []float64 as space-separated two-decimal values.
+func formatRatings(r []float64) string {
+	parts := make([]string, len(r))
+	for i, v := range r {
+		parts[i] = fmt.Sprintf("%.2f", v)
+	}
+	return strings.Join(parts, " ")
 }
 
 // topTierPrefixes lists event_id prefixes that indicate a top-tier international

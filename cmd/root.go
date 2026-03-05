@@ -36,12 +36,14 @@ var rootCmd = &cobra.Command{
 // Execute runs the root command.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
 }
 
 func init() {
+	rootCmd.SilenceUsage = true
+	rootCmd.SilenceErrors = true
 	defaultDB := filepath.Join(mustUserHome(), ".csmetrics", "metrics.db")
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db", defaultDB, "path to SQLite database")
 	rootCmd.PersistentFlags().BoolVarP(&silent, "silent", "s", false, "hide metric explanations before each table")

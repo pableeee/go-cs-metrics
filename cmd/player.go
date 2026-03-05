@@ -165,12 +165,20 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 		}
 		allClutch = append(allClutch, aggClutch)
 
+		// Filter out VERY_LOW segments (< 20 first-hit samples) — too noisy to be actionable.
+		var cleanSegs []model.PlayerDuelSegment
+		for _, seg := range merged {
+			if seg.FirstHitCount >= 20 {
+				cleanSegs = append(cleanSegs, seg)
+			}
+		}
+
 		allAggs = append(allAggs, agg)
 		allMapSide = append(allMapSide, buildMapSideAggregates(stats)...)
 		fhhsList = append(fhhsList, fhhsEntry{
 			name: agg.Name,
 			id:   id,
-			segs: merged,
+			segs: cleanSegs,
 			synth: []model.PlayerMatchStats{{
 				SteamID:        id,
 				Name:           agg.Name,
@@ -188,11 +196,20 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 	report.PrintPlayerAggregateDuelTable(os.Stdout, allAggs)
 	report.PrintPlayerAggregateAWPTable(os.Stdout, allAggs)
 	report.PrintPlayerMapSideTable(os.Stdout, allMapSide)
+	report.PrintPlayerMapMechanicsTable(os.Stdout, allMapSide)
 	report.PrintPlayerAggregateAimTable(os.Stdout, allAggs)
 	report.PrintPlayerAggregateClutchTable(os.Stdout, allAggs, allClutch)
+
+	// Combine all players' FHHS segments and render a single table.
+	var allFHHSSegs []model.PlayerDuelSegment
+	var allFHHSSynth []model.PlayerMatchStats
 	for _, f := range fhhsList {
+		allFHHSSegs = append(allFHHSSegs, f.segs...)
+		allFHHSSynth = append(allFHHSSynth, f.synth...)
+	}
+	if len(allFHHSSegs) > 0 {
 		fmt.Fprintln(os.Stdout)
-		report.PrintFHHSTable(os.Stdout, f.segs, f.synth, 0)
+		report.PrintFHHSTable(os.Stdout, allFHHSSegs, allFHHSSynth, 0)
 	}
 	return nil
 }
@@ -395,9 +412,19 @@ func mergeSegments(steamID uint64, segs []model.PlayerDuelSegment) []model.Playe
 }
 
 // buildMapSideAggregates groups match stats by (map, side) and sums integer stats.
+// Float medians (TTK, TTD, CS%) are averaged across matches within each group.
 func buildMapSideAggregates(stats []model.PlayerMatchStats) []model.PlayerMapSideAggregate {
 	type key struct{ mapName, side string }
-	m := make(map[key]*model.PlayerMapSideAggregate)
+	type mapAccum struct {
+		agg    *model.PlayerMapSideAggregate
+		ttkSum float64
+		ttkN   int
+		ttdSum float64
+		ttdN   int
+		csSum  float64
+		csN    int
+	}
+	m := make(map[key]*mapAccum)
 
 	for _, s := range stats {
 		side := s.Team.String()
@@ -407,31 +434,53 @@ func buildMapSideAggregates(stats []model.PlayerMatchStats) []model.PlayerMapSid
 		mapName := strings.TrimPrefix(s.MapName, "de_")
 		k := key{mapName, side}
 		if m[k] == nil {
-			m[k] = &model.PlayerMapSideAggregate{
+			m[k] = &mapAccum{agg: &model.PlayerMapSideAggregate{
 				SteamID: s.SteamID,
 				Name:    s.Name,
 				MapName: mapName,
 				Side:    side,
-			}
+			}}
 		}
 		a := m[k]
-		a.Matches++
-		a.Kills += s.Kills
-		a.Assists += s.Assists
-		a.Deaths += s.Deaths
-		a.HeadshotKills += s.HeadshotKills
-		a.TotalDamage += s.TotalDamage
-		a.RoundsPlayed += s.RoundsPlayed
-		a.KASTRounds += s.KASTRounds
-		a.OpeningKills += s.OpeningKills
-		a.OpeningDeaths += s.OpeningDeaths
-		a.TradeKills += s.TradeKills
-		a.TradeDeaths += s.TradeDeaths
+		a.agg.Matches++
+		a.agg.Kills += s.Kills
+		a.agg.Assists += s.Assists
+		a.agg.Deaths += s.Deaths
+		a.agg.HeadshotKills += s.HeadshotKills
+		a.agg.TotalDamage += s.TotalDamage
+		a.agg.RoundsPlayed += s.RoundsPlayed
+		a.agg.KASTRounds += s.KASTRounds
+		a.agg.OpeningKills += s.OpeningKills
+		a.agg.OpeningDeaths += s.OpeningDeaths
+		a.agg.TradeKills += s.TradeKills
+		a.agg.TradeDeaths += s.TradeDeaths
+		a.agg.OneTapKills += s.OneTapKills
+		if s.MedianTTKMs > 0 {
+			a.ttkSum += s.MedianTTKMs
+			a.ttkN++
+		}
+		if s.MedianTTDMs > 0 {
+			a.ttdSum += s.MedianTTDMs
+			a.ttdN++
+		}
+		if s.CounterStrafePercent > 0 {
+			a.csSum += s.CounterStrafePercent
+			a.csN++
+		}
 	}
 
 	out := make([]model.PlayerMapSideAggregate, 0, len(m))
 	for _, v := range m {
-		out = append(out, *v)
+		if v.ttkN > 0 {
+			v.agg.AvgTTKMs = v.ttkSum / float64(v.ttkN)
+		}
+		if v.ttdN > 0 {
+			v.agg.AvgTTDMs = v.ttdSum / float64(v.ttdN)
+		}
+		if v.csN > 0 {
+			v.agg.AvgCounterStrafePct = v.csSum / float64(v.csN)
+		}
+		out = append(out, *v.agg)
 	}
 	// Sort by map name ascending, CT before T within each map.
 	sort.Slice(out, func(i, j int) bool {

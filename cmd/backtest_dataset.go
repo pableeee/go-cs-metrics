@@ -238,7 +238,7 @@ func buildBTTeamStats(db *storage.DB, rosterPath string, since, before time.Time
 	if err != nil {
 		return nil, fmt.Errorf("roster match totals: %w", err)
 	}
-	ratings := buildWeightedRatings(byDemo, weights)
+	ratings, _ := buildWeightedRatings(byDemo, weights)
 
 	// Populate per-map entry kill rates.
 	entryByMap, err := db.MapEntryStats(rf.Players, allHashes)

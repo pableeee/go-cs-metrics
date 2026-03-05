@@ -412,7 +412,13 @@ type PlayerMapSideAggregate struct {
 	TotalDamage, RoundsPlayed int
 	KASTRounds             int
 	OpeningKills, OpeningDeaths int
-	TradeKills, TradeDeaths int
+	TradeKills, TradeDeaths     int
+	OneTapKills                 int
+
+	// Aim timing (averages of per-match medians across matches on this map/side).
+	AvgTTKMs           float64
+	AvgTTDMs           float64
+	AvgCounterStrafePct float64
 }
 
 // KDRatio returns the kill-to-death ratio for this map/side combination.

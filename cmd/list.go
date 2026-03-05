@@ -34,6 +34,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	fmt.Fprintf(os.Stdout, "%d demos\n\n", len(demos))
 	fmt.Fprintf(os.Stdout, "%-14s  %-12s  %-10s  %-12s  %6s  %s\n",
 		"HASH", "MAP", "DATE", "TYPE", "SCORE", "TICK")
 	fmt.Fprintf(os.Stdout, "%-14s  %-12s  %-10s  %-12s  %6s  %s\n",

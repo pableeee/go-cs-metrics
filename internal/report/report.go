@@ -69,6 +69,15 @@ func colorRoundFlag(flag string) string {
 	}
 }
 
+// toAny converts a []string to []any for use with tablewriter.Append.
+func toAny(ss []string) []any {
+	out := make([]any, len(ss))
+	for i, s := range ss {
+		out[i] = s
+	}
+	return out
+}
+
 // PrintMatchSummary prints a one-line summary header for the match.
 func PrintMatchSummary(w io.Writer, s model.MatchSummary) {
 	fmt.Fprintf(w, "\nMap: %s  |  Date: %s  |  Type: %s  |  Score: %s %d – %s %d  |  Hash: %s\n\n",
@@ -121,16 +130,16 @@ func PrintPlayerTableTo(w io.Writer, stats []model.PlayerMatchStats, focusSteamI
 		},
 	}))
 
-	table.Header(
-		" ", "NAME", "ROLE", "K", "A", "D", "K/D", "HS%", "ADR", "KAST%",
-		"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D", "FA", "EFF_FLASH", "UTIL_DMG", "XHAIR_MED",
-	)
+	withMarker := focusSteamID != 0
+	if withMarker {
+		table.Header(" ", "NAME", "ROLE", "K", "A", "D", "K/D", "HS%", "ADR", "KAST%",
+			"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D", "FA", "EFF_FLASH", "UTIL_DMG", "XHAIR_MED")
+	} else {
+		table.Header("NAME", "ROLE", "K", "A", "D", "K/D", "HS%", "ADR", "KAST%",
+			"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D", "FA", "EFF_FLASH", "UTIL_DMG", "XHAIR_MED")
+	}
 
 	for _, s := range stats {
-		marker := " "
-		if focusSteamID != 0 && s.SteamID == focusSteamID {
-			marker = color.CyanString(">")
-		}
 		xhairStr := "—"
 		if s.CrosshairEncounters > 0 {
 			xhairStr = fmt.Sprintf("%.1f°", s.CrosshairMedianDeg)
@@ -139,26 +148,26 @@ func PrintPlayerTableTo(w io.Writer, stats []model.PlayerMatchStats, focusSteamI
 		if role == "" {
 			role = "Rifler"
 		}
-		table.Append(
-			marker,
-			s.Name,
-			role,
-			strconv.Itoa(s.Kills),
-			strconv.Itoa(s.Assists),
-			strconv.Itoa(s.Deaths),
+		row := []string{
+			s.Name, role,
+			strconv.Itoa(s.Kills), strconv.Itoa(s.Assists), strconv.Itoa(s.Deaths),
 			colorKD(s.KDRatio()),
 			fmt.Sprintf("%.0f%%", s.HSPercent()),
 			fmt.Sprintf("%.1f", s.ADR()),
 			fmt.Sprintf("%.0f%%", s.KASTPct()),
-			strconv.Itoa(s.OpeningKills),
-			strconv.Itoa(s.OpeningDeaths),
-			strconv.Itoa(s.TradeKills),
-			strconv.Itoa(s.TradeDeaths),
-			strconv.Itoa(s.FlashAssists),
-			strconv.Itoa(s.EffectiveFlashes),
-			strconv.Itoa(s.UtilityDamage),
-			xhairStr,
-		)
+			strconv.Itoa(s.OpeningKills), strconv.Itoa(s.OpeningDeaths),
+			strconv.Itoa(s.TradeKills), strconv.Itoa(s.TradeDeaths),
+			strconv.Itoa(s.FlashAssists), strconv.Itoa(s.EffectiveFlashes),
+			strconv.Itoa(s.UtilityDamage), xhairStr,
+		}
+		if withMarker {
+			marker := " "
+			if s.SteamID == focusSteamID {
+				marker = color.CyanString(">")
+			}
+			row = append([]string{marker}, row...)
+		}
+		table.Append(toAny(row)...)
 	}
 	table.Render()
 }
@@ -177,35 +186,39 @@ func PrintPlayerSideTable(w io.Writer, sides []model.PlayerSideStats, focusSteam
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	table.Header(" ", "NAME", "SIDE", "K", "A", "D", "K/D", "ADR", "KAST%",
-		"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D")
+	withMarker := focusSteamID != 0
+	if withMarker {
+		table.Header(" ", "NAME", "SIDE", "K", "A", "D", "K/D", "ADR", "KAST%",
+			"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D")
+	} else {
+		table.Header("NAME", "SIDE", "K", "A", "D", "K/D", "ADR", "KAST%",
+			"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D")
+	}
 
 	var lastID uint64
 	for _, s := range sides {
-		marker := " "
-		if focusSteamID != 0 && s.SteamID == focusSteamID {
-			marker = color.CyanString(">")
-		}
 		name := s.Name
 		if s.SteamID == lastID {
 			name = `"`
 		}
 		lastID = s.SteamID
-		table.Append(
-			marker,
-			name,
-			colorSide(s.Team.String()),
-			strconv.Itoa(s.Kills),
-			strconv.Itoa(s.Assists),
-			strconv.Itoa(s.Deaths),
+		row := []string{
+			name, colorSide(s.Team.String()),
+			strconv.Itoa(s.Kills), strconv.Itoa(s.Assists), strconv.Itoa(s.Deaths),
 			colorKD(s.KDRatio()),
 			fmt.Sprintf("%.1f", s.ADR()),
 			fmt.Sprintf("%.0f%%", s.KASTPct()),
-			strconv.Itoa(s.OpeningKills),
-			strconv.Itoa(s.OpeningDeaths),
-			strconv.Itoa(s.TradeKills),
-			strconv.Itoa(s.TradeDeaths),
-		)
+			strconv.Itoa(s.OpeningKills), strconv.Itoa(s.OpeningDeaths),
+			strconv.Itoa(s.TradeKills), strconv.Itoa(s.TradeDeaths),
+		}
+		if withMarker {
+			marker := " "
+			if s.SteamID == focusSteamID {
+				marker = color.CyanString(">")
+			}
+			row = append([]string{marker}, row...)
+		}
+		table.Append(toAny(row)...)
 	}
 	table.Render()
 }
@@ -226,14 +239,14 @@ func PrintDuelTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID ui
 		},
 	}))
 
-	table.Header(" ", "PLAYER", "W", "L", "EXPO_WIN", "EXPO_LOSS", "HITS/K", "1ST_HS%", "CORRECTION", "<2°%")
+	withMarker := focusSteamID != 0
+	if withMarker {
+		table.Header(" ", "PLAYER", "W", "L", "EXPO_WIN", "EXPO_LOSS", "HITS/K", "1ST_HS%", "CORRECTION", "<2°%")
+	} else {
+		table.Header("PLAYER", "W", "L", "EXPO_WIN", "EXPO_LOSS", "HITS/K", "1ST_HS%", "CORRECTION", "<2°%")
+	}
 
 	for _, s := range stats {
-		marker := " "
-		if focusSteamID != 0 && s.SteamID == focusSteamID {
-			marker = color.CyanString(">")
-		}
-
 		expoWin := "—"
 		if s.DuelWins > 0 {
 			expoWin = fmt.Sprintf("%.0fms", s.MedianExposureWinMs)
@@ -259,18 +272,16 @@ func PrintDuelTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID ui
 			under2 = fmt.Sprintf("%.0f%%", s.PctCorrectionUnder2Deg)
 		}
 
-		table.Append(
-			marker,
-			s.Name,
-			strconv.Itoa(s.DuelWins),
-			strconv.Itoa(s.DuelLosses),
-			expoWin,
-			expoLoss,
-			hitsK,
-			firstHS,
-			corr,
-			under2,
-		)
+		row := []string{s.Name, strconv.Itoa(s.DuelWins), strconv.Itoa(s.DuelLosses),
+			expoWin, expoLoss, hitsK, firstHS, corr, under2}
+		if withMarker {
+			marker := " "
+			if s.SteamID == focusSteamID {
+				marker = color.CyanString(">")
+			}
+			row = append([]string{marker}, row...)
+		}
+		table.Append(toAny(row)...)
 	}
 	table.Render()
 }
@@ -291,31 +302,29 @@ func PrintAWPTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uin
 		},
 	}))
 
-	table.Header(" ", "PLAYER", "AWP_D", "DRY%", "REPEEK%", "ISOLATED%")
+	withMarker := focusSteamID != 0
+	if withMarker {
+		table.Header(" ", "PLAYER", "AWP_D", "DRY%", "REPEEK%", "ISOLATED%")
+	} else {
+		table.Header("PLAYER", "AWP_D", "DRY%", "REPEEK%", "ISOLATED%")
+	}
 
 	for _, s := range stats {
-		marker := " "
-		if focusSteamID != 0 && s.SteamID == focusSteamID {
-			marker = color.CyanString(">")
-		}
-
-		dryPct := "—"
-		repeekPct := "—"
-		isolatedPct := "—"
+		dryPct, repeekPct, isolatedPct := "—", "—", "—"
 		if s.AWPDeaths > 0 {
 			dryPct = fmt.Sprintf("%.0f%%", float64(s.AWPDeathsDry)/float64(s.AWPDeaths)*100)
 			repeekPct = fmt.Sprintf("%.0f%%", float64(s.AWPDeathsRePeek)/float64(s.AWPDeaths)*100)
 			isolatedPct = fmt.Sprintf("%.0f%%", float64(s.AWPDeathsIsolated)/float64(s.AWPDeaths)*100)
 		}
-
-		table.Append(
-			marker,
-			s.Name,
-			strconv.Itoa(s.AWPDeaths),
-			dryPct,
-			repeekPct,
-			isolatedPct,
-		)
+		row := []string{s.Name, strconv.Itoa(s.AWPDeaths), dryPct, repeekPct, isolatedPct}
+		if withMarker {
+			marker := " "
+			if s.SteamID == focusSteamID {
+				marker = color.CyanString(">")
+			}
+			row = append([]string{marker}, row...)
+		}
+		table.Append(toAny(row)...)
 	}
 	table.Render()
 }
@@ -324,14 +333,22 @@ func PrintAWPTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uin
 func PrintPlayerAggregateOverview(w io.Writer, aggs []model.PlayerAggregate) {
 	printSection(w, "Performance Overview",
 		"K=Kills  A=Assists  D=Deaths  K/D=kill-death ratio  HS%=headshot kill %  ADR=avg damage per round\n"+
-			"KAST%=rounds with a Kill/Assist/Survival/Trade  ENTRY_K/D=first kill/death of the round\n"+
-			"TRADE_K/D=kill traded within 5s  FA=flash assists  EFF_FLASH=blinded enemy died to your team within 1.5s")
+			"KAST%=rounds with a Kill/Assist/Survival/Trade  FA=flash assists  EFF_FLASH=blinded enemy died to your team within 1.5s\n"+
+			"ENTRY_K/RD=opening kills per round  ENTRY_D/RD=opening deaths per round\n"+
+			"TRADE_K/RD=trade kills per round  TRADE_D/RD=trade deaths per round")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
 	table.Header("PLAYER", "MATCHES", "K", "A", "D", "K/D", "HS%", "ADR", "KAST%",
-		"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D", "FA", "EFF_FLASH")
+		"ENTRY_K/RD", "ENTRY_D/RD", "TRADE_K/RD", "TRADE_D/RD", "FA", "EFF_FLASH")
+
+	fmtRate := func(v, rounds int) string {
+		if rounds == 0 {
+			return "—"
+		}
+		return fmt.Sprintf("%.2f", float64(v)/float64(rounds))
+	}
 
 	for _, a := range aggs {
 		table.Append(
@@ -344,10 +361,10 @@ func PrintPlayerAggregateOverview(w io.Writer, aggs []model.PlayerAggregate) {
 			fmt.Sprintf("%.0f%%", a.HSPercent()),
 			fmt.Sprintf("%.1f", a.ADR()),
 			fmt.Sprintf("%.0f%%", a.KASTPct()),
-			strconv.Itoa(a.OpeningKills),
-			strconv.Itoa(a.OpeningDeaths),
-			strconv.Itoa(a.TradeKills),
-			strconv.Itoa(a.TradeDeaths),
+			fmtRate(a.OpeningKills, a.RoundsPlayed),
+			fmtRate(a.OpeningDeaths, a.RoundsPlayed),
+			fmtRate(a.TradeKills, a.RoundsPlayed),
+			fmtRate(a.TradeDeaths, a.RoundsPlayed),
 			strconv.Itoa(a.FlashAssists),
 			strconv.Itoa(a.EffectiveFlashes),
 		)
@@ -428,13 +445,21 @@ func PrintPlayerMapSideTable(w io.Writer, aggs []model.PlayerMapSideAggregate) {
 	}
 	printSection(w, "Performance by Map & Side",
 		"Stats split by map and side (CT/T). M=matches on that combination.\n"+
-			"All other columns match the Performance Overview definitions.")
+			"ENTRY_K/RD=opening kills per round  ENTRY_D/RD=opening deaths per round\n"+
+			"TRADE_K/RD=trade kills per round  TRADE_D/RD=trade deaths per round")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
 	table.Header("NAME", "MAP", "SIDE", "M", "K", "D", "K/D", "HS%", "ADR", "KAST%",
-		"ENTRY_K", "ENTRY_D", "TRADE_K", "TRADE_D")
+		"ENTRY_K/RD", "ENTRY_D/RD", "TRADE_K/RD", "TRADE_D/RD")
+
+	fmtRate := func(v, rounds int) string {
+		if rounds == 0 {
+			return "—"
+		}
+		return fmt.Sprintf("%.2f", float64(v)/float64(rounds))
+	}
 
 	for _, a := range aggs {
 		table.Append(
@@ -448,10 +473,63 @@ func PrintPlayerMapSideTable(w io.Writer, aggs []model.PlayerMapSideAggregate) {
 			fmt.Sprintf("%.0f%%", a.HSPercent()),
 			fmt.Sprintf("%.1f", a.ADR()),
 			fmt.Sprintf("%.0f%%", a.KASTPct()),
-			strconv.Itoa(a.OpeningKills),
-			strconv.Itoa(a.OpeningDeaths),
-			strconv.Itoa(a.TradeKills),
-			strconv.Itoa(a.TradeDeaths),
+			fmtRate(a.OpeningKills, a.RoundsPlayed),
+			fmtRate(a.OpeningDeaths, a.RoundsPlayed),
+			fmtRate(a.TradeKills, a.RoundsPlayed),
+			fmtRate(a.TradeDeaths, a.RoundsPlayed),
+		)
+	}
+	table.Render()
+}
+
+// PrintPlayerMapMechanicsTable prints per-map aim timing and mechanics stats
+// (TTK, TTD, one-tap%, counter-strafe%) split by side. Skipped if no data.
+func PrintPlayerMapMechanicsTable(w io.Writer, aggs []model.PlayerMapSideAggregate) {
+	hasData := false
+	for _, a := range aggs {
+		if a.AvgTTKMs > 0 || a.AvgTTDMs > 0 || a.OneTapKills > 0 || a.AvgCounterStrafePct > 0 {
+			hasData = true
+			break
+		}
+	}
+	if !hasData {
+		return
+	}
+	printSection(w, "Mechanics by Map & Side",
+		"AVG_TTK=avg ms from first shot to kill  AVG_TTD=avg ms from enemy's first shot to your death (higher=good)\n"+
+			"1TAP%=one-tap kills as % of total kills  AVG_CS%=avg counter-strafe % (shots at horiz speed ≤ 34 u/s)")
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header("NAME", "MAP", "SIDE", "AVG_TTK", "AVG_TTD", "1TAP%", "AVG_CS%")
+
+	fmtMs := func(ms float64) string {
+		if ms <= 0 {
+			return "—"
+		}
+		return fmt.Sprintf("%.0fms", ms)
+	}
+	fmtPct := func(v, total int) string {
+		if total == 0 {
+			return "—"
+		}
+		return fmt.Sprintf("%.0f%%", float64(v)/float64(total)*100)
+	}
+
+	for _, a := range aggs {
+		csStr := "—"
+		if a.AvgCounterStrafePct > 0 {
+			csStr = fmt.Sprintf("%.0f%%", a.AvgCounterStrafePct)
+		}
+		table.Append(
+			a.Name,
+			a.MapName,
+			colorSide(a.Side),
+			fmtMs(a.AvgTTKMs),
+			fmtMs(a.AvgTTDMs),
+			fmtPct(a.OneTapKills, a.Kills),
+			csStr,
 		)
 	}
 	table.Render()
@@ -545,10 +623,6 @@ func isMidRangeBin(b string) bool {
 // Priority bins (high sample, low FHHS relative to overall, mid-range rifle) are marked with "*".
 // If focusSteamID is non-zero, only rows for that player are shown.
 func PrintFHHSTable(w io.Writer, segs []model.PlayerDuelSegment, players []model.PlayerMatchStats, focusSteamID uint64) {
-	printSection(w, "First-Hit Headshot Rate (FHHS)",
-		"FHHS%=% of won duels where first shot hit the head (higher = better aim transfer on first contact)\n"+
-			"N(hits)=sample count  FLAG=OK(≥50)/LOW(≥20)/VERY_LOW(<20) reliability  95% CI=Wilson confidence interval\n"+
-			"MED_CORR=median pre-shot crosshair correction in degrees  *=weakest stable high-sample bin")
 	// Build name and overall-FHHS lookup.
 	nameByID := make(map[uint64]string, len(players))
 	overallFHHS := make(map[uint64]float64, len(players))
@@ -557,7 +631,7 @@ func PrintFHHSTable(w io.Writer, segs []model.PlayerDuelSegment, players []model
 		overallFHHS[p.SteamID] = p.FirstHitHSRate
 	}
 
-	// Filter segments.
+	// Filter segments before printing anything.
 	var relevant []model.PlayerDuelSegment
 	for _, s := range segs {
 		if focusSteamID != 0 && s.SteamID != focusSteamID {
@@ -568,6 +642,12 @@ func PrintFHHSTable(w io.Writer, segs []model.PlayerDuelSegment, players []model
 	if len(relevant) == 0 {
 		return
 	}
+
+	printSection(w, "First-Hit Headshot Rate (FHHS)",
+		"FHHS%=% of won duels where first shot hit the head (higher = better aim transfer on first contact)\n"+
+			"N(hits)=sample count  FLAG=OK(≥50)/LOW(20–49) reliability  95% CI=Wilson confidence interval\n"+
+			"MED_CORR=median pre-shot crosshair correction in degrees  *=weakest stable high-sample bin\n"+
+			"VERY_LOW entries (<20 hits) are excluded — not enough data to be actionable")
 
 	// Sort: by player SteamID, then weapon bucket, then distance bin.
 	sort.Slice(relevant, func(i, j int) bool {
@@ -696,13 +776,14 @@ func PrintAimTimingTable(w io.Writer, stats []model.PlayerMatchStats, focusSteam
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	table.Header(" ", "PLAYER", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%")
+	withMarker := focusSteamID != 0
+	if withMarker {
+		table.Header(" ", "PLAYER", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%")
+	} else {
+		table.Header("PLAYER", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%")
+	}
 
 	for _, s := range stats {
-		marker := " "
-		if focusSteamID != 0 && s.SteamID == focusSteamID {
-			marker = color.CyanString(">")
-		}
 		ttkStr := "—"
 		if s.MedianTTKMs > 0 {
 			ttkStr = fmt.Sprintf("%.0fms", s.MedianTTKMs)
@@ -719,7 +800,15 @@ func PrintAimTimingTable(w io.Writer, stats []model.PlayerMatchStats, focusSteam
 		if s.CounterStrafePercent > 0 {
 			csStr = fmt.Sprintf("%.0f%%", s.CounterStrafePercent)
 		}
-		table.Append(marker, s.Name, ttkStr, ttdStr, oneTapStr, csStr)
+		row := []string{s.Name, ttkStr, ttdStr, oneTapStr, csStr}
+		if withMarker {
+			marker := " "
+			if s.SteamID == focusSteamID {
+				marker = color.CyanString(">")
+			}
+			row = append([]string{marker}, row...)
+		}
+		table.Append(toAny(row)...)
 	}
 	table.Render()
 }
@@ -1040,7 +1129,8 @@ func PrintPlayerAggregateAimTable(w io.Writer, aggs []model.PlayerAggregate) {
 	}
 	printSection(w, "Aim Timing & Movement (Aggregate)",
 		"ROLE=most common heuristic role across matches\n"+
-			"AVG_TTK/AVG_TTD=average of per-match median ms from first shot fired, multi-hit kills only\n"+
+			"AVG_TTK=avg ms from your first shot fired to kill (you as attacker, multi-hit kills only)\n"+
+			"AVG_TTD=avg ms from enemy's first shot to your death (you as victim); higher than TTK is good\n"+
 			"ONE_TAP%=one-tap kills as % of total kills across all matches\n"+
 			"AVG_CS%=average per-match counter-strafe % (shots at horizontal speed ≤ 34 u/s)")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
