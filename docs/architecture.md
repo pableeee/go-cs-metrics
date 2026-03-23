@@ -16,6 +16,7 @@ go-cs-metrics/
 │   ├── parse.go                     # "parse <demo.dem|.csdem.gz>" — full pipeline; accepts both formats
 │   ├── convert.go                   # "convert --dir <dir> --tier <tier>" — .dem → .csdem.gz (one demoinfocs pass, no DB)
 │   ├── replay.go                    # "replay --dir <dir>" — .csdem.gz → DB (no demoinfocs, 32+ workers)
+│   ├── executes.go                  # "executes --dir <dir>" — detect T-side site executes from .csdem.gz (no DB)
 │   ├── info.go                      # "info <demo.dem|.csdem.gz>" — file metadata + DB status
 │   ├── fetch.go                     # "fetch" — FACEIT demo download (non-functional, not registered; see docs/demo-download-automation.md)
 │   ├── fetchmm.go                   # "fetch-mm" — Valve MM share code walker (non-functional download; not registered)
@@ -392,6 +393,7 @@ csmetrics trend <steamid64>
 csmetrics sql "<query>"
 csmetrics drop [--force]
 csmetrics summary
+csmetrics executes --dir <dir> [--min-smokes N] [--min-alive N] [--site A|B] [--map <name>] [--csv]
 ```
 
 All commands also accept `--silent` / `-s` (persistent flag on root). When set, the one-line column legend printed before each table is suppressed. Verbose output (legends) is shown by default; section titles (`--- Name ---`) are always printed regardless of `--silent`.
