@@ -391,6 +391,8 @@ csmetrics summary
 csmetrics query --dir <dir> '<cel-expression>' [--csv]
 ```
 
+See **[docs/query-command.md](query-command.md)** for the full variable reference, CEL syntax guide, and worked examples for all major use cases.
+
 All commands also accept `--silent` / `-s` (persistent flag on root). When set, the one-line column legend printed before each table is suppressed. Verbose output (legends) is shown by default; section titles (`--- Name ---`) are always printed regardless of `--silent`.
 
 **Output order** for `parse` (single file):
