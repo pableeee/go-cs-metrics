@@ -18,8 +18,6 @@ go-cs-metrics/
 │   ├── replay.go                    # "replay --dir <dir>" — .csdem.gz → DB (no demoinfocs, 32+ workers)
 │   ├── executes.go                  # "executes --dir <dir>" — detect T-side site executes from .csdem.gz (no DB)
 │   ├── info.go                      # "info <demo.dem|.csdem.gz>" — file metadata + DB status
-│   ├── fetch.go                     # "fetch" — FACEIT demo download (non-functional, not registered; see docs/demo-download-automation.md)
-│   ├── fetchmm.go                   # "fetch-mm" — Valve MM share code walker (non-functional download; not registered)
 │   ├── list.go                      # "list" — tabulate stored demos
 │   ├── show.go                      # "show <hash-prefix>" — replay stored match
 │   ├── player.go                    # "player <steamid64>..." — cross-match aggregate
@@ -44,9 +42,6 @@ go-cs-metrics/
     │   ├── queries.go               # insert / query helpers
     │   ├── export_queries.go        # export command queries (QualifyingDemos, MapWinOutcomes, RoundSideStats, RosterMatchTotals, PlayerDemoCounts)
     │   └── storage_test.go          # round-trip tests against :memory:
-    ├── steam/
-    │   ├── sharecode.go             # base-57 CS2 share code decoder (matchID + reservationID + tvPort)
-    │   └── client.go                # Steam Web API client + Valve replay server prober
     └── report/
         └── report.go                # terminal table formatting
 ```

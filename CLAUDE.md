@@ -40,7 +40,6 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `list` | List all stored demos |
 | `info <demo.dem or .csdem.gz>...` | Show file metadata and DB status; for `.csdem.gz` reads embedded hash/metadata directly (no parse needed); for `.dem` uses quick 64 KB hash |
 | `show <hash-prefix>` | Re-display a stored demo's tables |
-| `fetch` | *(disabled — not registered as a CLI command; non-functional due to platform auth changes)* |
 | `player <steamid64>...` | Cross-match aggregate report for one or more players (`--map`, `--since`, `--last` filters); `--top N` appends the top N players by Rating 2.0 proxy for comparison |
 | `rounds <hash-prefix> <steamid64>` | Per-round drill-down with buy type, flags (POST_PLT, CLUTCH_1vN); `--clutch`, `--post-plant`, `--side`, `--buy` filters |
 | `trend <steamid64>` | Chronological per-match performance trend (KPR/ADR/KAST% + TTK/TTD/CS%) |
