@@ -58,7 +58,7 @@ func init() {
 	rootCmd.AddCommand(summaryCmd)
 	rootCmd.AddCommand(convertCmd)
 	rootCmd.AddCommand(replayCmd)
-	rootCmd.AddCommand(executesCmd)
+	rootCmd.AddCommand(queryCmd)
 }
 
 // mustUserHome returns the current user's home directory, falling back to "."
