@@ -276,6 +276,7 @@ type PlayerSample struct {
 	Round                int16  `parquet:"round"`
 	PlayerSlot           uint8  `parquet:"player_slot"`
 	DensityTier          uint8  `parquet:"density_tier"`
+	Team                 uint8  `parquet:"team"`
 	PosX                 int16  `parquet:"pos_x"`
 	PosY                 int16  `parquet:"pos_y"`
 	PosZ                 int16  `parquet:"pos_z"`

@@ -657,6 +657,7 @@ func (s *state) emitPlayerSamples(tick int, players []*common.Player) {
 			Round:                int16(s.roundNumber),
 			PlayerSlot:           obs.slot,
 			DensityTier:          csraw2.DensityBaseline,
+			Team:                 teamID(obs.p.Team),
 			PosX:                 quantPos(pos.X),
 			PosY:                 quantPos(pos.Y),
 			PosZ:                 quantPos(pos.Z),

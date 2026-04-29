@@ -6,7 +6,17 @@ package csraw2
 
 const (
 	Version       = 2
-	SchemaVersion = "2.0.0"
+	SchemaVersion = "2.1.0"
+)
+
+// Team enum for PlayerSample.Team. Mirrors demoinfocs common.Team but
+// pinned to a stable byte encoding so the parquet column doesn't drift
+// if upstream constants are renumbered.
+const (
+	TeamUnknown    uint8 = 0 // unassigned / spectator / pre-warmup
+	TeamT          uint8 = 1
+	TeamCT         uint8 = 2
+	TeamSpectators uint8 = 3
 )
 
 // File names inside the .csraw2.tar archive.

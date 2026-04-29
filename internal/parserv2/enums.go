@@ -40,6 +40,19 @@ func teamLabel(t common.Team) string {
 	return "DRAW"
 }
 
+// teamID maps a demoinfocs Team to the v2 PlayerSample.Team enum.
+func teamID(t common.Team) uint8 {
+	switch t {
+	case common.TeamTerrorists:
+		return csraw2.TeamT
+	case common.TeamCounterTerrorists:
+		return csraw2.TeamCT
+	case common.TeamSpectators:
+		return csraw2.TeamSpectators
+	}
+	return csraw2.TeamUnknown
+}
+
 // hitGroupID maps a demoinfocs HitGroup to its v2 enum value. The mapping
 // is direct except that demoinfocs lacks a "Generic" — we treat HitGroup(0)
 // as Generic.

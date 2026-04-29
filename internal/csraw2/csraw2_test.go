@@ -190,11 +190,13 @@ func newSyntheticMatch() *Match {
 		},
 		PlayerSamples: []PlayerSample{
 			{Tick: 200, Round: 1, PlayerSlot: 0, DensityTier: DensityBaseline,
+				Team: TeamT,
 				PosX: 90, PosY: 190, PosZ: 64, YawDeg: 4500, HP: 100, Armor: 100,
 				Flags: FlagAlive | FlagHasHelmet, ActiveWeaponID: 7,
 				ClipAmmo: 30, ReserveAmmo: 90, Money: 800, EquipValue: 4700,
 				VisibleEnemiesMask: 0b0010, LastShotTickOffset: 255, LastDamageTickOffset: 255},
 			{Tick: 348, Round: 1, PlayerSlot: 1, DensityTier: DensityEventWindow,
+				Team: TeamCT,
 				PosX: 110, PosY: 210, PosZ: 64, YawDeg: -13500, HP: 100, Armor: 100,
 				Flags: FlagAlive | FlagHasHelmet | FlagIsBlind,
 				ActiveWeaponID:       7, ClipAmmo: 30, ReserveAmmo: 90,
