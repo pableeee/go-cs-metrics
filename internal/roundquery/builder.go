@@ -21,8 +21,9 @@ const (
 )
 
 // BuildRecords converts a UnifiedMatch into a slice of RoundRecords,
-// one per round.
-func BuildRecords(m *model.UnifiedMatch, matchFile, date string) []RoundRecord {
+// one per round. If collectData is true, each record's ViewerData field is
+// populated with the raw per-round data needed by the 2D HTML viewer.
+func BuildRecords(m *model.UnifiedMatch, matchFile, date string, collectData bool) []RoundRecord {
 	// Build player index → SteamID slice.
 	idxToSteam := make([]uint64, len(m.Players))
 	for i, p := range m.Players {
@@ -36,6 +37,13 @@ func BuildRecords(m *model.UnifiedMatch, matchFile, date string) []RoundRecord {
 	bombsByRound := indexBombs(m.Bombs)
 	framesByRound := indexFrames(m.Frames)
 
+	var trailsByRound map[int][]model.UnifiedGrenadeTrail
+	var shotsByRound map[int][]model.UnifiedShot
+	if collectData {
+		trailsByRound = indexTrails(m.Trails)
+		shotsByRound = indexShots(m.Shots)
+	}
+
 	records := make([]RoundRecord, 0, len(m.Rounds))
 	for _, round := range m.Rounds {
 		rec := buildRecord(m, round, idxToSteam,
@@ -45,6 +53,19 @@ func BuildRecords(m *model.UnifiedMatch, matchFile, date string) []RoundRecord {
 			bombsByRound[round.Number],
 			framesByRound[round.Number],
 			matchFile, date)
+		if collectData {
+			rec.ViewerData = &QueryViewerData{
+				Players:   m.Players,
+				RoundMeta: round,
+				Tickrate:  m.Tickrate,
+				Frames:    framesByRound[round.Number],
+				Kills:     killsByRound[round.Number],
+				Grenades:  grenadesByRound[round.Number],
+				Trails:    trailsByRound[round.Number],
+				Shots:     shotsByRound[round.Number],
+				Bombs:     bombsByRound[round.Number],
+			}
+		}
 		records = append(records, rec)
 	}
 	return records
@@ -357,6 +378,22 @@ func indexFrames(frames []model.UnifiedFrame) map[int][]model.UnifiedFrame {
 	m := make(map[int][]model.UnifiedFrame)
 	for _, f := range frames {
 		m[f.Round] = append(m[f.Round], f)
+	}
+	return m
+}
+
+func indexTrails(trails []model.UnifiedGrenadeTrail) map[int][]model.UnifiedGrenadeTrail {
+	m := make(map[int][]model.UnifiedGrenadeTrail)
+	for _, t := range trails {
+		m[t.Round] = append(m[t.Round], t)
+	}
+	return m
+}
+
+func indexShots(shots []model.UnifiedShot) map[int][]model.UnifiedShot {
+	m := make(map[int][]model.UnifiedShot)
+	for _, s := range shots {
+		m[s.Round] = append(m[s.Round], s)
 	}
 	return m
 }

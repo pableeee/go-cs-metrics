@@ -15,8 +15,11 @@ import (
 )
 
 var (
-	queryDir string
-	queryCSV bool
+	queryDir      string
+	queryCSV      bool
+	queryHTML     string
+	queryLimit    int
+	queryRadarDir string
 )
 
 var queryCmd = &cobra.Command{
@@ -85,13 +88,20 @@ EXAMPLES
 }
 
 func init() {
+	home, _ := os.UserHomeDir()
+	defaultRadarDir := filepath.Join(home, "git", "cs", "cs-demo-viewer", "internal", "maps", "overviews")
+
 	queryCmd.Flags().StringVar(&queryDir, "dir", "", "root directory to scan for .csdem.gz files (required)")
 	queryCmd.Flags().BoolVar(&queryCSV, "csv", false, "output CSV instead of text table")
+	queryCmd.Flags().StringVar(&queryHTML, "html", "", "write a 2D visual replay HTML file for all matched rounds")
+	queryCmd.Flags().IntVar(&queryLimit, "limit", 200, "maximum number of round clips to include in the HTML output")
+	queryCmd.Flags().StringVar(&queryRadarDir, "radar-dir", defaultRadarDir, "directory containing map radar PNGs (used with --html)")
 	_ = queryCmd.MarkFlagRequired("dir")
 }
 
 func runQuery(cmd *cobra.Command, args []string) error {
 	expr := args[0]
+	collectData := queryHTML != ""
 
 	env, err := roundquery.NewEnv()
 	if err != nil {
@@ -134,7 +144,7 @@ func runQuery(cmd *cobra.Command, args []string) error {
 		}
 
 		matchFile := strings.TrimSuffix(filepath.Base(path), ".csdem.gz")
-		records := roundquery.BuildRecords(uf.Match, matchFile, uf.Match.MatchDate)
+		records := roundquery.BuildRecords(uf.Match, matchFile, uf.Match.MatchDate, collectData)
 
 		for _, r := range records {
 			ok, err := roundquery.Matches(prg, r)
@@ -153,6 +163,17 @@ func runQuery(cmd *cobra.Command, args []string) error {
 
 	if len(hits) == 0 {
 		return nil
+	}
+
+	if queryHTML != "" {
+		// Drop viewer data beyond the limit to save memory before HTML generation.
+		for i := queryLimit; i < len(hits); i++ {
+			hits[i].ViewerData = nil
+		}
+		if err := writeQueryHTML(hits, queryHTML, queryRadarDir); err != nil {
+			return fmt.Errorf("write HTML: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "HTML written to %s\n", queryHTML)
 	}
 
 	if queryCSV {

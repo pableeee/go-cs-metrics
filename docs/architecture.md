@@ -16,7 +16,9 @@ go-cs-metrics/
 │   ├── parse.go                     # "parse <demo.dem|.csdem.gz>" — full pipeline; accepts both formats
 │   ├── convert.go                   # "convert --dir <dir> --tier <tier>" — .dem → .csdem.gz (one demoinfocs pass, no DB)
 │   ├── replay.go                    # "replay --dir <dir>" — .csdem.gz → DB (no demoinfocs, 32+ workers)
-│   ├── query.go                     # "query --dir <dir> <expr>" — find rounds matching a CEL expression from .csdem.gz (no DB)
+│   ├── query.go                     # "query --dir <dir> <expr>" — find rounds matching a CEL expression from .csdem.gz (no DB); --html for interactive 2D viewer
+│   ├── query_html.go                # HTML viewer generation (gzip+base64 injection)
+│   ├── query_template.html          # embedded 2D viewer template (compiled in via go:embed)
 │   ├── info.go                      # "info <demo.dem|.csdem.gz>" — file metadata + DB status
 │   ├── list.go                      # "list" — tabulate stored demos
 │   ├── show.go                      # "show <hash-prefix>" — replay stored match

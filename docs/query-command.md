@@ -3,7 +3,7 @@
 The `query` command scans `.csdem.gz` files and returns every round that satisfies a [CEL](https://cel.dev) expression. It reads the converted demo files directly — no database required.
 
 ```sh
-go-cs-metrics query --dir <dir> '<expression>' [--csv]
+go-cs-metrics query --dir <dir> '<expression>' [--csv] [--html <file>]
 ```
 
 ---
@@ -23,6 +23,12 @@ go-cs-metrics query --dir ~/demos/converted-pro/ \
 **Output modes:**
 - Default: aligned text table — identity columns + key stats, good for terminal browsing
 - `--csv`: full record with all variables, pipe to a spreadsheet or script
+- `--html <file>`: self-contained interactive 2D radar replay — one clip per matching round, playable in any browser
+
+**HTML viewer flags:**
+- `--html <file>`: output path for the HTML file
+- `--limit N`: max clips to embed (default 200; rounds beyond the limit appear in the table but not the viewer)
+- `--radar-dir <dir>`: directory containing map radar PNGs (default: `~/git/cs/cs-demo-viewer/internal/maps/overviews`)
 
 ---
 
@@ -304,6 +310,34 @@ go-cs-metrics query --dir ~/demos/converted-pro/ \
 go-cs-metrics query --dir ~/demos/converted-pro/ \
   'map == "de_nuke" && smokes_t >= 3 && planted'
 ```
+
+---
+
+## Interactive 2D viewer
+
+Add `--html <file>` to generate a self-contained interactive replay viewer:
+
+```sh
+# CT retakes on Inferno → interactive HTML replay
+go-cs-metrics query --dir ~/demos/converted-pro/ \
+  'map == "de_inferno" && planted && winner == "CT"' \
+  --html inferno_retakes.html
+
+# Execute highlights → HTML with limit
+go-cs-metrics query --dir ~/demos/converted-pro/ \
+  'planted && smokes_t >= 2 && molotovs_t >= 1 && flashes_t >= 1 && winner == "T"' \
+  --html t_executes.html --limit 100
+```
+
+Open the output file in any modern browser. For each matching round the viewer shows:
+- **Sidebar**: match name, date, map, round number, buy types, util counts, winner badge, planted/defused indicators, entry side
+- **Radar**: 2D overhead view with live player positions, kill events, grenade trails, HP panels
+- **Controls**: play/pause, timeline scrubber, 0.5×/1×/2×/4× speed
+- **Kill feed**: kills shown as they happen, with weapon and headshot indicator
+
+The `--radar-dir` flag points to the directory containing `<mapname>.png` files. The default path is `~/git/cs/cs-demo-viewer/internal/maps/overviews`. Multi-level maps (de_nuke, de_vertigo, de_train) use `<mapname>_lower.png` when available.
+
+The `--limit N` flag caps how many clips are embedded in the viewer (default 200). Rounds beyond the limit still appear in the text table or CSV output.
 
 ---
 

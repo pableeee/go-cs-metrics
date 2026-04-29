@@ -51,7 +51,7 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `replay --dir <dir>` | Ingest `.csdem.gz` files into the DB without demoinfocs; fast, low RAM, supports many workers |
 | `export` | Export team stats as a JSON file compatible with Monte Carlo match simulators (`--team`, `--players`, `--roster`, `--since`, `--quorum`, `--out`) |
 | `summary` | High-level database overview: match count, date range, map breakdown, top players, match type distribution |
-| `query --dir <dir> <expr>` | Find rounds matching a CEL expression across `.csdem.gz` files (no DB needed); walks `--dir` recursively; `--csv` for full column output. Variables cover util counts, HE damage, flash kills, alive counts, buy types, bomb events, and entry side — both T and CT explicitly. |
+| `query --dir <dir> <expr>` | Find rounds matching a CEL expression across `.csdem.gz` files (no DB needed); walks `--dir` recursively; `--csv` for full column output; `--html <file>` for interactive 2D radar replay viewer (self-contained HTML, `--limit N` caps clip count, `--radar-dir` for map PNGs). Variables cover util counts, HE damage, flash kills, alive counts, buy types, bomb events, and entry side — both T and CT explicitly. |
 
 All commands share `--db` to point at an alternate database and `--silent` / `-s` to suppress column legends (verbose output is on by default).
 

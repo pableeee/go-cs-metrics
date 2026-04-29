@@ -2,6 +2,22 @@
 // evaluation for the `query` command.
 package roundquery
 
+import "github.com/pable/go-cs-metrics/internal/model"
+
+// QueryViewerData holds the raw per-round data needed by the 2D HTML viewer.
+// Populated only when --html is requested.
+type QueryViewerData struct {
+	Players   []model.UnifiedPlayer
+	RoundMeta model.UnifiedRound
+	Tickrate  float64
+	Frames    []model.UnifiedFrame
+	Kills     []model.UnifiedKill
+	Grenades  []model.UnifiedGrenade
+	Trails    []model.UnifiedGrenadeTrail
+	Shots     []model.UnifiedShot
+	Bombs     []model.UnifiedBombAction
+}
+
 // RoundRecord holds all queryable statistics for a single round.
 // Field names match the CEL variable names used in query expressions.
 type RoundRecord struct {
@@ -55,6 +71,9 @@ type RoundRecord struct {
 
 	// Which side got the first kill of the round.
 	EntrySide string // "T" | "CT" | ""
+
+	// Viewer data — populated only when --html is requested.
+	ViewerData *QueryViewerData
 }
 
 // celVars returns the variable map consumed by the CEL evaluator.
