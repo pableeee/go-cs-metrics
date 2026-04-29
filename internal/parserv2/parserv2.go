@@ -691,7 +691,15 @@ func (s *state) emitProjectileSamples(p demoinfocs.Parser, tick int) {
 			continue
 		}
 		pos := gp.Position()
-		vel := gp.Velocity()
+		// CS2 demos don't always expose m_vecVelocity on grenade entities;
+		// demoinfocs's gp.Velocity() panics in that case via PropertyValueMust.
+		// Probe the property directly and treat missing as zero velocity.
+		var velX, velY, velZ int16
+		if v, ok := gp.Entity.PropertyValue("m_vecVelocity"); ok {
+			velX = quantVel(v.VectorVal.X)
+			velY = quantVel(v.VectorVal.Y)
+			velZ = quantVel(v.VectorVal.Z)
+		}
 		s.match.ProjectileSamples = append(s.match.ProjectileSamples, csraw2.ProjectileSample{
 			Tick:              int32(tick),
 			Round:             int16(s.roundNumber),
@@ -702,9 +710,9 @@ func (s *state) emitProjectileSamples(p demoinfocs.Parser, tick int) {
 			PosX:              quantPos(pos.X),
 			PosY:              quantPos(pos.Y),
 			PosZ:              quantPos(pos.Z),
-			VelX:              quantVel(vel.X),
-			VelY:              quantVel(vel.Y),
-			VelZ:              quantVel(vel.Z),
+			VelX:              velX,
+			VelY:              velY,
+			VelZ:              velZ,
 			FuseRemainingMS:   -1, // not exposed by demoinfocs in a stable way
 			DefuseProgressPct: 0,
 		})

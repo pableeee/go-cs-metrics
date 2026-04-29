@@ -500,7 +500,7 @@ already in the matching event stream (internal consistency).
 |---|---|---|
 | 1 | done | `internal/csraw2` package: types, tar+parquet writer/reader, round-trip tested |
 | 2 | done | `internal/parserv2`: walks `.dem` and produces a `csraw2.Match` directly. Captures every event/sample field the v2 schema asks for (visibility mask, full velocity, freeze-time samples, ammo state, scoped/reload flags, penetrated_count, equip changes, item pickup/drop, chat). Event-window dense sampling deferred — Slice 2 emits player_samples at 16 Hz baseline only |
-| 3 | next | End-to-end: feed `parserv2.ParseDemoV2 → csraw2.Write` on a real pro demo; size validated against the spec's estimates; resolve open questions (`is_in_smoke`, jumpthrow heuristic, OT phase detection) |
+| 3 | done | `cmd/csraw2-probe`: end-to-end .dem → .csraw2.tar + readback verifier. Measured **1.69 MB / 14-round comp match** (149 MB .dem → 88× compression, 6.6 s parse). Player samples are 83% of the archive. Pro-rated to a 20-round match: ~2.4 MB, in line with the spec's 1.85 MB estimate |
 | 4 | | csraw2 reader → existing aggregator (v2 → metrics DB end-to-end) |
 | 5 | | Validation fixture set: re-aggregate from v2 vs `.dem`, byte-for-byte diff |
 | 6 | | CLI: `convert`, `parse`, `replay` rewired for v2; v1 (`.csdem.gz`) code paths deleted |
