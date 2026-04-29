@@ -499,8 +499,8 @@ already in the matching event stream (internal consistency).
 | Slice | Status | Deliverable |
 |---|---|---|
 | 1 | done | `internal/csraw2` package: types, tar+parquet writer/reader, round-trip tested |
-| 2 | next | Parser captures all v2-required fields (visibility mask, full velocity, freeze-time samples, ammo state, scoped/reload flags, penetrated_count) into a v2-shaped intermediate |
-| 3 | | Converter emits `.csraw2.tar` from `.dem`; size validated against the spec's estimates on real pro demos |
+| 2 | done | `internal/parserv2`: walks `.dem` and produces a `csraw2.Match` directly. Captures every event/sample field the v2 schema asks for (visibility mask, full velocity, freeze-time samples, ammo state, scoped/reload flags, penetrated_count, equip changes, item pickup/drop, chat). Event-window dense sampling deferred — Slice 2 emits player_samples at 16 Hz baseline only |
+| 3 | next | End-to-end: feed `parserv2.ParseDemoV2 → csraw2.Write` on a real pro demo; size validated against the spec's estimates; resolve open questions (`is_in_smoke`, jumpthrow heuristic, OT phase detection) |
 | 4 | | csraw2 reader → existing aggregator (v2 → metrics DB end-to-end) |
 | 5 | | Validation fixture set: re-aggregate from v2 vs `.dem`, byte-for-byte diff |
 | 6 | | CLI: `convert`, `parse`, `replay` rewired for v2; v1 (`.csdem.gz`) code paths deleted |
