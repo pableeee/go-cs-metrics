@@ -652,6 +652,8 @@ The query is passed as a single argument (quote it in the shell if it contains s
 | `player_round_stats` | `demo_hash`, `steam_id` (TEXT), `round_number`, `team`, `kills`, `damage`, `buy_type`, `is_post_plant`, `is_in_clutch`, `clutch_enemy_count`, … |
 | `player_weapon_stats` | `demo_hash`, `steam_id` (TEXT), `weapon`, `kills`, `headshot_kills`, `damage`, `hits` |
 | `player_duel_segments` | `demo_hash`, `steam_id` (TEXT), `weapon_bucket`, `distance_bin`, `duel_count`, `first_hit_count`, `first_hit_hs_count`, … |
+| `grenade_events` | `demo_hash`, `match_date`, `map_name`, `round_number`, `throw_tick`, `end_tick`, `thrower_id` (TEXT), `thrower_team`, `grenade_type` (`smoke`/`flash`/`he`/`molotov`/`decoy`), `throw_x/y/z`, `land_x/y/z` |
+| `player_death_events` | `demo_hash`, `match_date`, `map_name`, `round_number`, `tick`, `victim_id` (TEXT), `victim_team`, `killer_id` (TEXT), `killer_team`, `weapon`, `is_headshot`, `victim_x/y/z`, `killer_x/y/z`, `victim_yaw`, `distance_m`, `was_flashed`, `was_traded`, `is_opening_death`, `round_phase` (`pistol`/`early`/`mid`/`late`/`post_plant`) |
 
 > **Note:** `steam_id` is stored as TEXT. Use single quotes in WHERE clauses: `WHERE steam_id = '76561198012345678'`
 

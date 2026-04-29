@@ -105,8 +105,18 @@ func ConvertDemo(path, matchType string) (*model.UnifiedMatchFile, error) {
 	// to the subsequent InfernoStart event.
 	lastMolotovThrowerIdx := -1
 
-	// pendingThrows maps grenade uniqueID → throw info for trail building.
-	pendingThrows := map[int64]struct{ tick, throwerIdx int }{}
+	// pendingThrows maps grenade uniqueID → throw info for trail building and
+	// metrics-side UnifiedGrenadeEvent emission. The trail-only fields are
+	// `tick` and `throwerIdx`; the metrics fields carry the throw position and
+	// thrower SteamID/team for grenade lineup queries.
+	type throwInfo struct {
+		tick           int
+		throwerIdx     int
+		throwerSteamID uint64
+		throwerTeam    model.Team
+		throwPos       model.Vec3
+	}
+	pendingThrows := map[int64]throwInfo{}
 
 	// ── Round lifecycle ───────────────────────────────────────────────────────
 
@@ -123,7 +133,7 @@ func ConvertDemo(path, matchType string) (*model.UnifiedMatchFile, error) {
 		currentEquipVals = nil
 		currentBombPlantTick = 0
 		lastShot = map[int]int{}
-		pendingThrows = map[int64]struct{ tick, throwerIdx int }{}
+		pendingThrows = map[int64]throwInfo{}
 		lastMolotovThrowerIdx = -1
 	})
 
@@ -233,8 +243,11 @@ func ConvertDemo(path, matchType string) (*model.UnifiedMatchFile, error) {
 			AttackerBlind:   e.AttackerBlind,
 			KillerX:         iround(ap.X),
 			KillerY:         iround(ap.Y),
+			KillerZ:         iround(ap.Z),
 			VictimX:         iround(vp.X),
 			VictimY:         iround(vp.Y),
+			VictimZ:         iround(vp.Z),
+			VictimYawDeg:    float64(e.Victim.ViewDirectionX()),
 		}
 
 		// Count alive teammates of victim within 512 units for AWP death classifier.
@@ -298,6 +311,11 @@ func ConvertDemo(path, matchType string) (*model.UnifiedMatchFile, error) {
 		if dur <= 0 {
 			return
 		}
+		vp := e.Player.Position()
+		pitch := float64(e.Player.ViewDirectionY())
+		if pitch > 180 {
+			pitch -= 360 // normalise to [-180, 180]
+		}
 		match.Flashes = append(match.Flashes, model.UnifiedFlash{
 			Tick:            p.GameState().IngameTick(),
 			Round:           roundNumber,
@@ -306,6 +324,9 @@ func ConvertDemo(path, matchType string) (*model.UnifiedMatchFile, error) {
 			AttackerTeam:    teamFromCommon(e.Attacker.Team),
 			VictimTeam:      teamFromCommon(e.Player.Team),
 			FlashDuration:   dur,
+			VictimPos:       model.Vec3{X: vp.X, Y: vp.Y, Z: vp.Z},
+			VictimYawDeg:    float64(e.Player.ViewDirectionX()),
+			VictimPitchDeg:  pitch,
 		})
 	})
 
@@ -520,13 +541,18 @@ func ConvertDemo(path, matchType string) (*model.UnifiedMatchFile, error) {
 		if roundNumber == 0 || e.Projectile == nil {
 			return
 		}
-		pi := -1
-		if e.Projectile.Thrower != nil {
-			pi = getIdx(e.Projectile.Thrower)
+		info := throwInfo{
+			tick:       p.GameState().IngameTick(),
+			throwerIdx: -1,
 		}
-		pendingThrows[e.Projectile.UniqueID()] = struct{ tick, throwerIdx int }{
-			p.GameState().IngameTick(), pi,
+		if thrower := e.Projectile.Thrower; thrower != nil {
+			info.throwerIdx = getIdx(thrower)
+			info.throwerSteamID = thrower.SteamID64
+			info.throwerTeam = teamFromCommon(thrower.Team)
+			tp := thrower.Position()
+			info.throwPos = model.Vec3{X: tp.X, Y: tp.Y, Z: tp.Z}
 		}
+		pendingThrows[e.Projectile.UniqueID()] = info
 	})
 
 	p.RegisterEventHandler(func(e events.GrenadeProjectileDestroy) {
@@ -556,6 +582,30 @@ func ConvertDemo(path, matchType string) (*model.UnifiedMatchFile, error) {
 			return
 		}
 		delete(pendingThrows, uid)
+
+		// Emit a metrics-side grenade event (independent of trail length).
+		// Skip if we never resolved the thrower SteamID — without it the event
+		// can't be attributed to a player and would just be noise.
+		if gname := grenadeTypeName(e.Projectile.WeaponInstance.Type); gname != "" && info.throwerSteamID != 0 {
+			var landPos model.Vec3
+			if traj := e.Projectile.Trajectory2; len(traj) > 0 {
+				lp := traj[len(traj)-1].Position
+				landPos = model.Vec3{X: lp.X, Y: lp.Y, Z: lp.Z}
+			} else {
+				pos := e.Projectile.Position()
+				landPos = model.Vec3{X: pos.X, Y: pos.Y, Z: pos.Z}
+			}
+			match.GrenadeEvents = append(match.GrenadeEvents, model.UnifiedGrenadeEvent{
+				ThrowTick:      info.tick,
+				EndTick:        p.GameState().IngameTick(),
+				Round:          roundNumber,
+				ThrowerSteamID: info.throwerSteamID,
+				ThrowerTeam:    info.throwerTeam,
+				GrenadeType:    gname,
+				ThrowPos:       info.throwPos,
+				LandPos:        landPos,
+			})
+		}
 
 		traj := e.Projectile.Trajectory2
 		if len(traj) < 2 {
@@ -794,6 +844,24 @@ func hitGroupName(hg events.HitGroup) string {
 	default:
 		return "other"
 	}
+}
+
+// grenadeTypeName returns a stable lowercase label for a grenade equipment type,
+// or "" for non-grenade equipment. Mirrors parser.grenadeTypeName.
+func grenadeTypeName(t common.EquipmentType) string {
+	switch t {
+	case common.EqSmoke:
+		return "smoke"
+	case common.EqFlash:
+		return "flash"
+	case common.EqHE:
+		return "he"
+	case common.EqMolotov, common.EqIncendiary:
+		return "molotov"
+	case common.EqDecoy:
+		return "decoy"
+	}
+	return ""
 }
 
 func equipToGrenadeType(t common.EquipmentType) int {

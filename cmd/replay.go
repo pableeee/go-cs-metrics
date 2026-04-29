@@ -63,6 +63,8 @@ type replayResult struct {
 	roundStats  []model.PlayerRoundStats
 	weaponStats []model.PlayerWeaponStats
 	duelSegs    []model.PlayerDuelSegment
+	deathEvents []model.PlayerDeathEvent
+	flashEvents []model.FlashEvent
 	elapsed     time.Duration
 	err         error
 }
@@ -192,6 +194,30 @@ func runReplay(cmd *cobra.Command, args []string) error {
 		if err := db.InsertPlayerDuelSegments(res.duelSegs); err != nil {
 			return fmt.Errorf("insert duel segments: %w", err)
 		}
+		// GrenadeEvents are absent in .csdem.gz files produced before the field
+		// was added; passing an empty slice is a safe no-op (clears any stale rows).
+		grenades := make([]model.RawGrenadeEvent, len(m.GrenadeEvents))
+		for i, g := range m.GrenadeEvents {
+			grenades[i] = model.RawGrenadeEvent{
+				ThrowTick:      g.ThrowTick,
+				EndTick:        g.EndTick,
+				RoundNumber:    g.Round,
+				ThrowerSteamID: g.ThrowerSteamID,
+				ThrowerTeam:    g.ThrowerTeam,
+				GrenadeType:    g.GrenadeType,
+				ThrowPos:       g.ThrowPos,
+				LandPos:        g.LandPos,
+			}
+		}
+		if err := db.InsertGrenadeEvents(m.DemoHash, m.MatchDate, m.MapName, grenades); err != nil {
+			return fmt.Errorf("insert grenade events: %w", err)
+		}
+		if err := db.InsertPlayerDeathEvents(m.DemoHash, res.deathEvents); err != nil {
+			return fmt.Errorf("insert death events: %w", err)
+		}
+		if err := db.InsertFlashEvents(m.DemoHash, res.flashEvents); err != nil {
+			return fmt.Errorf("insert flash events: %w", err)
+		}
 
 		ctScore2, tScore2 := ctScore, tScore
 		fmt.Fprintf(os.Stdout, "  %s  stored: %s  %s  %d–%d  %d players  %d rounds  (%s)\n",
@@ -215,7 +241,7 @@ func runReplay(cmd *cobra.Command, args []string) error {
 		res.uf = uf
 
 		raw := uf.Match.ToRawMatch()
-		ms, rs, ws, ds, err := aggregator.Aggregate(raw)
+		ms, rs, ws, ds, des, fes, err := aggregator.Aggregate(raw)
 		if err != nil {
 			res.err = fmt.Errorf("aggregate: %w", err)
 			return res
@@ -223,6 +249,8 @@ func runReplay(cmd *cobra.Command, args []string) error {
 		res.matchStats = ms
 		res.roundStats = rs
 		res.weaponStats = ws
+		res.deathEvents = des
+		res.flashEvents = fes
 		res.duelSegs = ds
 		res.elapsed = time.Since(t0)
 		return res

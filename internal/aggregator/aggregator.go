@@ -69,6 +69,34 @@ func distanceBin(meters float64) string {
 	}
 }
 
+// roundPhase returns a coarse label for where a kill falls in a round's timeline.
+// Pistol rounds are detected as round 1 (first pistol) or round 13 (MR12
+// second-half pistol — a heuristic that matches pro CS2 but misses MR15).
+// post_plant overrides time-based labels once the bomb is down.
+// Otherwise the post-freeze-to-end span is split into thirds: early/mid/late.
+func roundPhase(killTick int, r model.RawRound, roundNumber int) string {
+	if roundNumber == 1 || roundNumber == 13 {
+		return "pistol"
+	}
+	if r.BombPlantTick > 0 && killTick >= r.BombPlantTick {
+		return "post_plant"
+	}
+	freeze := r.FreezeEndTick
+	end := r.EndTick
+	if end <= freeze || killTick < freeze {
+		return "early"
+	}
+	frac := float64(killTick-freeze) / float64(end-freeze)
+	switch {
+	case frac < 1.0/3.0:
+		return "early"
+	case frac < 2.0/3.0:
+		return "mid"
+	default:
+		return "late"
+	}
+}
+
 // wilsonCI computes the 95% Wilson score confidence interval for a proportion
 // p = hits/n. This is preferred over the Wald interval because it remains
 // stable for small sample sizes. Returns (lo, hi) as fractions in [0, 1].
@@ -100,9 +128,9 @@ func wilsonCI(hits, n int) (lo, hi float64) {
 //  9. Role classification (AWPer/Entry/Support/Rifler)
 // 10. TTK and TTD (median ms from first hit to kill/death)
 // 11. Counter-strafe % (shots fired at horizontal velocity ≤ 34 u/s)
-func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRoundStats, []model.PlayerWeaponStats, []model.PlayerDuelSegment, error) {
+func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRoundStats, []model.PlayerWeaponStats, []model.PlayerDuelSegment, []model.PlayerDeathEvent, []model.FlashEvent, error) {
 	if raw == nil {
-		return nil, nil, nil, nil, fmt.Errorf("nil RawMatch")
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("nil RawMatch")
 	}
 
 	tradeWindowTicks := int(5.0 * raw.TicksPerSecond)
@@ -1104,7 +1132,151 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		}
 	}
 
-	return matchStats, allRoundStats, weaponStats, duelSegments, nil
+	// ---- Pass 12: death events. ----
+	// Assemble one PlayerDeathEvent per kill, joining kill position/context
+	// with trade annotation (pass 1), opening kill (pass 2), flash events,
+	// and round phase. Denormalised match_date/map_name live on each row for
+	// fast meta queries.
+	const deathFlashWindowSec = 2.0
+	deathFlashWindowTicks := int(deathFlashWindowSec * raw.TicksPerSecond)
+
+	victimFlashes := make(map[uint64][]int) // victim SteamID → flash tick list
+	for _, f := range raw.Flashes {
+		victimFlashes[f.VictimSteamID] = append(victimFlashes[f.VictimSteamID], f.Tick)
+	}
+
+	roundByNumber := make(map[int]model.RawRound, len(raw.Rounds))
+	for _, r := range raw.Rounds {
+		roundByNumber[r.Number] = r
+	}
+
+	var deathEvents []model.PlayerDeathEvent
+	for rn, kills := range killsByRound {
+		round := roundByNumber[rn]
+		for _, k := range kills {
+			wasFlashed := false
+			for _, ft := range victimFlashes[k.VictimSteamID] {
+				if ft <= k.Tick && k.Tick-ft <= deathFlashWindowTicks {
+					wasFlashed = true
+					break
+				}
+			}
+
+			dx := k.KillerPos.X - k.VictimPos.X
+			dy := k.KillerPos.Y - k.VictimPos.Y
+			dz := k.KillerPos.Z - k.VictimPos.Z
+			dist := math.Sqrt(dx*dx+dy*dy+dz*dz) * unitsToMeters
+
+			isOpening := openingByRound[rn].victimID == k.VictimSteamID
+
+			deathEvents = append(deathEvents, model.PlayerDeathEvent{
+				DemoHash:       raw.DemoHash,
+				MatchDate:      raw.MatchDate,
+				MapName:        raw.MapName,
+				RoundNumber:    rn,
+				Tick:           k.Tick,
+				VictimSteamID:  k.VictimSteamID,
+				VictimTeam:     k.VictimTeam,
+				KillerSteamID:  k.KillerSteamID,
+				KillerTeam:     k.KillerTeam,
+				Weapon:         k.Weapon,
+				IsHeadshot:     k.IsHeadshot,
+				VictimPos:      k.VictimPos,
+				KillerPos:      k.KillerPos,
+				VictimYawDeg:   k.VictimYawDeg,
+				DistanceMeters: dist,
+				WasFlashed:     wasFlashed,
+				WasTraded:      k.isTradeDeath,
+				IsOpeningDeath: isOpening,
+				RoundPhase:     roundPhase(k.Tick, round, rn),
+			})
+		}
+	}
+
+	// ---- Pass 13: flash events. ----
+	// Enrich each RawFlash with the explosion position (from the closest
+	// same-thrower same-round flash-type RawGrenadeEvent) and compute the angle
+	// between the victim's view vector and the direction to the flash.
+	// BlindAngleDeg = 0 when looking straight at the flash, 180 when facing away.
+	// Flashes without a matching grenade event (e.g. older .csdem.gz files
+	// without grenade capture, or flash throws split across the demo boundary)
+	// emit BlindAngleDeg = 180 — they simply drop out of blind-angle analysis.
+	type throwerRoundKey struct {
+		thrower uint64
+		round   int
+	}
+	flashGrenadesByKey := make(map[throwerRoundKey][]model.RawGrenadeEvent)
+	for _, g := range raw.Grenades {
+		if g.GrenadeType != "flash" {
+			continue
+		}
+		k := throwerRoundKey{g.ThrowerSteamID, g.RoundNumber}
+		flashGrenadesByKey[k] = append(flashGrenadesByKey[k], g)
+	}
+
+	var flashEvents []model.FlashEvent
+	for _, f := range raw.Flashes {
+		k := throwerRoundKey{f.AttackerSteamID, f.RoundNumber}
+		var flashPos model.Vec3
+		bestDelta := 1 << 30
+		for _, g := range flashGrenadesByKey[k] {
+			d := g.EndTick - f.Tick
+			if d < 0 {
+				d = -d
+			}
+			if d < bestDelta {
+				bestDelta = d
+				flashPos = g.LandPos
+			}
+		}
+
+		blindDeg := 180.0
+		var distM float64
+		matched := flashPos.X != 0 || flashPos.Y != 0 || flashPos.Z != 0
+		if matched {
+			dx := flashPos.X - f.VictimPos.X
+			dy := flashPos.Y - f.VictimPos.Y
+			dz := flashPos.Z - f.VictimPos.Z
+			dist := math.Sqrt(dx*dx + dy*dy + dz*dz)
+			distM = dist * unitsToMeters
+			if dist > 1e-6 {
+				yawR := f.VictimYawDeg * math.Pi / 180
+				pitchR := f.VictimPitchDeg * math.Pi / 180 // Source 2: positive = looking down
+				fwdX := math.Cos(pitchR) * math.Cos(yawR)
+				fwdY := math.Cos(pitchR) * math.Sin(yawR)
+				fwdZ := -math.Sin(pitchR)
+				dot := (fwdX*dx + fwdY*dy + fwdZ*dz) / dist
+				if dot > 1 {
+					dot = 1
+				} else if dot < -1 {
+					dot = -1
+				}
+				blindDeg = math.Acos(dot) * 180 / math.Pi
+			}
+		}
+
+		flashEvents = append(flashEvents, model.FlashEvent{
+			DemoHash:       raw.DemoHash,
+			MatchDate:      raw.MatchDate,
+			MapName:        raw.MapName,
+			RoundNumber:    f.RoundNumber,
+			Tick:           f.Tick,
+			ThrowerSteamID: f.AttackerSteamID,
+			ThrowerTeam:    f.AttackerTeam,
+			VictimSteamID:  f.VictimSteamID,
+			VictimTeam:     f.VictimTeam,
+			DurationSec:    f.FlashDuration.Seconds(),
+			IsTeamFlash:    f.AttackerTeam == f.VictimTeam && f.AttackerSteamID != f.VictimSteamID,
+			VictimPos:      f.VictimPos,
+			VictimYawDeg:   f.VictimYawDeg,
+			VictimPitchDeg: f.VictimPitchDeg,
+			FlashPos:       flashPos,
+			BlindAngleDeg:  blindDeg,
+			DistanceMeters: distM,
+		})
+	}
+
+	return matchStats, allRoundStats, weaponStats, duelSegments, deathEvents, flashEvents, nil
 }
 
 // clutchResult holds the clutch outcome for a single player in a round.

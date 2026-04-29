@@ -109,6 +109,89 @@ CREATE TABLE IF NOT EXISTS player_duel_segments (
     UNIQUE(demo_hash, steam_id, weapon_bucket, distance_bin)
 );
 
+-- Per-death events. One row per kill with position, weapon, victim yaw, and
+-- derived tactical context (was_flashed, was_traded, is_opening_death,
+-- round_phase). Used for death heatmaps, "how do I die" analytics, and meta
+-- tracking. map_name and match_date are denormalized for fast meta queries.
+CREATE TABLE IF NOT EXISTS player_death_events (
+    demo_hash        TEXT NOT NULL REFERENCES demos(hash),
+    match_date       TEXT NOT NULL,
+    map_name         TEXT NOT NULL,
+    round_number     INTEGER NOT NULL,
+    tick             INTEGER NOT NULL,
+    victim_id        TEXT NOT NULL,
+    victim_team      TEXT NOT NULL,
+    killer_id        TEXT NOT NULL,
+    killer_team      TEXT NOT NULL,
+    weapon           TEXT NOT NULL,
+    is_headshot      INTEGER NOT NULL DEFAULT 0,
+    victim_x         REAL NOT NULL,
+    victim_y         REAL NOT NULL,
+    victim_z         REAL NOT NULL,
+    killer_x         REAL NOT NULL,
+    killer_y         REAL NOT NULL,
+    killer_z         REAL NOT NULL,
+    victim_yaw       REAL NOT NULL,
+    distance_m       REAL NOT NULL,
+    was_flashed      INTEGER NOT NULL DEFAULT 0,
+    was_traded       INTEGER NOT NULL DEFAULT 0,
+    is_opening_death INTEGER NOT NULL DEFAULT 0,
+    round_phase      TEXT NOT NULL
+);
+
+-- Per-flash events. One row per PlayerFlashed event (victim-scoped, so a
+-- single flash that blinds 3 enemies produces 3 rows). blind_angle_deg is the
+-- angle between the victim's view vector and the vector from victim to flash
+-- explosion (0 = looking directly at flash, 180 = facing away). Flashes whose
+-- matching grenade event is missing emit blind_angle_deg=180 and flash pos 0.
+-- map_name and match_date are denormalized for fast meta queries.
+CREATE TABLE IF NOT EXISTS flash_events (
+    demo_hash        TEXT NOT NULL REFERENCES demos(hash),
+    match_date       TEXT NOT NULL,
+    map_name         TEXT NOT NULL,
+    round_number     INTEGER NOT NULL,
+    tick             INTEGER NOT NULL,
+    thrower_id       TEXT NOT NULL,
+    thrower_team     TEXT NOT NULL,
+    victim_id        TEXT NOT NULL,
+    victim_team      TEXT NOT NULL,
+    duration_s       REAL NOT NULL,
+    is_team_flash    INTEGER NOT NULL DEFAULT 0,
+    victim_x         REAL NOT NULL,
+    victim_y         REAL NOT NULL,
+    victim_z         REAL NOT NULL,
+    victim_yaw       REAL NOT NULL,
+    victim_pitch     REAL NOT NULL,
+    flash_x          REAL NOT NULL,
+    flash_y          REAL NOT NULL,
+    flash_z          REAL NOT NULL,
+    blind_angle_deg  REAL NOT NULL,
+    distance_m       REAL NOT NULL
+);
+
+-- Per-grenade throw-to-land events. One row per projectile that completed
+-- its flight (smoke/flash/HE/molotov/decoy). Used for lineup clustering, utility
+-- usage rates, and meta-tracking over time. map_name and match_date are
+-- denormalized from the demos table so meta queries (e.g. "smokes on Mirage in
+-- the last 60 days") avoid a JOIN per row.
+CREATE TABLE IF NOT EXISTS grenade_events (
+    demo_hash      TEXT NOT NULL REFERENCES demos(hash),
+    match_date     TEXT NOT NULL,
+    map_name       TEXT NOT NULL,
+    round_number   INTEGER NOT NULL,
+    throw_tick     INTEGER NOT NULL,
+    end_tick       INTEGER NOT NULL,
+    thrower_id     TEXT NOT NULL,
+    thrower_team   TEXT NOT NULL,
+    grenade_type   TEXT NOT NULL,
+    throw_x REAL NOT NULL,
+    throw_y REAL NOT NULL,
+    throw_z REAL NOT NULL,
+    land_x  REAL NOT NULL,
+    land_y  REAL NOT NULL,
+    land_z  REAL NOT NULL
+);
+
 -- Indexes for common query patterns (safe to apply to existing databases).
 CREATE INDEX IF NOT EXISTS idx_demos_match_date       ON demos(match_date);
 CREATE INDEX IF NOT EXISTS idx_pms_steam_id           ON player_match_stats(steam_id);
@@ -117,3 +200,14 @@ CREATE INDEX IF NOT EXISTS idx_prs_steam_id           ON player_round_stats(stea
 CREATE INDEX IF NOT EXISTS idx_prs_demo_hash          ON player_round_stats(demo_hash);
 CREATE INDEX IF NOT EXISTS idx_pds_steam_id           ON player_duel_segments(steam_id);
 CREATE INDEX IF NOT EXISTS idx_pds_demo_hash          ON player_duel_segments(demo_hash);
+CREATE INDEX IF NOT EXISTS idx_grenades_demo_hash     ON grenade_events(demo_hash);
+CREATE INDEX IF NOT EXISTS idx_grenades_thrower       ON grenade_events(thrower_id, match_date);
+CREATE INDEX IF NOT EXISTS idx_grenades_meta          ON grenade_events(map_name, grenade_type, match_date);
+CREATE INDEX IF NOT EXISTS idx_deaths_demo_hash       ON player_death_events(demo_hash);
+CREATE INDEX IF NOT EXISTS idx_deaths_victim          ON player_death_events(victim_id, match_date);
+CREATE INDEX IF NOT EXISTS idx_deaths_killer          ON player_death_events(killer_id, match_date);
+CREATE INDEX IF NOT EXISTS idx_deaths_meta            ON player_death_events(map_name, match_date);
+CREATE INDEX IF NOT EXISTS idx_flashes_demo_hash      ON flash_events(demo_hash);
+CREATE INDEX IF NOT EXISTS idx_flashes_thrower        ON flash_events(thrower_id, match_date);
+CREATE INDEX IF NOT EXISTS idx_flashes_victim         ON flash_events(victim_id, match_date);
+CREATE INDEX IF NOT EXISTS idx_flashes_meta           ON flash_events(map_name, match_date);

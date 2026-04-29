@@ -215,6 +215,18 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 	// so each pair only generates one RawFirstSight event per round.
 	seenThisRound := make(map[pairKey]bool)
 
+	// pendingThrows maps grenade projectile UniqueID → throw context, populated
+	// at GrenadeProjectileThrow and consumed at GrenadeProjectileDestroy to emit
+	// a single RawGrenadeEvent per projectile.
+	type throwInfo struct {
+		tick           int
+		roundNumber    int
+		throwerSteamID uint64
+		throwerTeam    model.Team
+		throwPos       model.Vec3
+	}
+	pendingThrows := map[int64]throwInfo{}
+
 	// RoundStart: record start tick, bump round counter, reset spotted tracking.
 	p.RegisterEventHandler(func(e events.RoundStart) {
 		if p.GameState().IsWarmupPeriod() {
@@ -226,6 +238,7 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 		seenThisRound = make(map[pairKey]bool)
 		currentEquipVals = nil
 		currentBombPlantTick = 0
+		pendingThrows = map[int64]throwInfo{}
 	})
 
 	// BombPlanted: record the tick when the bomb was planted this round.
@@ -309,6 +322,9 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 			weapName = e.Weapon.Type.String()
 		}
 
+		kp := e.Killer.Position()
+		vp := e.Victim.Position()
+		victimYaw := float64(e.Victim.ViewDirectionX())
 		kill := model.RawKill{
 			Tick:            p.GameState().IngameTick(),
 			RoundNumber:     roundNumber,
@@ -320,6 +336,9 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 			Weapon:          weapName,
 			IsHeadshot:      e.IsHeadshot,
 			AssistedFlash:   e.AssistedFlash,
+			KillerPos:       model.Vec3{X: kp.X, Y: kp.Y, Z: kp.Z},
+			VictimPos:       model.Vec3{X: vp.X, Y: vp.Y, Z: vp.Z},
+			VictimYawDeg:    victimYaw,
 		}
 
 		// Count alive teammates of victim within 512 units for AWP death classifier.
@@ -393,6 +412,11 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 			return
 		}
 
+		vp := e.Player.Position()
+		pitch := float64(e.Player.ViewDirectionY())
+		if pitch > 180 {
+			pitch -= 360 // normalise to [-180, 180]; CS2 positive = looking down
+		}
 		raw.Flashes = append(raw.Flashes, model.RawFlash{
 			Tick:            p.GameState().IngameTick(),
 			RoundNumber:     roundNumber,
@@ -401,6 +425,9 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 			AttackerTeam:    teamFromCommon(e.Attacker.Team),
 			VictimTeam:      teamFromCommon(e.Player.Team),
 			FlashDuration:   dur,
+			VictimPos:       model.Vec3{X: vp.X, Y: vp.Y, Z: vp.Z},
+			VictimYawDeg:    float64(e.Player.ViewDirectionX()),
+			VictimPitchDeg:  pitch,
 		})
 	})
 
@@ -437,6 +464,65 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 			YawDeg:          yaw,
 			AttackerPos:     model.Vec3{X: sp.X, Y: sp.Y, Z: sp.Z},
 			HorizontalSpeed: hSpeed,
+		})
+	})
+
+	// GrenadeProjectileThrow: stash the thrower's position and tick for the
+	// matching GrenadeProjectileDestroy event, which carries the landing position.
+	p.RegisterEventHandler(func(e events.GrenadeProjectileThrow) {
+		if roundNumber == 0 || e.Projectile == nil || e.Projectile.Thrower == nil {
+			return
+		}
+		thrower := e.Projectile.Thrower
+		tp := thrower.Position()
+		pendingThrows[e.Projectile.UniqueID()] = throwInfo{
+			tick:           p.GameState().IngameTick(),
+			roundNumber:    roundNumber,
+			throwerSteamID: thrower.SteamID64,
+			throwerTeam:    teamFromCommon(thrower.Team),
+			throwPos:       model.Vec3{X: tp.X, Y: tp.Y, Z: tp.Z},
+		}
+	})
+
+	// GrenadeProjectileDestroy: pair with the throw event to emit a complete
+	// RawGrenadeEvent. Skips projectiles without a known throw (out-of-round
+	// nades, demos that started mid-flight, etc.).
+	p.RegisterEventHandler(func(e events.GrenadeProjectileDestroy) {
+		if e.Projectile == nil || e.Projectile.WeaponInstance == nil {
+			return
+		}
+		uid := e.Projectile.UniqueID()
+		info, ok := pendingThrows[uid]
+		if !ok {
+			return
+		}
+		delete(pendingThrows, uid)
+
+		gtype := grenadeTypeName(e.Projectile.WeaponInstance.Type)
+		if gtype == "" {
+			return
+		}
+		// Trajectory2 is captured by demoinfocs across the projectile's flight;
+		// the final entry is the landing position. Fall back to the projectile's
+		// current position if the trajectory is empty.
+		var landPos model.Vec3
+		if traj := e.Projectile.Trajectory2; len(traj) > 0 {
+			lp := traj[len(traj)-1].Position
+			landPos = model.Vec3{X: lp.X, Y: lp.Y, Z: lp.Z}
+		} else {
+			pos := e.Projectile.Position()
+			landPos = model.Vec3{X: pos.X, Y: pos.Y, Z: pos.Z}
+		}
+
+		raw.Grenades = append(raw.Grenades, model.RawGrenadeEvent{
+			ThrowTick:      info.tick,
+			EndTick:        p.GameState().IngameTick(),
+			RoundNumber:    info.roundNumber,
+			ThrowerSteamID: info.throwerSteamID,
+			ThrowerTeam:    info.throwerTeam,
+			GrenadeType:    gtype,
+			ThrowPos:       info.throwPos,
+			LandPos:        landPos,
 		})
 	})
 
@@ -522,6 +608,25 @@ func teamFromCommon(t common.Team) model.Team {
 // that should be flagged as utility damage in PlayerHurt events.
 func isUtilityWeapon(t common.EquipmentType) bool {
 	return t == common.EqHE || t == common.EqMolotov || t == common.EqIncendiary
+}
+
+// grenadeTypeName returns a stable lowercase label for a grenade equipment type,
+// or "" for non-grenade equipment. Molotov and incendiary collapse to "molotov"
+// since they share the same on-ground effect.
+func grenadeTypeName(t common.EquipmentType) string {
+	switch t {
+	case common.EqSmoke:
+		return "smoke"
+	case common.EqFlash:
+		return "flash"
+	case common.EqHE:
+		return "he"
+	case common.EqMolotov, common.EqIncendiary:
+		return "molotov"
+	case common.EqDecoy:
+		return "decoy"
+	}
+	return ""
 }
 
 // demoFileDate returns the file's modification time as "YYYY-MM-DD".

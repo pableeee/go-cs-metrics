@@ -201,6 +201,8 @@ Written to `~/.csmetrics/metrics.db`:
 | `player_round_stats` | Per-round breakdown for each player |
 | `player_weapon_stats` | Per-weapon kill/damage breakdown |
 | `player_duel_segments` | FHHS duel segments (weapon+distance bins) |
+| `grenade_events` | One row per grenade throw-to-land (smoke/flash/he/molotov/decoy) with throw + land positions; `match_date` and `map_name` denormalized for fast meta queries |
+| `player_death_events` | One row per kill with victim/killer positions, victim yaw, distance, `was_flashed`, `was_traded`, `is_opening_death`, `round_phase`; `match_date` and `map_name` denormalized for heatmaps and meta tracking |
 
 ### Key flags
 
@@ -254,7 +256,11 @@ Gzip-compressed JSON. Top-level structure:
 ```
 
 The `match` object contains flat event arrays (kills, damages, flashes, first_sights,
-weapon_fires, frames, bombs, grenades, trails, shots) with round numbers embedded.
+weapon_fires, grenade_events, frames, bombs, grenades, trails, shots) with round
+numbers embedded. The `grenade_events` array (added v1) carries throw-to-land
+metrics-side records (thrower, type, throw/land Vec3); the viewer-side `grenades`
+and `trails` arrays remain unchanged. Older `.csdem.gz` files predating this field
+will simply have an empty `grenade_events` array on replay.
 Full schema: `docs/csdem-spec.md`.
 
 ### Key flags
@@ -299,7 +305,8 @@ Use `replay` for:
 ### Outputs
 
 Same as `parse` — writes to `metrics.db` tables: `demos`, `player_match_stats`,
-`player_round_stats`, `player_weapon_stats`, `player_duel_segments`.
+`player_round_stats`, `player_weapon_stats`, `player_duel_segments`,
+`grenade_events`, `player_death_events`.
 
 ### Key flags
 

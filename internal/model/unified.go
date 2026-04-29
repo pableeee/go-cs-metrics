@@ -36,11 +36,12 @@ type UnifiedMatch struct {
 
 	// Flat metrics event streams — go-cs-metrics reads all of these.
 	// cs-demo-viewer reads only Kills (for positions and kill markers).
-	Kills       []UnifiedKill       `json:"kills"`
-	Damages     []UnifiedDamage     `json:"damages"`
-	Flashes     []UnifiedFlash      `json:"flashes"`
-	FirstSights []UnifiedFirstSight `json:"first_sights"`
-	WeaponFires []UnifiedWeaponFire `json:"weapon_fires"`
+	Kills         []UnifiedKill         `json:"kills"`
+	Damages       []UnifiedDamage       `json:"damages"`
+	Flashes       []UnifiedFlash        `json:"flashes"`
+	FirstSights   []UnifiedFirstSight   `json:"first_sights"`
+	WeaponFires   []UnifiedWeaponFire   `json:"weapon_fires"`
+	GrenadeEvents []UnifiedGrenadeEvent `json:"grenade_events,omitempty"`
 
 	// Viewer-only streams — go-cs-metrics ignores these entirely.
 	Frames   []UnifiedFrame        `json:"frames"`
@@ -99,6 +100,12 @@ type UnifiedKill struct {
 	KillerY int `json:"ky"`
 	VictimX int `json:"vx"`
 	VictimY int `json:"vy"`
+
+	// Extended metrics-side death context (added after initial v1 format):
+	// full Z + victim yaw. omitempty so old .csdem.gz files remain valid.
+	KillerZ      int     `json:"kz,omitempty"`
+	VictimZ      int     `json:"vz,omitempty"`
+	VictimYawDeg float64 `json:"v_yaw,omitempty"`
 }
 
 // UnifiedDamage — go-cs-metrics only; viewer ignores.
@@ -115,7 +122,10 @@ type UnifiedDamage struct {
 	VictimPos       Vec3   `json:"victim_pos"`
 }
 
-// UnifiedFlash — go-cs-metrics only (flash quality, KAST).
+// UnifiedFlash — go-cs-metrics only (flash quality, KAST, blind-angle analytics).
+// The VictimPos/Yaw/Pitch fields were added after initial v1 and use omitempty
+// so older .csdem.gz files remain readable (flash_events for those will have
+// zero blind angles).
 type UnifiedFlash struct {
 	Tick            int           `json:"tick"`
 	Round           int           `json:"round"`
@@ -124,6 +134,9 @@ type UnifiedFlash struct {
 	AttackerTeam    Team          `json:"attacker_team"`
 	VictimTeam      Team          `json:"victim_team"`
 	FlashDuration   time.Duration `json:"duration_ns"`
+	VictimPos       Vec3          `json:"victim_pos"`         // zero Vec3 in older .csdem.gz
+	VictimYawDeg    float64       `json:"v_yaw,omitempty"`
+	VictimPitchDeg  float64       `json:"v_pitch,omitempty"`
 }
 
 // UnifiedFirstSight — go-cs-metrics only (crosshair placement).
@@ -149,6 +162,19 @@ type UnifiedWeaponFire struct {
 	YawDeg          float64 `json:"yaw_deg"`
 	AttackerPos     Vec3    `json:"pos"`
 	HorizontalSpeed float64 `json:"h_speed"`
+}
+
+// UnifiedGrenadeEvent — go-cs-metrics only (lineup clustering, utility usage).
+// Slim throw-to-land summary; viewer still uses the richer UnifiedGrenadeTrail.
+type UnifiedGrenadeEvent struct {
+	ThrowTick      int    `json:"t0"`
+	EndTick        int    `json:"t1"`
+	Round          int    `json:"round"`
+	ThrowerSteamID uint64 `json:"thrower,string"`
+	ThrowerTeam    Team   `json:"thrower_team"`
+	GrenadeType    string `json:"type"` // "smoke" | "flash" | "he" | "molotov" | "decoy"
+	ThrowPos       Vec3   `json:"throw_pos"`
+	LandPos        Vec3   `json:"land_pos"`
 }
 
 // UnifiedFrame is one 16-tick position keyframe (viewer only).
@@ -302,6 +328,9 @@ func (u *UnifiedMatch) ToRawMatch() *RawMatch {
 			IsHeadshot:            k.IsHeadshot,
 			AssistedFlash:         k.AssistedFlash,
 			NearbyVictimTeammates: k.NearbyVictimTeammates,
+			KillerPos:             Vec3{X: float64(k.KillerX), Y: float64(k.KillerY), Z: float64(k.KillerZ)},
+			VictimPos:             Vec3{X: float64(k.VictimX), Y: float64(k.VictimY), Z: float64(k.VictimZ)},
+			VictimYawDeg:          k.VictimYawDeg,
 		}
 	}
 
@@ -333,6 +362,9 @@ func (u *UnifiedMatch) ToRawMatch() *RawMatch {
 			AttackerTeam:    f.AttackerTeam,
 			VictimTeam:      f.VictimTeam,
 			FlashDuration:   f.FlashDuration,
+			VictimPos:       f.VictimPos,
+			VictimYawDeg:    f.VictimYawDeg,
+			VictimPitchDeg:  f.VictimPitchDeg,
 		}
 	}
 
@@ -364,6 +396,21 @@ func (u *UnifiedMatch) ToRawMatch() *RawMatch {
 			YawDeg:          wf.YawDeg,
 			AttackerPos:     wf.AttackerPos,
 			HorizontalSpeed: wf.HorizontalSpeed,
+		}
+	}
+
+	// Convert grenade events (omitted in older .csdem.gz files).
+	raw.Grenades = make([]RawGrenadeEvent, len(u.GrenadeEvents))
+	for i, g := range u.GrenadeEvents {
+		raw.Grenades[i] = RawGrenadeEvent{
+			ThrowTick:      g.ThrowTick,
+			EndTick:        g.EndTick,
+			RoundNumber:    g.Round,
+			ThrowerSteamID: g.ThrowerSteamID,
+			ThrowerTeam:    g.ThrowerTeam,
+			GrenadeType:    g.GrenadeType,
+			ThrowPos:       g.ThrowPos,
+			LandPos:        g.LandPos,
 		}
 	}
 

@@ -85,7 +85,7 @@ func TestTradeKill_ExactlyAtWindow(t *testing.T) {
 	kills, round := buildTradeScenario(deltaTicks)
 	raw := makeRaw(kills, []model.RawRound{round})
 
-	matchStats, roundStats, _, _, err := Aggregate(raw)
+	matchStats, roundStats, _, _, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestTradeKill_JustOverWindow(t *testing.T) {
 	kills, round := buildTradeScenario(deltaTicks)
 	raw := makeRaw(kills, []model.RawRound{round})
 
-	_, roundStats, _, _, err := Aggregate(raw)
+	_, roundStats, _, _, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestTradeKill_DoesNotCrossRounds(t *testing.T) {
 	r2 := makeRound(2, 5005, []uint64{playerB, playerC}, map[uint64]bool{playerC: true})
 
 	raw := makeRaw([]model.RawKill{k1, k2}, []model.RawRound{r1, r2})
-	_, roundStats, _, _, err := Aggregate(raw)
+	_, roundStats, _, _, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestKAST_Survived(t *testing.T) {
 	)
 	raw := makeRaw([]model.RawKill{k1}, []model.RawRound{round})
 
-	matchStats, roundStats, _, _, err := Aggregate(raw)
+	matchStats, roundStats, _, _, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestKAST_Traded(t *testing.T) {
 	kills, round := buildTradeScenario(deltaTicks)
 	raw := makeRaw(kills, []model.RawRound{round})
 
-	matchStats, roundStats, _, _, err := Aggregate(raw)
+	matchStats, roundStats, _, _, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestOpeningKill(t *testing.T) {
 		},
 	}
 
-	_, roundStats, _, _, err := Aggregate(raw)
+	_, roundStats, _, _, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestCrosshairAggregation(t *testing.T) {
 	raw.PlayerNames[playerA] = "A"
 	raw.PlayerNames[playerB] = "B"
 
-	matchStats, _, _, _, err := Aggregate(raw)
+	matchStats, _, _, _, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestCrosshairAggregation_NoData(t *testing.T) {
 	raw.PlayerNames[playerB] = "B"
 	// No FirstSights.
 
-	matchStats, _, _, _, err := Aggregate(raw)
+	matchStats, _, _, _, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -382,7 +382,7 @@ func TestDuelEngine_BasicWin(t *testing.T) {
 		{Tick: sightTick, RoundNumber: 1, ObserverID: playerA, EnemyID: playerB, AngleDeg: 2.0},
 	}
 
-	matchStats, _, _, _, err := Aggregate(raw)
+	matchStats, _, _, _, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -504,7 +504,7 @@ func TestFHHSSegment(t *testing.T) {
 		{Tick: sightTick, RoundNumber: 1, ObserverID: playerA, EnemyID: playerB, AngleDeg: 2.0},
 	}
 
-	_, _, _, segs, err := Aggregate(raw)
+	_, _, _, segs, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -545,7 +545,7 @@ func TestADR_Basic(t *testing.T) {
 			AttackerTeam: model.TeamT, HealthDamage: 75},
 	}
 
-	matchStats, _, _, _, err := Aggregate(raw)
+	matchStats, _, _, _, _, _, err := Aggregate(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

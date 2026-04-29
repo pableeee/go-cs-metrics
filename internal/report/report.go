@@ -241,12 +241,16 @@ func PrintDuelTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID ui
 
 	withMarker := focusSteamID != 0
 	if withMarker {
-		table.Header(" ", "PLAYER", "W", "L", "EXPO_WIN", "EXPO_LOSS", "HITS/K", "1ST_HS%", "CORRECTION", "<2°%")
+		table.Header(" ", "PLAYER", "W", "L", "WIN%", "EXPO_WIN", "EXPO_LOSS", "HITS/K", "1ST_HS%", "CORRECTION", "<2°%")
 	} else {
-		table.Header("PLAYER", "W", "L", "EXPO_WIN", "EXPO_LOSS", "HITS/K", "1ST_HS%", "CORRECTION", "<2°%")
+		table.Header("PLAYER", "W", "L", "WIN%", "EXPO_WIN", "EXPO_LOSS", "HITS/K", "1ST_HS%", "CORRECTION", "<2°%")
 	}
 
 	for _, s := range stats {
+		winPct := "—"
+		if total := s.DuelWins + s.DuelLosses; total > 0 {
+			winPct = fmt.Sprintf("%.0f%%", float64(s.DuelWins)/float64(total)*100)
+		}
 		expoWin := "—"
 		if s.DuelWins > 0 {
 			expoWin = fmt.Sprintf("%.0fms", s.MedianExposureWinMs)
@@ -272,7 +276,7 @@ func PrintDuelTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID ui
 			under2 = fmt.Sprintf("%.0f%%", s.PctCorrectionUnder2Deg)
 		}
 
-		row := []string{s.Name, strconv.Itoa(s.DuelWins), strconv.Itoa(s.DuelLosses),
+		row := []string{s.Name, strconv.Itoa(s.DuelWins), strconv.Itoa(s.DuelLosses), winPct,
 			expoWin, expoLoss, hitsK, firstHS, corr, under2}
 		if withMarker {
 			marker := " "
@@ -332,7 +336,8 @@ func PrintAWPTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uin
 // PrintPlayerAggregateOverview prints overall performance stats aggregated across all demos.
 func PrintPlayerAggregateOverview(w io.Writer, aggs []model.PlayerAggregate) {
 	printSection(w, "Performance Overview",
-		"K=Kills  A=Assists  D=Deaths  K/D=kill-death ratio  HS%=headshot kill %  ADR=avg damage per round\n"+
+		"RATING=Rating 2.0 proxy (community approx, ±0.05–0.10 vs HLTV)\n"+
+			"K=Kills  A=Assists  D=Deaths  K/D=kill-death ratio  HS%=headshot kill %  ADR=avg damage per round\n"+
 			"KAST%=rounds with a Kill/Assist/Survival/Trade  FA=flash assists  EFF_FLASH=blinded enemy died to your team within 1.5s\n"+
 			"ENTRY_K/RD=opening kills per round  ENTRY_D/RD=opening deaths per round\n"+
 			"TRADE_K/RD=trade kills per round  TRADE_D/RD=trade deaths per round")
@@ -340,7 +345,7 @@ func PrintPlayerAggregateOverview(w io.Writer, aggs []model.PlayerAggregate) {
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	table.Header("PLAYER", "MATCHES", "K", "A", "D", "K/D", "HS%", "ADR", "KAST%",
+	table.Header("PLAYER", "MATCHES", "RATING", "K", "A", "D", "K/D", "HS%", "ADR", "KAST%",
 		"ENTRY_K/RD", "ENTRY_D/RD", "TRADE_K/RD", "TRADE_D/RD", "FA", "EFF_FLASH")
 
 	fmtRate := func(v, rounds int) string {
@@ -354,6 +359,7 @@ func PrintPlayerAggregateOverview(w io.Writer, aggs []model.PlayerAggregate) {
 		table.Append(
 			a.Name,
 			strconv.Itoa(a.Matches),
+			fmt.Sprintf("%.2f", a.Rating2()),
 			strconv.Itoa(a.Kills),
 			strconv.Itoa(a.Assists),
 			strconv.Itoa(a.Deaths),
@@ -382,9 +388,13 @@ func PrintPlayerAggregateDuelTable(w io.Writer, aggs []model.PlayerAggregate) {
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	table.Header("PLAYER", "W", "L", "AVG_EXPO_WIN", "AVG_EXPO_LOSS", "AVG_HITS/K", "AVG_CORR")
+	table.Header("PLAYER", "W", "L", "WIN%", "AVG_EXPO_WIN", "AVG_EXPO_LOSS", "AVG_HITS/K", "AVG_CORR")
 
 	for _, a := range aggs {
+		winPct := "—"
+		if total := a.DuelWins + a.DuelLosses; total > 0 {
+			winPct = fmt.Sprintf("%.0f%%", float64(a.DuelWins)/float64(total)*100)
+		}
 		expoWin := "—"
 		if a.AvgExpoWinMs > 0 {
 			expoWin = fmt.Sprintf("%.0fms", a.AvgExpoWinMs)
@@ -405,6 +415,7 @@ func PrintPlayerAggregateDuelTable(w io.Writer, aggs []model.PlayerAggregate) {
 			a.Name,
 			strconv.Itoa(a.DuelWins),
 			strconv.Itoa(a.DuelLosses),
+			winPct,
 			expoWin,
 			expoLoss,
 			hitsK,

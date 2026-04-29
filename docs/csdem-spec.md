@@ -91,11 +91,12 @@ type UnifiedMatch struct {
 
     // Flat event streams — round number embedded in each entry.
     // go-cs-metrics reads all of these; cs-demo-viewer reads only Kills.
-    Kills       []UnifiedKill       `json:"kills"`
-    Damages     []UnifiedDamage     `json:"damages"`
-    Flashes     []UnifiedFlash      `json:"flashes"`
-    FirstSights []UnifiedFirstSight `json:"first_sights"`
-    WeaponFires []UnifiedWeaponFire `json:"weapon_fires"`
+    Kills         []UnifiedKill         `json:"kills"`
+    Damages       []UnifiedDamage       `json:"damages"`
+    Flashes       []UnifiedFlash        `json:"flashes"`
+    FirstSights   []UnifiedFirstSight   `json:"first_sights"`
+    WeaponFires   []UnifiedWeaponFire   `json:"weapon_fires"`
+    GrenadeEvents []UnifiedGrenadeEvent `json:"grenade_events,omitempty"` // metrics-side throw-to-land summary; absent in pre-grenade-event .csdem.gz files
 
     // Viewer-only streams — round number embedded in each entry.
     // go-cs-metrics ignores these entirely.
@@ -161,9 +162,16 @@ type UnifiedKill struct {
     AttackerBlind         bool `json:"attacker_blind,omitempty"`
     NearbyVictimTeammates int  `json:"nearby_teammates,omitempty"` // AWP death classifier
 
-    // Positions — viewer heatmaps and kill markers; also available for future metrics.
+    // Positions — viewer heatmaps and kill markers; also available for metrics.
     KillerX, KillerY int `json:"kx,ky"`
     VictimX, VictimY int `json:"vx,vy"`
+
+    // Extended metrics-side death context (added after initial v1 format).
+    // omitempty keeps older .csdem.gz files valid — those fields read as 0
+    // on replay and produce zeroed yaw/z columns in player_death_events.
+    KillerZ      int     `json:"kz,omitempty"`
+    VictimZ      int     `json:"vz,omitempty"`
+    VictimYawDeg float64 `json:"v_yaw,omitempty"`
 }
 ```
 
@@ -218,6 +226,22 @@ type UnifiedWeaponFire struct {
     YawDeg          float64 `json:"yaw_deg"`
     AttackerPos     Vec3    `json:"pos"`
     HorizontalSpeed float64 `json:"h_speed"`
+}
+
+// UnifiedGrenadeEvent — go-cs-metrics only (lineup clustering, utility usage,
+// meta tracking via match_date denormalized at DB write). Slim throw-to-land
+// summary; the viewer continues to use the richer UnifiedGrenadeTrail. The
+// `omitempty` JSON tag means older .csdem.gz files without this field load
+// cleanly with an empty slice.
+type UnifiedGrenadeEvent struct {
+    ThrowTick      int    `json:"t0"`
+    EndTick        int    `json:"t1"`
+    Round          int    `json:"round"`
+    ThrowerSteamID uint64 `json:"thrower,string"`
+    ThrowerTeam    Team   `json:"thrower_team"`
+    GrenadeType    string `json:"type"` // "smoke" | "flash" | "he" | "molotov" | "decoy"
+    ThrowPos       Vec3   `json:"throw_pos"`
+    LandPos        Vec3   `json:"land_pos"`
 }
 ```
 
@@ -313,6 +337,7 @@ type UnifiedShot struct {
 | `UnifiedFlash` | `AttackerSteamID / VictimSteamID uint64` | Metrics only |
 | `UnifiedFirstSight` | `ObserverID / EnemyID uint64` | Metrics only |
 | `UnifiedWeaponFire` | `ShooterID uint64` | Metrics only |
+| `UnifiedGrenadeEvent` | `ThrowerSteamID uint64` | Metrics only |
 
 The viewer builds a `steamID → idx` map from `Match.Players` once at load, then uses
 it only to resolve kill/assist SteamIDs for the scoreboard. All positional data is

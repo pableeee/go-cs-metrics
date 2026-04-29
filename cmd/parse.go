@@ -116,6 +116,8 @@ type parseResult struct {
 	roundStats   []model.PlayerRoundStats
 	weaponStats  []model.PlayerWeaponStats
 	duelSegs     []model.PlayerDuelSegment
+	deathEvents  []model.PlayerDeathEvent
+	flashEvents  []model.FlashEvent
 	parseElapsed time.Duration
 	aggElapsed   time.Duration
 	err          error
@@ -153,7 +155,7 @@ func runDemoWorker(jobs <-chan parseJob, results chan<- parseResult, mt string) 
 		res.raw = raw
 
 		t1 := time.Now()
-		ms, rs, ws, ds, err := aggregator.Aggregate(raw)
+		ms, rs, ws, ds, des, fes, err := aggregator.Aggregate(raw)
 		res.aggElapsed = time.Since(t1)
 		if err != nil {
 			res.err = fmt.Errorf("aggregate: %w", err)
@@ -164,6 +166,8 @@ func runDemoWorker(jobs <-chan parseJob, results chan<- parseResult, mt string) 
 		res.roundStats = rs
 		res.weaponStats = ws
 		res.duelSegs = ds
+		res.deathEvents = des
+		res.flashEvents = fes
 		results <- res
 	}
 }
@@ -328,7 +332,7 @@ func runParse(cmd *cobra.Command, args []string) error {
 		}
 
 		t1 := time.Now()
-		matchStats, roundStats, weaponStats, duelSegs, err := aggregator.Aggregate(raw)
+		matchStats, roundStats, weaponStats, duelSegs, deathEvents, flashEvents, err := aggregator.Aggregate(raw)
 		aggElapsed := time.Since(t1)
 		if err != nil {
 			return fmt.Errorf("aggregate: %w", err)
@@ -362,6 +366,15 @@ func runParse(cmd *cobra.Command, args []string) error {
 		}
 		if err := db.InsertPlayerDuelSegments(duelSegs); err != nil {
 			return fmt.Errorf("insert duel segments: %w", err)
+		}
+		if err := db.InsertGrenadeEvents(raw.DemoHash, raw.MatchDate, raw.MapName, raw.Grenades); err != nil {
+			return fmt.Errorf("insert grenade events: %w", err)
+		}
+		if err := db.InsertPlayerDeathEvents(raw.DemoHash, deathEvents); err != nil {
+			return fmt.Errorf("insert death events: %w", err)
+		}
+		if err := db.InsertFlashEvents(raw.DemoHash, flashEvents); err != nil {
+			return fmt.Errorf("insert flash events: %w", err)
 		}
 
 		fmt.Fprintf(os.Stdout, "  parse: %s  aggregate: %s  total: %s\n\n",
@@ -494,6 +507,15 @@ func runParse(cmd *cobra.Command, args []string) error {
 		if err := db.InsertPlayerDuelSegments(res.duelSegs); err != nil {
 			return false, fmt.Errorf("insert duel segments: %w", err)
 		}
+		if err := db.InsertGrenadeEvents(res.raw.DemoHash, res.raw.MatchDate, res.raw.MapName, res.raw.Grenades); err != nil {
+			return false, fmt.Errorf("insert grenade events: %w", err)
+		}
+		if err := db.InsertPlayerDeathEvents(res.raw.DemoHash, res.deathEvents); err != nil {
+			return false, fmt.Errorf("insert death events: %w", err)
+		}
+		if err := db.InsertFlashEvents(res.raw.DemoHash, res.flashEvents); err != nil {
+			return false, fmt.Errorf("insert flash events: %w", err)
+		}
 		fmt.Fprintf(os.Stdout, "  %s  stored: %s  %s  %d–%d  %d players  %d rounds  (parse %s  agg %s  total %s)\n",
 			tag,
 			summary.MapName, summary.MatchDate, ctScore, tScore,
@@ -531,7 +553,7 @@ func runParse(cmd *cobra.Command, args []string) error {
 			} else {
 				res.raw = raw
 				t1 := time.Now()
-				ms, rs, ws, ds, aggErr := aggregator.Aggregate(raw)
+				ms, rs, ws, ds, des, fes, aggErr := aggregator.Aggregate(raw)
 				res.aggElapsed = time.Since(t1)
 				if aggErr != nil {
 					res.err = fmt.Errorf("aggregate: %w", aggErr)
@@ -540,6 +562,8 @@ func runParse(cmd *cobra.Command, args []string) error {
 					res.roundStats = rs
 					res.weaponStats = ws
 					res.duelSegs = ds
+					res.deathEvents = des
+					res.flashEvents = fes
 				}
 			}
 			if _, err := writeDemoResult(res); err != nil {

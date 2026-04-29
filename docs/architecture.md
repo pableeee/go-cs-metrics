@@ -340,7 +340,7 @@ Additionally, the **frame-walk loop** inspects `m_bSpottedByMask` transitions ev
 
 ## Storage Schema
 
-Six tables:
+Seven tables:
 
 ```
 demos                         (hash PK, map_name, date, type, tickrate, ct_score, t_score, tier, is_baseline, event_id)
@@ -355,10 +355,21 @@ demos                         (hash PK, map_name, date, type, tickrate, ct_score
   ├── player_weapon_stats      (demo_hash FK, steam_id, weapon, kills, hs_kills, damage, hits)
   │                            UNIQUE(demo_hash, steam_id, weapon)
   │
-  └── player_duel_segments     (demo_hash FK, steam_id, weapon_bucket, distance_bin,
-                                duel_count, first_hit_count, first_hit_hs_count,
-                                median_corr_deg, median_sight_deg, median_expo_win_ms)
-                               UNIQUE(demo_hash, steam_id, weapon_bucket, distance_bin)
+  ├── player_duel_segments     (demo_hash FK, steam_id, weapon_bucket, distance_bin,
+  │                             duel_count, first_hit_count, first_hit_hs_count,
+  │                             median_corr_deg, median_sight_deg, median_expo_win_ms)
+  │                            UNIQUE(demo_hash, steam_id, weapon_bucket, distance_bin)
+  │
+  ├── grenade_events           (demo_hash FK, match_date, map_name, round_number,
+  │                             throw_tick, end_tick, thrower_id, thrower_team,
+  │                             grenade_type, throw_x/y/z, land_x/y/z)
+  │                            raw event log (no UNIQUE) — replaced per demo on re-parse
+  │
+  └── player_death_events      (demo_hash FK, match_date, map_name, round_number, tick,
+                                victim_id/team, killer_id/team, weapon, is_headshot,
+                                victim_x/y/z, killer_x/y/z, victim_yaw, distance_m,
+                                was_flashed, was_traded, is_opening_death, round_phase)
+                               raw event log (no UNIQUE) — replaced per demo on re-parse
 ```
 
 **`demos` column notes:**

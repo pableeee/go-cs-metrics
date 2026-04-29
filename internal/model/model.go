@@ -37,7 +37,10 @@ type RawKill struct {
 	KillerTeam, VictimTeam          Team
 	Weapon                          string
 	IsHeadshot, AssistedFlash       bool
-	NearbyVictimTeammates           int // alive teammates of victim within 512 units at kill tick (0 = isolated)
+	NearbyVictimTeammates           int     // alive teammates of victim within 512 units at kill tick (0 = isolated)
+	VictimPos                       Vec3    // victim world position at kill tick
+	KillerPos                       Vec3    // killer world position at kill tick
+	VictimYawDeg                    float64 // victim view yaw (0–360) at kill tick
 }
 
 // RawDamage represents a single damage event (PlayerHurt) from the demo.
@@ -58,6 +61,33 @@ type RawFlash struct {
 	AttackerSteamID, VictimSteamID uint64
 	AttackerTeam, VictimTeam       Team
 	FlashDuration                  time.Duration
+	VictimPos                      Vec3    // victim world position at blind tick
+	VictimYawDeg                   float64 // victim view yaw (0–360) at blind tick
+	VictimPitchDeg                 float64 // victim view pitch, normalised to [-90,90] (negative = looking up)
+}
+
+// FlashEvent is one row per PlayerFlashed event enriched with the flash's
+// explosion position and the derived blind angle. Produced by aggregator pass 13.
+// BlindAngleDeg is 0 when the victim was looking directly at the flash and 180
+// when facing away; flashes with BlindAngleDeg < 45 typically produce full blinds.
+type FlashEvent struct {
+	DemoHash       string
+	MatchDate      string
+	MapName        string
+	RoundNumber    int
+	Tick           int
+	ThrowerSteamID uint64
+	ThrowerTeam    Team
+	VictimSteamID  uint64
+	VictimTeam     Team
+	DurationSec    float64
+	IsTeamFlash    bool
+	VictimPos      Vec3
+	VictimYawDeg   float64
+	VictimPitchDeg float64
+	FlashPos       Vec3    // from matching RawGrenadeEvent; zero if unmatched
+	BlindAngleDeg  float64 // 0 = looking at flash, 180 = facing away
+	DistanceMeters float64
 }
 
 // PlayerRoundEndState captures a player's state at the end of a round,
@@ -109,6 +139,22 @@ type RawWeaponFire struct {
 	HorizontalSpeed float64 // shooter horizontal speed (Hammer units/s) at fire tick
 }
 
+// RawGrenadeEvent represents a single grenade throw-to-land event.
+// ThrowTick is the tick the projectile left the thrower's hand; EndTick is when
+// it detonated (HE/flash), began its effect (smoke/molotov), or was destroyed.
+// ThrowPos is the thrower's position at the throw tick; LandPos is the
+// projectile's final position. Used for lineup clustering and utility analytics.
+type RawGrenadeEvent struct {
+	ThrowTick      int
+	EndTick        int
+	RoundNumber    int
+	ThrowerSteamID uint64
+	ThrowerTeam    Team
+	GrenadeType    string // "smoke" | "flash" | "he" | "molotov" | "decoy"
+	ThrowPos       Vec3
+	LandPos        Vec3
+}
+
 // RawMatch is the fully parsed representation of a single demo file.
 // It contains all tick-level events and metadata needed by the aggregator.
 type RawMatch struct {
@@ -124,6 +170,7 @@ type RawMatch struct {
 	Flashes     []RawFlash
 	FirstSights []RawFirstSight
 	WeaponFires []RawWeaponFire
+	Grenades    []RawGrenadeEvent
 	PlayerNames map[uint64]string
 	PlayerTeams map[uint64]Team
 }
@@ -398,6 +445,23 @@ func (a *PlayerAggregate) KASTPct() float64 {
 	return float64(a.KASTRounds) / float64(a.RoundsPlayed) * 100
 }
 
+// Rating2 returns the community approximation of HLTV Rating 2.0.
+//
+//	Impact ≈ 2.13*KPR + 0.42*APR − 0.41
+//	Rating ≈ 0.0073*KAST% + 0.3591*KPR − 0.5329*DPR + 0.2372*Impact + 0.0032*ADR + 0.1587
+func (a *PlayerAggregate) Rating2() float64 {
+	if a.RoundsPlayed == 0 {
+		return 0
+	}
+	kpr := float64(a.Kills) / float64(a.RoundsPlayed)
+	apr := float64(a.Assists) / float64(a.RoundsPlayed)
+	dpr := float64(a.Deaths) / float64(a.RoundsPlayed)
+	kast := 100.0 * float64(a.KASTRounds) / float64(a.RoundsPlayed)
+	adr := float64(a.TotalDamage) / float64(a.RoundsPlayed)
+	impact := 2.13*kpr + 0.42*apr - 0.41
+	return 0.0073*kast + 0.3591*kpr - 0.5329*dpr + 0.2372*impact + 0.0032*adr + 0.1587
+}
+
 // PlayerMapSideAggregate holds stats for a single player on one map and one side (CT or T),
 // aggregated across all stored demos.
 type PlayerMapSideAggregate struct {
@@ -489,6 +553,31 @@ func (s *PlayerSideStats) KASTPct() float64 {
 		return 0
 	}
 	return float64(s.KASTRounds) / float64(s.RoundsPlayed) * 100
+}
+
+// PlayerDeathEvent is one row per kill assembled for analytics: who died,
+// where, how, and in what tactical context. Produced by aggregator pass 12.
+// Denormalised match_date + map_name let meta queries skip a JOIN on demos.
+type PlayerDeathEvent struct {
+	DemoHash       string
+	MatchDate      string
+	MapName        string
+	RoundNumber    int
+	Tick           int
+	VictimSteamID  uint64
+	VictimTeam     Team
+	KillerSteamID  uint64 // 0 for world/fall damage (rare)
+	KillerTeam     Team
+	Weapon         string
+	IsHeadshot     bool
+	VictimPos      Vec3
+	KillerPos      Vec3
+	VictimYawDeg   float64
+	DistanceMeters float64
+	WasFlashed     bool
+	WasTraded      bool
+	IsOpeningDeath bool
+	RoundPhase     string // "pistol" | "early" | "mid" | "late" | "post_plant"
 }
 
 // PlayerDuelSegment holds FHHS stats for one (weapon_bucket, distance_bin) segment per player per demo.

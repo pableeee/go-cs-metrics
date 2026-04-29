@@ -214,3 +214,23 @@ CounterStrafePercent = strafedShots / totalShots * 100
 ```
 
 Utility and knife fires are excluded by the parser (not recorded in `raw.WeaponFires`), so only rifle/SMG/pistol/AWP shots contribute. Players with no weapon-fire events (e.g., spectators) receive 0%.
+
+---
+
+## Pass 12 — Death events
+
+**Input:** annotated kills (pass 1), opening kills (pass 2), `raw.Flashes`, `raw.Rounds`
+**Output:** `[]PlayerDeathEvent` (one row per kill), written to `player_death_events` by storage.
+
+For each annotated kill, emit a row combining the kill's raw data (positions, yaw, weapon) with derived tactical context:
+
+- `was_flashed` — any `RawFlash` on the victim in the 2 s window ending at the kill tick.
+- `was_traded` — carried from pass 1 trade annotation (`isTradeDeath`).
+- `is_opening_death` — the victim ID equals `openingByRound[round].victimID` from pass 2.
+- `distance_m` — `‖KillerPos − VictimPos‖ * 0.01905` (Hammer units → meters).
+- `round_phase` — heuristic label:
+  - `pistol` if round number is 1 or 13 (first + MR12 second-half pistol).
+  - `post_plant` if `BombPlantTick > 0 && killTick ≥ BombPlantTick`.
+  - Otherwise thirds of freeze-end → round-end: `early` / `mid` / `late`.
+
+World/fall deaths (`killer_id == victim_id`) appear with distance 0 and weapon `World`. The pass does not currently filter those out — downstream queries should exclude them with `WHERE killer_id != victim_id` when analysing player-vs-player kills.

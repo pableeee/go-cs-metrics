@@ -555,6 +555,150 @@ func (db *DB) InsertPlayerDuelSegments(segs []model.PlayerDuelSegment) error {
 	return tx.Commit()
 }
 
+// InsertFlashEvents replaces all flash_events rows for a single demo with the
+// supplied slice in one transaction. Per-demo delete-then-insert keeps the raw
+// event log idempotent on re-parse.
+func (db *DB) InsertFlashEvents(demoHash string, events []model.FlashEvent) error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM flash_events WHERE demo_hash = ?`, demoHash); err != nil {
+		return fmt.Errorf("clear flash_events for %s: %w", demoHash, err)
+	}
+
+	if len(events) == 0 {
+		return tx.Commit()
+	}
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO flash_events(
+			demo_hash, match_date, map_name, round_number, tick,
+			thrower_id, thrower_team, victim_id, victim_team,
+			duration_s, is_team_flash,
+			victim_x, victim_y, victim_z, victim_yaw, victim_pitch,
+			flash_x, flash_y, flash_z,
+			blind_angle_deg, distance_m
+		) VALUES (?,?,?,?,?, ?,?,?,?, ?,?, ?,?,?,?,?, ?,?,?, ?,?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, f := range events {
+		if _, err := stmt.Exec(
+			demoHash, f.MatchDate, normalizeMapName(f.MapName), f.RoundNumber, f.Tick,
+			strconv.FormatUint(f.ThrowerSteamID, 10), f.ThrowerTeam.String(),
+			strconv.FormatUint(f.VictimSteamID, 10), f.VictimTeam.String(),
+			f.DurationSec, boolInt(f.IsTeamFlash),
+			f.VictimPos.X, f.VictimPos.Y, f.VictimPos.Z,
+			f.VictimYawDeg, f.VictimPitchDeg,
+			f.FlashPos.X, f.FlashPos.Y, f.FlashPos.Z,
+			f.BlindAngleDeg, f.DistanceMeters,
+		); err != nil {
+			return fmt.Errorf("insert flash_events for %s tick=%d: %w", demoHash, f.Tick, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// InsertPlayerDeathEvents replaces all player_death_events rows for a single
+// demo with the supplied slice in one transaction. Per-demo delete-then-insert
+// keeps the raw event log idempotent on re-parse. map_name is normalized to
+// title-case for consistency with the demos table.
+func (db *DB) InsertPlayerDeathEvents(demoHash string, events []model.PlayerDeathEvent) error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM player_death_events WHERE demo_hash = ?`, demoHash); err != nil {
+		return fmt.Errorf("clear player_death_events for %s: %w", demoHash, err)
+	}
+
+	if len(events) == 0 {
+		return tx.Commit()
+	}
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO player_death_events(
+			demo_hash, match_date, map_name, round_number, tick,
+			victim_id, victim_team, killer_id, killer_team, weapon, is_headshot,
+			victim_x, victim_y, victim_z, killer_x, killer_y, killer_z,
+			victim_yaw, distance_m,
+			was_flashed, was_traded, is_opening_death, round_phase
+		) VALUES (?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?, ?,?, ?,?,?,?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, d := range events {
+		if _, err := stmt.Exec(
+			demoHash, d.MatchDate, normalizeMapName(d.MapName), d.RoundNumber, d.Tick,
+			strconv.FormatUint(d.VictimSteamID, 10), d.VictimTeam.String(),
+			strconv.FormatUint(d.KillerSteamID, 10), d.KillerTeam.String(),
+			d.Weapon, boolInt(d.IsHeadshot),
+			d.VictimPos.X, d.VictimPos.Y, d.VictimPos.Z,
+			d.KillerPos.X, d.KillerPos.Y, d.KillerPos.Z,
+			d.VictimYawDeg, d.DistanceMeters,
+			boolInt(d.WasFlashed), boolInt(d.WasTraded), boolInt(d.IsOpeningDeath), d.RoundPhase,
+		); err != nil {
+			return fmt.Errorf("insert player_death_events for %s tick=%d: %w", demoHash, d.Tick, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// InsertGrenadeEvents replaces all grenade_events rows for a single demo with
+// the supplied slice in one transaction. Caller passes the demo's match_date
+// and (normalized) map_name so they can be denormalized into each row for
+// fast meta queries that don't need to JOIN against the demos table.
+// Passing an empty slice clears any existing events for the demo.
+func (db *DB) InsertGrenadeEvents(demoHash, matchDate, mapName string, events []model.RawGrenadeEvent) error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM grenade_events WHERE demo_hash = ?`, demoHash); err != nil {
+		return fmt.Errorf("clear grenade_events for %s: %w", demoHash, err)
+	}
+
+	if len(events) == 0 {
+		return tx.Commit()
+	}
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO grenade_events(
+			demo_hash, match_date, map_name, round_number,
+			throw_tick, end_tick, thrower_id, thrower_team, grenade_type,
+			throw_x, throw_y, throw_z, land_x, land_y, land_z
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	normalizedMap := normalizeMapName(mapName)
+	for _, g := range events {
+		if _, err := stmt.Exec(
+			demoHash, matchDate, normalizedMap, g.RoundNumber,
+			g.ThrowTick, g.EndTick,
+			strconv.FormatUint(g.ThrowerSteamID, 10), g.ThrowerTeam.String(), g.GrenadeType,
+			g.ThrowPos.X, g.ThrowPos.Y, g.ThrowPos.Z,
+			g.LandPos.X, g.LandPos.Y, g.LandPos.Z,
+		); err != nil {
+			return fmt.Errorf("insert grenade_events for %s tick=%d: %w", demoHash, g.ThrowTick, err)
+		}
+	}
+	return tx.Commit()
+}
+
 // GetPlayerDuelSegments returns all FHHS segments for a demo hash.
 func (db *DB) GetPlayerDuelSegments(demoHash string) ([]model.PlayerDuelSegment, error) {
 	rows, err := db.conn.Query(`
