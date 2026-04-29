@@ -1,32 +1,37 @@
 # Spec: CSRaw v2 Intermediate Format
 
-> Successor to `.csdem.gz` (v1, defined in `csdem-spec.md`).
+> **Status: implementation in progress.**
 >
-> **Status: draft / proposal.** Not yet implemented. This document defines the
-> target schema; the converter and reader will follow once the schema is agreed.
+> Slice 1 (this commit): `internal/csraw2` package — Go types matching the
+> schema, tar+parquet writer/reader, round-trip tested. No CLI / converter
+> wiring yet.
+>
+> v2 is a clean break: there is no migration path from v1 (`.csdem.gz`).
+> The DB will be wiped and demos re-parsed from `.dem` once the v2 pipeline
+> is functional.
 
 ---
 
 ## Motivation
 
-CSRaw v1 (`.csdem.gz`) solved disk + reprocessing cost (519 GB → 821 MB across
-1,123 demos, 647× compression). It is *lossy*: the converter materialises only
-the events and fields the aggregator needed at conversion time, then the original
-`.dem` is discarded.
+The original lossy intermediate format captured only the events and fields the
+aggregator needed at conversion time. New metrics that need any unrecorded
+field — visibility mask, full velocity vector, freeze-time positioning, ammo
+state — could not be added retroactively without re-parsing from `.dem`.
+Concretely, the gaps that drove v2:
 
-The lossy choice has bitten us. New metrics that require fields v1 did not capture
-cannot be added retroactively — the only fix is to re-parse from `.dem`, which we
-no longer keep. Concretely:
+- No player state sampled during freeze-time → no buy-time positioning, no
+  fake-buy detection.
+- 4 Hz post-freeze-end frame sampling, viewer-only → too sparse for any
+  tick-precise gameplay metric.
+- View angles captured only at `kill`, `weapon_fire`, `first_sight` → no
+  flick / peek / off-angle dynamics.
+- No velocity vector outside `weapon_fire` → no extension of counter-strafe.
+- No spotted-by mask → no engine-truth visibility metrics.
+- No per-tick ammo / scope / reload state → no weapon-handling metrics.
 
-- v1 does not sample player state during freeze-time → cannot study buy-time positioning, fake-buy detection.
-- v1 frames are 16-tick (4 Hz) and viewer-only → not dense enough for any tick-precise gameplay metric.
-- v1 captures view angles only at `kill`, `weapon_fire`, `first_sight` → cannot study flick/peek/off-angle dynamics.
-- v1 has no velocity vector outside `weapon_fire` → cannot extend counter-strafe analysis.
-- v1 has no spotted-by mask → no engine-truth visibility data for visibility-based metrics.
-- v1 has no per-tick ammo / scope / reload state → blocks weapon-handling metrics.
-
-v2 is designed to be **bulletproof for any future gameplay metric** while keeping
-total archive size in the low-GB range.
+v2 is designed to be **bulletproof for any plausible future gameplay metric**
+while keeping total archive size in the low-GB range.
 
 ---
 
@@ -40,6 +45,7 @@ total archive size in the low-GB range.
 | Total archive size for 1,000 pro demos ≤ 3 GB | primary |
 | Lossless round-trip for every metric currently produced by the aggregator | primary |
 | Zero dependency on demoinfocs at re-aggregation time | constraint |
+| Pure-Go writer + reader (no CGo) | constraint |
 | Discardable original `.dem` once v2 conversion is verified | outcome |
 
 ## Non-goals
@@ -60,16 +66,28 @@ filesystem ergonomics:
 
 ```
 the-mongolz-vs-natus-vincere-m1-inferno.csraw2.tar
-├── header.json                # match metadata + sampling config + schema version
-├── events.parquet             # all game events (kills, damages, fires, …)
-├── player_samples.parquet     # tick-sampled player state, partitioned by round
-├── projectile_samples.parquet # in-flight grenades + bomb state
-└── viewer.parquet             # OPTIONAL: viewer-only frames/trails/grenades/shots
+├── header.json                  # match metadata + sampling config + schema version
+├── kills.parquet                # one row per kill
+├── damages.parquet              # one row per player_hurt
+├── weapon_fires.parquet         # one row per shot fired
+├── flashes.parquet              # one row per effective flash
+├── first_sights.parquet         # one row per crosshair-placement event
+├── grenade_throws.parquet       # one row per projectile thrown
+├── grenade_detonations.parquet  # one row per smoke-pop / HE / flash / molotov ignite
+├── bomb_actions.parquet         # plant_begin / plant_complete / defuse_* / explode
+├── item_pickups.parquet         # weapon / kit / armor / grenade pickups
+├── item_drops.parquet           # item drops (death drops + manual drops)
+├── equip_changes.parquet        # active-weapon switches
+├── chat_commands.parquet        # chat / radio commands
+├── player_samples.parquet       # tick-sampled player state
+└── projectile_samples.parquet   # in-flight grenades + bomb state
 ```
 
-Why not a single `.parquet`? Different streams have different schemas and very
-different row counts; one file per stream keeps row-group sizing sensible and lets
-go-cs-metrics skip `viewer.parquet` entirely (it never reads it).
+One file per event type instead of a single tagged-union table — keeps each
+schema dense and narrow, makes ad-hoc DuckDB queries (`SELECT * FROM
+'kills.parquet'`) natural, and means tools like go-cs-metrics never touch
+streams they don't need (e.g. the converter doesn't have to read
+`chat_commands.parquet` to compute kills).
 
 Why `.tar` and not gzip? Parquet files are already zstd-compressed internally;
 re-gzipping the tar gains <2% and breaks random access into individual streams.
@@ -100,7 +118,7 @@ Same directory as `.dem` (or `.csdem.gz`), same base name, `.csraw2.tar` extensi
   "csraw_version": 2,
   "csraw_schema_version": "2.0.0",
   "cs2_protocol_version": 13992,
-  "writer": "go-cs-metrics/converter v1.4.0",
+  "writer": "go-cs-metrics/converter v0.1.0",
   "writer_demoinfocs_version": "v4.x.y"
 }
 ```
@@ -179,46 +197,14 @@ Match-level metadata. Small; fully read into memory at aggregator start.
 
 ---
 
-## Stream 2: `events.parquet`
+## Event streams
 
-One row per game event. Replaces v1's separate `kills`/`damages`/`flashes`/…
-arrays with a single tagged-union table.
+Each event type is a separate parquet file inside the archive (see file
+layout above). Every row has at minimum a `tick` (int32) and `round` (int16);
+type-specific columns follow. All position columns are int16 in Hammer units;
+view angles int16 quantised to 1/100°; velocities int16 in u/s.
 
-### Common columns (every row)
-
-| Column | Type | Notes |
-|---|---|---|
-| `tick` | int32 | Tick when the event resolved |
-| `round` | int16 | 1-indexed round number |
-| `event_type` | uint8 enum | See enum below |
-
-### `event_type` enum
-
-| Id | Name | Notes |
-|---|---|---|
-| 1 | `kill` | Includes suicide if killer == victim |
-| 2 | `damage` | Per `player_hurt` event |
-| 3 | `weapon_fire` | Single shot; one row per bullet (continuous fire = many rows) |
-| 4 | `flash` | Effective flash (positive duration) only |
-| 5 | `first_sight` | Crosshair-placement event (existing v1 logic) |
-| 6 | `grenade_throw` | Replaces v1 `grenade_events` |
-| 7 | `grenade_detonate` | Smoke pop, HE detonate, flash detonate, molotov ignite |
-| 8 | `bomb_plant_begin` | |
-| 9 | `bomb_plant_complete` | |
-| 10 | `bomb_defuse_begin` | |
-| 11 | `bomb_defuse_complete` | |
-| 12 | `bomb_explode` | |
-| 13 | `item_pickup` | Weapon, armour, kit, grenade, dropped C4 |
-| 14 | `item_drop` | |
-| 15 | `equip_change` | Active weapon switch |
-| 16 | `score_change` | OT detection, regulation/OT boundary marker |
-| 17 | `chat_command` | Player chat / radio command (text + sender) |
-| 18 | `round_start` | Mirrors `header.rounds[i].start_tick`; convenience |
-| 19 | `round_end` | Mirrors `header.rounds[i].end_tick` + win reason |
-
-### Type-specific columns (nullable; populated only for matching `event_type`)
-
-`kill` (event_type = 1):
+### `kills.parquet`
 
 | Column | Type | Notes |
 |---|---|---|
@@ -242,7 +228,7 @@ arrays with a single tagged-union table.
 | `victim_view_distance` | uint16 | NEW — distance from victim crosshair to killer position |
 | `killer_active_weapon_id` | uint8 | NEW — what was held when the kill registered (may differ on weapon-swap kills) |
 
-`damage` (event_type = 2):
+### `damages.parquet`
 
 | Column | Type | Notes |
 |---|---|---|
@@ -258,7 +244,7 @@ arrays with a single tagged-union table.
 | `attacker_pos_x`, `_y`, `_z` | int16 | NEW (v1 only had victim pos) |
 | `victim_pos_x`, `_y`, `_z` | int16 | |
 
-`weapon_fire` (event_type = 3):
+### `weapon_fires.parquet`
 
 | Column | Type | Notes |
 |---|---|---|
@@ -272,7 +258,7 @@ arrays with a single tagged-union table.
 | `is_silenced` | bool | NEW |
 | `recoil_index` | uint8 | NEW — Nth shot in burst (0 = first) |
 
-`flash` (event_type = 4):
+### `flashes.parquet`
 
 | Column | Type | Notes |
 |---|---|---|
@@ -283,7 +269,7 @@ arrays with a single tagged-union table.
 | `victim_yaw_deg`, `victim_pitch_deg` | int16 | |
 | `victim_through_smoke` | bool | NEW |
 
-`first_sight` (event_type = 5):
+### `first_sights.parquet`
 
 | Column | Type | Notes |
 |---|---|---|
@@ -296,7 +282,7 @@ arrays with a single tagged-union table.
 | `enemy_pos_x`, `_y`, `_z` | int16 | NEW |
 | `was_already_visible` | bool | NEW — distinguishes "first sight after los break" vs "true first sight" |
 
-`grenade_throw` (event_type = 6):
+### `grenade_throws.parquet`
 
 | Column | Type | Notes |
 |---|---|---|
@@ -308,7 +294,7 @@ arrays with a single tagged-union table.
 | `is_jumpthrow` | bool | NEW — derived from velocity heuristics |
 | `projectile_id` | uint32 | Foreign key to `projectile_samples.projectile_id` |
 
-`grenade_detonate` (event_type = 7):
+### `grenade_detonations.parquet`
 
 | Column | Type | Notes |
 |---|---|---|
@@ -316,7 +302,10 @@ arrays with a single tagged-union table.
 | `grenade_type` | uint8 enum | |
 | `pos_x`, `_y`, `_z` | int16 | |
 
-`bomb_*` (event_type = 8..12):
+### `bomb_actions.parquet`
+
+`action` enum: 1=plant_begin, 2=plant_complete, 3=defuse_begin,
+4=defuse_complete, 5=explode.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -325,7 +314,7 @@ arrays with a single tagged-union table.
 | `site` | uint8 enum | A / B |
 | `had_kit` | bool | Defuse only |
 
-`item_pickup` / `item_drop` (event_type = 13/14):
+### `item_pickups.parquet` / `item_drops.parquet`
 
 | Column | Type | Notes |
 |---|---|---|
@@ -334,7 +323,7 @@ arrays with a single tagged-union table.
 | `pos_x`, `_y`, `_z` | int16 | |
 | `from_slot` | int8 | NEW: who dropped it (item_pickup); -1 if from spawn/floor |
 
-`equip_change` (event_type = 15):
+### `equip_changes.parquet`
 
 | Column | Type | Notes |
 |---|---|---|
@@ -342,7 +331,7 @@ arrays with a single tagged-union table.
 | `weapon_id` | uint8 | new active weapon |
 | `prev_weapon_id` | uint8 | |
 
-`chat_command` (event_type = 17):
+### `chat_commands.parquet`
 
 | Column | Type | Notes |
 |---|---|---|
@@ -350,21 +339,9 @@ arrays with a single tagged-union table.
 | `text` | string | |
 | `is_team_only` | bool | |
 
-### Forward-compat field
-
-All event rows include:
-
-| Column | Type | Notes |
-|---|---|---|
-| `extra` | binary (nullable) | CBOR-encoded map for fields not yet in the schema. Reader contract: ignore unknown keys. |
-
-This is the escape hatch for fields a future converter wants to add without
-bumping the schema major version (e.g. a new flag from a CS2 patch we want to
-preserve immediately).
-
 ---
 
-## Stream 3: `player_samples.parquet`
+## Stream: `player_samples.parquet`
 
 The big one. Per-tick player state. Partitioned by round (one row group per
 round) for cheap per-round seek.
@@ -390,7 +367,6 @@ round) for cheap per-round seek.
 | `visible_enemies_mask` | uint16 | bit `i` = enemy slot `i` is in this player's spotted set |
 | `last_shot_tick_offset` | uint8 | ticks since last shot, capped 255 |
 | `last_damage_tick_offset` | uint8 | ticks since last damage taken, capped 255 |
-| `extra` | binary | nullable forward-compat |
 
 ### `flags` bitfield
 
@@ -420,7 +396,7 @@ round) for cheap per-round seek.
 - Dead players: emit one row at death tick, then suppress until respawn (next round).
 
 **Event-window track:**
-- For every row in `events.parquet` involving a player (any of `killer_slot`, `victim_slot`, `attacker_slot`, `shooter_slot`, `observer_slot`, `enemy_slot`, `thrower_slot`, `player_slot`):
+- For every event row across all event streams that involves a player (any of `killer_slot`, `victim_slot`, `attacker_slot`, `shooter_slot`, `observer_slot`, `enemy_slot`, `thrower_slot`, `player_slot`):
   - Emit a row for that player at every tick in `[event.tick - 32, event.tick + 32]`.
 - Deduplicate against baseline rows at the same `(tick, player_slot)` (event-window wins; `density_tier=1`).
 
@@ -442,7 +418,7 @@ round) for cheap per-round seek.
 
 ---
 
-## Stream 4: `projectile_samples.parquet`
+## Stream: `projectile_samples.parquet`
 
 In-flight grenades and bomb state.
 
@@ -467,40 +443,20 @@ Estimated: ~5,000 rows, ~150 KB raw, **~30 KB** Parquet+zstd.
 
 ---
 
-## Stream 5: `viewer.parquet` (optional)
-
-Mirrors v1 viewer streams (`frames`, `bombs`, `grenades`, `trails`, `shots`)
-in columnar form. **Not read by go-cs-metrics.** Preserved so cs-demo-viewer
-can still render the match without the original `.dem`.
-
-Single Parquet with a `viewer_kind` enum tag. Estimated **~1.0 MB** Parquet+zstd
-(roughly the v1 viewer payload re-encoded).
-
-When converting in headless mode (no viewer needed), this file is omitted and
-the corresponding header field is set:
-
-```json
-"viewer": { "included": false }
-```
-
 ---
 
 ## Total size budget (median pro match)
 
-| Stream | Compressed |
+| Stream | Compressed (estimate) |
 |---|---:|
 | `header.json` | ~5 KB |
-| `events.parquet` | ~200 KB |
+| All event parquets combined | ~200 KB |
 | `player_samples.parquet` | ~1.6 MB |
 | `projectile_samples.parquet` | ~30 KB |
-| `viewer.parquet` (optional) | ~1.0 MB |
-| **Total without viewer** | **~1.85 MB** |
-| **Total with viewer** | **~2.85 MB** |
+| **Per-match total** | **~1.85 MB** |
 
-Across 1,123 demos:
-
-- Without viewer: ~2.1 GB (vs v1 821 MB, vs .dem 519 GB)
-- With viewer: ~3.2 GB
+Across ~1,000 pro demos: ~2 GB total. To be verified against real data once
+the converter (Slice 3) is wired up.
 
 ---
 
@@ -513,75 +469,55 @@ Across 1,123 demos:
    it deprecated in the schema doc and leaving it as nullable.
 3. **Changing a column's type or units requires a major bump.** Avoid by adding
    a new column with a clearer name and deprecating the old one.
-4. **The `extra` binary column** (CBOR-encoded map) lets the converter emit
-   fields not yet in the schema without any version bump. Readers ignore unknown
-   keys. Use sparingly — fields that prove useful should be promoted to first-class
-   columns at the next minor bump.
-5. **Header `sampling` block is authoritative.** A reader doing a metric that
+4. **Header `sampling` block is authoritative.** A reader doing a metric that
    needs >`baseline_hz` resolution must check `event_window_hz` and the relevant
-   event types are present.
+   event streams are present.
 
 ---
 
 ## Validation strategy
 
-For every metric currently produced by the aggregator, define a fixture set:
-- N=20 demos spanning short/long matches, all maps, an OT, a forfeit.
-- Baseline: aggregator output from re-parsing the original `.dem` (ground truth).
-- Test: aggregator output from `replay --csraw2 <file>`.
+Validation happens against `.dem` directly, not against any prior format —
+v2 is the only intermediate that exists. For every metric the aggregator
+produces, we want a fixture set:
 
-A v2 converter is considered correct only when **every metric matches the .dem
-baseline byte-for-byte** across the fixture set. The two-demo `won_round` drift
-observed in v1 is unacceptable in v2.
+- N=20 demos spanning short/long matches, all maps, an OT, a forfeit.
+- Baseline: aggregator output from parsing the `.dem` directly.
+- Test: aggregator output from reading `.csraw2.tar` and re-aggregating.
+
+A v2 converter is considered correct only when **every metric matches the
+`.dem` baseline byte-for-byte** across the fixture set.
 
 Stretch test: for each fixture demo, also confirm that querying
 `player_samples.parquet` at any event tick reproduces the per-event positions
-already in `events.parquet` (internal consistency).
+already in the matching event stream (internal consistency).
 
 ---
 
-## Migration plan
+## Implementation slices
 
-### Phase 1: ship the writer
-1. Implement `convert --schema v2 --dir <event>` alongside existing v1 converter.
-2. Validate against fixture set (above).
-3. v1 writer remains the default until parity is proven.
-
-### Phase 2: dual-format archive
-1. Re-download (via demoget) and re-convert one event end-to-end as a smoke test.
-2. Convert the rest of the archive to v2 in parallel with v1 still authoritative.
-3. Aggregator gains `replay-v2` reader; `parse` auto-detects `.csraw2.tar`
-   alongside `.csdem.gz`.
-
-### Phase 3: cutover
-1. v2 writer becomes the default.
-2. Original `.dem` files may be deleted **after** the per-event fixture validation
-   passes for that event.
-3. v1 `.csdem.gz` files retained for cs-demo-viewer until viewer is updated to
-   read v2 `viewer.parquet`.
-
-### Phase 4: retire v1
-1. Update cs-demo-viewer to read v2 `viewer.parquet`.
-2. Delete v1 `.csdem.gz` files.
+| Slice | Status | Deliverable |
+|---|---|---|
+| 1 | done | `internal/csraw2` package: types, tar+parquet writer/reader, round-trip tested |
+| 2 | next | Parser captures all v2-required fields (visibility mask, full velocity, freeze-time samples, ammo state, scoped/reload flags, penetrated_count) into a v2-shaped intermediate |
+| 3 | | Converter emits `.csraw2.tar` from `.dem`; size validated against the spec's estimates on real pro demos |
+| 4 | | csraw2 reader → existing aggregator (v2 → metrics DB end-to-end) |
+| 5 | | Validation fixture set: re-aggregate from v2 vs `.dem`, byte-for-byte diff |
+| 6 | | CLI: `convert`, `parse`, `replay` rewired for v2; v1 (`.csdem.gz`) code paths deleted |
 
 ---
 
 ## Open questions
 
-1. **Parquet library choice.** `parquet-go` (Apache) vs `xitongsys/parquet-go`
-   vs writing via DuckDB/Arrow CLI. First two are pure Go; preference is for
-   pure Go to stay consistent with the modernc/sqlite "no CGo" stance.
-2. **Tar vs separate files in a directory.** Tar simplifies move/copy/checksum;
-   directory simplifies streaming reads. Decision: tar for now, revisit if
-   per-stream random access becomes a hot path.
-3. **`is_in_smoke` truth source.** The engine flag is reliable post-detonation
+1. **`is_in_smoke` truth source.** The engine flag is reliable post-detonation
    but the volume only exists for ~18 s. Need to confirm demoinfocs exposes it
    or we derive it from grenade detonation pos + time.
-4. **Wallbang detection in v1.** v1 silently dropped `penetrated_count`. For
-   pre-v2 demos we still re-parse to backfill, or accept this as a v2-only metric.
-5. **Sampling baseline for low-tickrate demos.** FACEIT is 128 tickrate; pro is
+2. **Wallbang detection.** Need to confirm demoinfocs exposes `PenetratedObjects`
+   on the kill event. If yes, `is_wallbang` and `penetrated_count` populate
+   directly.
+3. **Sampling baseline for low-tickrate demos.** FACEIT is 128 tickrate; pro is
    64; some old demos are 32. `baseline_hz` = 16 means 8 ticks at 128, 4 at 64,
    2 at 32. Confirm 16 Hz is enough at all tickrates for the metrics we care
    about (counter-strafe needs the velocity at exact `weapon_fire` tick, which
-   is captured directly in `events.parquet` regardless of sample rate, so this
-   should be fine).
+   is captured directly in `weapon_fires.parquet` regardless of sample rate,
+   so this should be fine).
