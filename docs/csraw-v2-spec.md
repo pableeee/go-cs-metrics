@@ -502,8 +502,8 @@ already in the matching event stream (internal consistency).
 | 2 | done | `internal/parserv2`: walks `.dem` and produces a `csraw2.Match` directly. Captures every event/sample field the v2 schema asks for (visibility mask, full velocity, freeze-time samples, ammo state, scoped/reload flags, penetrated_count, equip changes, item pickup/drop, chat). Event-window dense sampling deferred — Slice 2 emits player_samples at 16 Hz baseline only |
 | 3 | done | `cmd/csraw2-probe`: end-to-end .dem → .csraw2.tar + readback verifier. Measured **1.69 MB / 14-round comp match** (149 MB .dem → 88× compression, 6.6 s parse). Player samples are 83% of the archive. Pro-rated to a 20-round match: ~2.4 MB, in line with the spec's 1.85 MB estimate |
 | 4 | done | `internal/csraw2bridge`: `csraw2.Match → model.RawMatch` adapter so the existing 11-pass aggregator runs unchanged. Schema bumped 2.0.0 → 2.1.0 (added `team` to `PlayerSample` so the bridge can resolve per-round teams across MR12 halftime flips). `cmd/csraw2-compare` validated parity on two real demos: every player row matches v1 byte-for-byte on K/D/Damage/ADR/Rounds; every event count except `duel_segs` (1-tick edge case, ~2%) matches exactly |
-| 5 | next | Validation fixture set: run csraw2-compare across all 94 personal demos (and a handful of pro events once re-downloaded) to characterise where v2 vs .dem diverge |
-| 6 | | CLI: `convert`, `parse`, `replay` rewired for v2; v1 (`.csdem.gz`) code paths deleted |
+| 5 | done | Validation fixture set: `csraw2-compare -batch` swept all 45 personal `.dem` files (13 GB; pro `.dem` no longer on disk — only `.csdem.gz` remain). **41/45 perfect parity (91.1%)**. Of the 4 divergent demos: 2 hit the known 1-tick `duel_segs` edge case (off-by-one); 2 hit a new presence-heuristic divergence in `player_round_stats` where v2 credits a player with 1–2 more rounds than v1 — K/D/Damage match, only `RoundsPlayed` (and the derived ADR) differ. No divergence on kills, damages, weapon_fires, weapon_stats, death_events, or flash_events on any demo |
+| 6 | next | Resolve the two open divergences (duel_segs 1-tick edge, rounds-played presence heuristic), then rewire `convert` / `parse` / `replay` for v2; delete v1 (`.csdem.gz`) code paths |
 
 ---
 
@@ -521,3 +521,17 @@ already in the matching event stream (internal consistency).
    about (counter-strafe needs the velocity at exact `weapon_fire` tick, which
    is captured directly in `weapon_fires.parquet` regardless of sample rate,
    so this should be fine).
+4. **`duel_segs` 1-tick edge case.** ~4% of demos produce one extra/missing
+   duel segment relative to v1. Likely a boundary in how the duel engine
+   decides the start/end tick of a segment when working from `player_samples`
+   vs the original event stream. Needs a one-demo bisection.
+5. **`player_round_stats` presence heuristic.** ~4% of demos credit one player
+   with 1–2 more rounds in v2 than in v1. Same player keeps the same K/D/Dmg,
+   only `RoundsPlayed` shifts (and ADR with it, since ADR uses `RoundsPlayed`
+   as denominator). Likely v1 only counts a round as "played" when the player
+   was alive at freeze-end, while v2's bridge (driven by `player_samples`)
+   credits any round in which the player produced any sample row — including
+   the round of a mid-match disconnect. Pin down by diffing
+   `player_round_stats` rows on demo
+   `match730_003781333593737920753_0359605065_202` (player Sr.G, 17 vs 18) or
+   `match730_003804576015418655085_0300186795_201` (player fdk, 22 vs 24).
