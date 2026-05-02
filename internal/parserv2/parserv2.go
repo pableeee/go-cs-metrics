@@ -215,6 +215,22 @@ func (s *state) onRoundEnd(p demoinfocs.Parser, e events.RoundEnd) {
 	if gs.TeamTerrorists() != nil {
 		tScore = gs.TeamTerrorists().Score()
 	}
+	// Snapshot Participants().Playing() slots: this is the engine-truth
+	// answer to "who played this round", independent of alive/dead. The
+	// bridge uses this to gate per-round inclusion (e.g. RoundsPlayed) so a
+	// mid-round disconnect's stale samples don't credit the player with a
+	// round they didn't finish. (Schema 2.2.0)
+	playing := gs.Participants().Playing()
+	playersAtEnd := make([]uint8, 0, len(playing))
+	for _, pl := range playing {
+		if pl == nil || pl.SteamID64 == 0 {
+			continue
+		}
+		if slot, ok := s.slotFor(pl); ok {
+			playersAtEnd = append(playersAtEnd, slot)
+		}
+	}
+
 	s.match.Header.Rounds = append(s.match.Header.Rounds, csraw2.Round{
 		N:             s.roundNumber,
 		StartTick:     s.roundStartTick,
@@ -227,6 +243,7 @@ func (s *state) onRoundEnd(p demoinfocs.Parser, e events.RoundEnd) {
 		CTScoreAfter:  ctScore,
 		TScoreAfter:   tScore,
 		Phase:         "regulation", // OT detection deferred — see open questions
+		PlayersAtEnd:  playersAtEnd,
 	})
 }
 
