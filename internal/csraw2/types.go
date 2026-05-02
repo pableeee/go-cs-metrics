@@ -66,6 +66,15 @@ type Round struct {
 	CTScoreAfter  int    `json:"ct_score_after"`
 	TScoreAfter   int    `json:"t_score_after"`
 	Phase         string `json:"phase"` // "regulation" | "ot1" | "ot2" | …
+
+	// PlayersAtEnd is the slot list of players that demoinfocs's
+	// Participants().Playing() set returned at the moment events.RoundEnd
+	// fired. This is the engine-truth answer to "who played this round",
+	// independent of whether the player was alive at end. Consumers gating
+	// per-round inclusion (e.g. RoundsPlayed) should iterate this list
+	// rather than scanning samples — a mid-round disconnect leaves stale
+	// samples behind but is correctly absent from this list. (Schema 2.2.0)
+	PlayersAtEnd []uint8 `json:"players_at_end,omitempty"`
 }
 
 // ── Event row types ─────────────────────────────────────────────────────────

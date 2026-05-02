@@ -6,7 +6,7 @@ package csraw2
 
 const (
 	Version       = 2
-	SchemaVersion = "2.1.0"
+	SchemaVersion = "2.2.0"
 )
 
 // Team enum for PlayerSample.Team. Mirrors demoinfocs common.Team but
