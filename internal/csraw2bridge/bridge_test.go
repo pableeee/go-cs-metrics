@@ -129,6 +129,38 @@ func TestToRawMatch_FilterSelfDamage(t *testing.T) {
 	}
 }
 
+func TestToRawMatch_DisconnectedSlotExcludedFromEndState(t *testing.T) {
+	// Mirrors the Slice 5 finding: a slot that produced live-portion samples
+	// but was no longer in Participants().Playing() at RoundEnd (mid-round
+	// disconnect) must not be credited with the round. Schema 2.2.0 captures
+	// this via Round.PlayersAtEnd.
+	m := newSyntheticMatch()
+	// Add a third player ("ghost") with an alive sample mid-round but
+	// omitted from PlayersAtEnd — emulating a mid-round disconnect.
+	m.Header.Players = append(m.Header.Players, csraw2.Player{
+		Slot: 2, SteamID: "1003", Name: "ghost", StartingTeam: "CT",
+	})
+	m.PlayerSamples = append(m.PlayerSamples, csraw2.PlayerSample{
+		Tick: 500, Round: 1, PlayerSlot: 2, Team: csraw2.TeamCT,
+		HP: 100, EquipValue: 4750,
+	})
+	// PlayersAtEnd already excludes slot 2 (set to {0, 1} in the synthetic).
+
+	raw, err := ToRawMatch(m)
+	if err != nil {
+		t.Fatalf("ToRawMatch: %v", err)
+	}
+	if _, ok := raw.Rounds[0].PlayerEndState[1003]; ok {
+		t.Errorf("ghost (slot absent from PlayersAtEnd) leaked into PlayerEndState")
+	}
+	if _, ok := raw.Rounds[0].PlayerEndState[1001]; !ok {
+		t.Errorf("alice missing from PlayerEndState (regression)")
+	}
+	if _, ok := raw.Rounds[0].PlayerEndState[1002]; !ok {
+		t.Errorf("bob missing from PlayerEndState (regression)")
+	}
+}
+
 func TestToRawMatch_VersionGuard(t *testing.T) {
 	m := newSyntheticMatch()
 	m.Header.CSRawVersion = 99
@@ -178,7 +210,8 @@ func newSyntheticMatch() *csraw2.Match {
 			},
 			Rounds: []csraw2.Round{
 				{N: 1, StartTick: 100, FreezeEndTick: 200, EndTick: 1000,
-					Winner: "T", CTScoreAfter: 0, TScoreAfter: 1, Phase: "regulation"},
+					Winner: "T", CTScoreAfter: 0, TScoreAfter: 1, Phase: "regulation",
+					PlayersAtEnd: []uint8{0, 1}},
 			},
 			WeaponTable: map[string]string{"1": "knife", "7": "ak47"},
 			Sampling: csraw2.Sampling{BaselineHz: 16, EventWindowHz: 64,

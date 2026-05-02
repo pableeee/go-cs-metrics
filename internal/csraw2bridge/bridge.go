@@ -112,13 +112,20 @@ func ToRawMatch(m *csraw2.Match) (*model.RawMatch, error) {
 		endState := map[uint64]model.PlayerRoundEndState{}
 		equipVals := map[uint64]int{}
 
-		for s := range 16 {
-			slot := uint8(s)
+		// PlayerEndState gate: iterate the engine-truth "playing at round
+		// end" list (schema 2.2.0). A slot present in samples but absent
+		// from this list disconnected mid-round and must NOT count toward
+		// RoundsPlayed — v1's parser snapshots Participants().Playing() at
+		// RoundEnd and would not include them.
+		for _, slot := range r.PlayersAtEnd {
 			id := idOf(slot)
 			if id == 0 {
 				continue
 			}
-			// PlayerEndState — last sample in this round
+			// Pull IsAlive/Team from the last sample if we have one;
+			// otherwise the slot was Playing at end but never sampled in
+			// this round (e.g. died before the first baseline tick) — fall
+			// back to dead + best-effort team from the round teams map.
 			if last, ok := lastSampleInRound[roundSlot{round: r.N, slot: slot}]; ok {
 				endState[id] = model.PlayerRoundEndState{
 					SteamID64: id,
@@ -126,8 +133,24 @@ func ToRawMatch(m *csraw2.Match) (*model.RawMatch, error) {
 					Team:      teamFromSample(last.Team),
 					// GrenadeCount left at 0 — not tracked by csraw2 yet.
 				}
+			} else {
+				endState[id] = model.PlayerRoundEndState{
+					SteamID64: id,
+					IsAlive:   false,
+					Team:      teamAt(int16(r.N), slot),
+				}
 			}
-			// PlayerEquipValues — sample at-or-just-after freeze_end
+		}
+
+		// PlayerEquipValues — separate concern from PlayerEndState; keep
+		// scanning all 16 slots since equip values are read at freeze-end
+		// regardless of whether the player finished the round.
+		for s := range 16 {
+			slot := uint8(s)
+			id := idOf(slot)
+			if id == 0 {
+				continue
+			}
 			if fe, ok := freezeEndSamples[roundSlot{round: r.N, slot: slot}]; ok {
 				equipVals[id] = int(fe.EquipValue)
 			}
