@@ -116,7 +116,7 @@ Same directory as `.dem` (or `.csdem.gz`), same base name, `.csraw2.tar` extensi
 ```json
 {
   "csraw_version": 2,
-  "csraw_schema_version": "2.0.0",
+  "csraw_schema_version": "2.2.0",
   "cs2_protocol_version": 13992,
   "writer": "go-cs-metrics/converter v0.1.0",
   "writer_demoinfocs_version": "v4.x.y"
@@ -138,7 +138,7 @@ Match-level metadata. Small; fully read into memory at aggregator start.
 ```json
 {
   "csraw_version": 2,
-  "csraw_schema_version": "2.0.0",
+  "csraw_schema_version": "2.2.0",
   "cs2_protocol_version": 13992,
 
   "demo_hash": "sha256:…",          // full SHA-256 of original .dem
@@ -182,7 +182,8 @@ Match-level metadata. Small; fully read into memory at aggregator start.
       "win_reason": "ct_win_elimination", // engine reason string
       "ct_score_after": 1,
       "t_score_after": 0,
-      "phase": "regulation"         // "regulation" | "ot1" | "ot2" | …
+      "phase": "regulation",        // "regulation" | "ot1" | "ot2" | …
+      "players_at_end": [0,1,2,3,4,5,6,7,8,9] // slot list — Participants().Playing() at RoundEnd (schema 2.2.0)
     }
   ],
 
@@ -502,8 +503,8 @@ already in the matching event stream (internal consistency).
 | 2 | done | `internal/parserv2`: walks `.dem` and produces a `csraw2.Match` directly. Captures every event/sample field the v2 schema asks for (visibility mask, full velocity, freeze-time samples, ammo state, scoped/reload flags, penetrated_count, equip changes, item pickup/drop, chat). Event-window dense sampling deferred — Slice 2 emits player_samples at 16 Hz baseline only |
 | 3 | done | `cmd/csraw2-probe`: end-to-end .dem → .csraw2.tar + readback verifier. Measured **1.69 MB / 14-round comp match** (149 MB .dem → 88× compression, 6.6 s parse). Player samples are 83% of the archive. Pro-rated to a 20-round match: ~2.4 MB, in line with the spec's 1.85 MB estimate |
 | 4 | done | `internal/csraw2bridge`: `csraw2.Match → model.RawMatch` adapter so the existing 11-pass aggregator runs unchanged. Schema bumped 2.0.0 → 2.1.0 (added `team` to `PlayerSample` so the bridge can resolve per-round teams across MR12 halftime flips). `cmd/csraw2-compare` validated parity on two real demos: every player row matches v1 byte-for-byte on K/D/Damage/ADR/Rounds; every event count except `duel_segs` (1-tick edge case, ~2%) matches exactly |
-| 5 | done | Validation fixture set: `csraw2-compare -batch` swept all 45 personal `.dem` files (13 GB; pro `.dem` no longer on disk — only `.csdem.gz` remain). **41/45 perfect parity (91.1%)**. Of the 4 divergent demos: 2 hit the known 1-tick `duel_segs` edge case (off-by-one); 2 hit a new presence-heuristic divergence in `player_round_stats` where v2 credits a player with 1–2 more rounds than v1 — K/D/Damage match, only `RoundsPlayed` (and the derived ADR) differ. No divergence on kills, damages, weapon_fires, weapon_stats, death_events, or flash_events on any demo |
-| 6 | next | Resolve the two open divergences (duel_segs 1-tick edge, rounds-played presence heuristic), then rewire `convert` / `parse` / `replay` for v2; delete v1 (`.csdem.gz`) code paths |
+| 5 | done | Validation fixture set: `csraw2-compare -batch` swept all 45 personal `.dem` files (13 GB; pro `.dem` no longer on disk — only `.csdem.gz` remain). **First sweep (schema 2.1.0): 41/45 perfect parity (91.1%)**. Of the 4 divergent demos, 2 hit the known 1-tick `duel_segs` edge case and 2 hit a presence-heuristic divergence in `player_round_stats`. The latter was traced to v2's bridge inferring "did this player play this round?" from samples, while v1 reads it from `Participants().Playing()` at RoundEnd — so a mid-round disconnect's stale samples wrongly credited the player with the round. **Resolved in schema 2.2.0** (added `Round.PlayersAtEnd`). **Re-sweep on 2.2.0: 43/45 (95.6%)** — only the 2 known `duel_segs` cases remain |
+| 6 | next | Resolve the `duel_segs` 1-tick edge (deferred), then rewire `convert` / `parse` / `replay` for v2; delete v1 (`.csdem.gz`) code paths |
 
 ---
 
@@ -525,13 +526,13 @@ already in the matching event stream (internal consistency).
    duel segment relative to v1. Likely a boundary in how the duel engine
    decides the start/end tick of a segment when working from `player_samples`
    vs the original event stream. Needs a one-demo bisection.
-5. **`player_round_stats` presence heuristic.** ~4% of demos credit one player
-   with 1–2 more rounds in v2 than in v1. Same player keeps the same K/D/Dmg,
-   only `RoundsPlayed` shifts (and ADR with it, since ADR uses `RoundsPlayed`
-   as denominator). Likely v1 only counts a round as "played" when the player
-   was alive at freeze-end, while v2's bridge (driven by `player_samples`)
-   credits any round in which the player produced any sample row — including
-   the round of a mid-match disconnect. Pin down by diffing
-   `player_round_stats` rows on demo
-   `match730_003781333593737920753_0359605065_202` (player Sr.G, 17 vs 18) or
-   `match730_003804576015418655085_0300186795_201` (player fdk, 22 vs 24).
+5. ~~**`player_round_stats` presence heuristic.**~~ **Resolved in schema 2.2.0.**
+   Root cause was v2 inferring per-round presence from samples, while v1 reads
+   it from `Participants().Playing()` at RoundEnd. Mid-round disconnects
+   left stale samples that wrongly credited the player with the round.
+   Fix: parserv2 now snapshots the engine-truth slot list into
+   `Round.PlayersAtEnd`, and the bridge gates `PlayerEndState` on that list.
+   Confirmed on the two original divergent demos
+   (`match730_003781333593737920753_0359605065_202`,
+   `match730_003804576015418655085_0300186795_201`) and across the full
+   45-demo sweep — zero per-player K/D/Dmg/Rds divergences post-fix.
