@@ -337,7 +337,8 @@ func (s *state) onPlayerHurt(p demoinfocs.Parser, e events.PlayerHurt) {
 	if e.Attacker != nil {
 		row.AttackerPosX, row.AttackerPosY, row.AttackerPosZ = vec3I16(e.Attacker.Position())
 	}
-	row.VictimPosX, row.VictimPosY, row.VictimPosZ = vec3I16(e.Player.Position())
+	vp := e.Player.Position()
+	row.VictimPosX, row.VictimPosY, row.VictimPosZ = float32(vp.X), float32(vp.Y), float32(vp.Z)
 
 	s.lastDamageTick[victimSlot] = p.GameState().IngameTick()
 
@@ -368,7 +369,7 @@ func (s *state) onWeaponFire(p demoinfocs.Parser, e events.WeaponFire) {
 		ClipAmmoAfter: clampUint8Int(e.Weapon.AmmoInMagazine()),
 		RecoilIndex:   clampUint8Int(int(e.Weapon.RecoilIndex())),
 	}
-	row.PosX, row.PosY, row.PosZ = quantPos(pos.X), quantPos(pos.Y), quantPos(pos.Z)
+	row.PosX, row.PosY, row.PosZ = float32(pos.X), float32(pos.Y), float32(pos.Z)
 	row.VelX, row.VelY, row.VelZ = quantVel(vel.X), quantVel(vel.Y), quantVel(vel.Z)
 
 	s.lastShotTick[slot] = tick

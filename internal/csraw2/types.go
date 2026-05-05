@@ -78,9 +78,12 @@ type Round struct {
 }
 
 // ── Event row types ─────────────────────────────────────────────────────────
-// Each event type lives in its own parquet stream inside the archive. All
-// position columns are int16 in Hammer units (1u ≈ 1.905 cm). View angles
-// are int16 quantised to 1/100°. Velocities are int16 in u/s.
+// Each event type lives in its own parquet stream inside the archive. Most
+// position columns are int16 in Hammer units (1u ≈ 1.905 cm); the two pairs
+// fed into the duel engine's distance computation — Damage.VictimPos and
+// WeaponFire.Pos — are float32 instead so that duels at exact distance-bin
+// boundaries (5/10/15/20/30 m) classify identically to v1's raw-float path.
+// View angles are int16 quantised to 1/100°. Velocities are int16 in u/s.
 
 // Kill is one row per kill event.
 type Kill struct {
@@ -128,23 +131,23 @@ type Damage struct {
 	PostDamageArmor uint8  `parquet:"post_damage_armor"`
 	HitGroup        uint8  `parquet:"hit_group"`
 	IsUtility       bool   `parquet:"is_utility"`
-	AttackerPosX    int16  `parquet:"attacker_pos_x"`
-	AttackerPosY    int16  `parquet:"attacker_pos_y"`
-	AttackerPosZ    int16  `parquet:"attacker_pos_z"`
-	VictimPosX      int16  `parquet:"victim_pos_x"`
-	VictimPosY      int16  `parquet:"victim_pos_y"`
-	VictimPosZ      int16  `parquet:"victim_pos_z"`
+	AttackerPosX    int16   `parquet:"attacker_pos_x"`
+	AttackerPosY    int16   `parquet:"attacker_pos_y"`
+	AttackerPosZ    int16   `parquet:"attacker_pos_z"`
+	VictimPosX      float32 `parquet:"victim_pos_x"`
+	VictimPosY      float32 `parquet:"victim_pos_y"`
+	VictimPosZ      float32 `parquet:"victim_pos_z"`
 }
 
 // WeaponFire is one row per shot fired (continuous fire = many rows).
 type WeaponFire struct {
-	Tick          int32 `parquet:"tick"`
-	Round         int16 `parquet:"round"`
-	ShooterSlot   uint8 `parquet:"shooter_slot"`
-	WeaponID      uint8 `parquet:"weapon_id"`
-	PosX          int16 `parquet:"pos_x"`
-	PosY          int16 `parquet:"pos_y"`
-	PosZ          int16 `parquet:"pos_z"`
+	Tick          int32   `parquet:"tick"`
+	Round         int16   `parquet:"round"`
+	ShooterSlot   uint8   `parquet:"shooter_slot"`
+	WeaponID      uint8   `parquet:"weapon_id"`
+	PosX          float32 `parquet:"pos_x"`
+	PosY          float32 `parquet:"pos_y"`
+	PosZ          float32 `parquet:"pos_z"`
 	YawDeg        int16 `parquet:"yaw_deg"`
 	PitchDeg      int16 `parquet:"pitch_deg"`
 	VelX          int16 `parquet:"vel_x"`

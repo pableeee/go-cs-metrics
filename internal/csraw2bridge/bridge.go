@@ -222,7 +222,7 @@ func ToRawMatch(m *csraw2.Match) (*model.RawMatch, error) {
 			Weapon:          weaponName(d.WeaponID),
 			IsUtility:       d.IsUtility,
 			HitGroup:        hitGroupName(d.HitGroup),
-			VictimPos:       vec3From(d.VictimPosX, d.VictimPosY, d.VictimPosZ),
+			VictimPos:       vec3FromF32(d.VictimPosX, d.VictimPosY, d.VictimPosZ),
 		})
 	}
 
@@ -244,7 +244,7 @@ func ToRawMatch(m *csraw2.Match) (*model.RawMatch, error) {
 			Weapon:          name,
 			PitchDeg:        float64(w.PitchDeg) / 100,
 			YawDeg:          yaw0to360(w.YawDeg),
-			AttackerPos:     vec3From(w.PosX, w.PosY, w.PosZ),
+			AttackerPos:     vec3FromF32(w.PosX, w.PosY, w.PosZ),
 			HorizontalSpeed: hSpeed,
 		})
 	}
@@ -425,6 +425,10 @@ func teamFromLabel(s string) model.Team {
 }
 
 func vec3From(x, y, z int16) model.Vec3 {
+	return model.Vec3{X: float64(x), Y: float64(y), Z: float64(z)}
+}
+
+func vec3FromF32(x, y, z float32) model.Vec3 {
 	return model.Vec3{X: float64(x), Y: float64(y), Z: float64(z)}
 }
 
