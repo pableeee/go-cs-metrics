@@ -243,7 +243,7 @@ view angles int16 quantised to 1/100°; velocities int16 in u/s.
 | `hit_group` | uint8 enum | head/chest/stomach/leftarm/rightarm/leftleg/rightleg/neck/gear |
 | `is_utility` | bool | |
 | `attacker_pos_x`, `_y`, `_z` | int16 | NEW (v1 only had victim pos) |
-| `victim_pos_x`, `_y`, `_z` | int16 | |
+| `victim_pos_x`, `_y`, `_z` | float32 | sub-unit precision preserved — fed into duel-engine distance computation, see "Position precision" |
 
 ### `weapon_fires.parquet`
 
@@ -251,7 +251,7 @@ view angles int16 quantised to 1/100°; velocities int16 in u/s.
 |---|---|---|
 | `shooter_slot` | uint8 | |
 | `weapon_id` | uint8 | |
-| `pos_x`, `_y`, `_z` | int16 | |
+| `pos_x`, `_y`, `_z` | float32 | sub-unit precision preserved — fed into duel-engine distance computation, see "Position precision" |
 | `yaw_deg`, `pitch_deg` | int16 | 1/100° |
 | `vel_x`, `_y`, `_z` | int16 | NEW — full velocity vector (v1 had h_speed only) |
 | `is_scoped` | bool | NEW |
@@ -402,9 +402,11 @@ round) for cheap per-round seek.
 - Deduplicate against baseline rows at the same `(tick, player_slot)` (event-window wins; `density_tier=1`).
 
 **Quantization:**
-- `pos_*`: int16 covers ±32,768 Hammer units. CS2 maps fit in ±16,384. **Lossless** at integer-unit precision; CS2 internal positions are fixed-point with sub-unit precision lost.
+- `pos_*`: int16 covers ±32,768 Hammer units. CS2 maps fit in ±16,384. **Lossless** at integer-unit precision; CS2 internal positions are fixed-point with sub-unit precision lost. Two specific position pairs are an exception — see "Position precision" below.
 - `yaw_deg, pitch_deg`: int16 = ±327.67°, 1/100° step. CS2 view angles are float32; quantizing to 1/100° loses sub-degree-hundredth precision (irrelevant for any metric).
 - `vel_*`: int16 = ±327.67 u/s. CS2 max player velocity ~260 u/s. Lossless at 1 u/s precision.
+
+**Position precision (carve-out):** `weapon_fires.pos_*` and `damages.victim_pos_*` are stored as **float32**, not int16. These are the two endpoints fed into the duel engine's distance computation (`distance(weapon_fire.pos, damage.victim_pos)`), which then bins the duel into one of `0-5m / 5-10m / 10-15m / 15-20m / 20-30m / 30m+`. Rounding both endpoints to the nearest Hammer unit can shift the derived distance by up to ~0.86 u (≈1.6 cm) per endpoint, enough to rebin a duel whose true distance is within ~3 cm of a bin boundary. A few duels per match land that close, so int16 positions produce a ~0.1% bin-edge churn vs v1's raw-float distances. Float32 here is byte-exact with v1; the cost is +6 B per row × ~150–500 k rows/match ≈ +1–3 MB/match in the tar. Schema 2.3.0.
 
 ### Estimated size (median pro match)
 
