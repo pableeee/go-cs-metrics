@@ -189,6 +189,77 @@ func runSingleDetailed(path string) {
 			fmt.Printf("  v2: %+v\n", k2)
 		}
 	}
+
+	// Per-segment duel diff when totals don't agree.
+	if len(dsV1) != len(dsV2) {
+		printSegDiff(dsV1, dsV2, msV1)
+	}
+}
+
+func printSegDiff(v1, v2 []model.PlayerDuelSegment, ms []model.PlayerMatchStats) {
+	type segKey struct {
+		steamID uint64
+		bucket  string
+		bin     string
+	}
+	names := map[uint64]string{}
+	for _, s := range ms {
+		names[s.SteamID] = s.Name
+	}
+
+	idxV1 := map[segKey]model.PlayerDuelSegment{}
+	for _, s := range v1 {
+		idxV1[segKey{s.SteamID, s.WeaponBucket, s.DistanceBin}] = s
+	}
+	idxV2 := map[segKey]model.PlayerDuelSegment{}
+	for _, s := range v2 {
+		idxV2[segKey{s.SteamID, s.WeaponBucket, s.DistanceBin}] = s
+	}
+
+	keys := map[segKey]struct{}{}
+	for k := range idxV1 {
+		keys[k] = struct{}{}
+	}
+	for k := range idxV2 {
+		keys[k] = struct{}{}
+	}
+	ordered := make([]segKey, 0, len(keys))
+	for k := range keys {
+		ordered = append(ordered, k)
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].steamID != ordered[j].steamID {
+			return names[ordered[i].steamID] < names[ordered[j].steamID]
+		}
+		if ordered[i].bucket != ordered[j].bucket {
+			return ordered[i].bucket < ordered[j].bucket
+		}
+		return ordered[i].bin < ordered[j].bin
+	})
+
+	fmt.Println()
+	fmt.Println("segment diff (only rows where DuelCount or FirstHitCount differ):")
+	fmt.Printf("%-20s %-8s %-10s %12s %12s\n", "player", "wpn", "bin", "duels_v1/v2", "fhits_v1/v2")
+	for _, k := range ordered {
+		s1, ok1 := idxV1[k]
+		s2, ok2 := idxV2[k]
+		if ok1 && ok2 && s1.DuelCount == s2.DuelCount && s1.FirstHitCount == s2.FirstHitCount {
+			continue
+		}
+		var d1, d2, f1, f2 int
+		if ok1 {
+			d1, f1 = s1.DuelCount, s1.FirstHitCount
+		}
+		if ok2 {
+			d2, f2 = s2.DuelCount, s2.FirstHitCount
+		}
+		nm := names[k.steamID]
+		if nm == "" {
+			nm = fmt.Sprintf("%d", k.steamID)
+		}
+		fmt.Printf("%-20s %-8s %-10s %5d/%-6d %5d/%-6d\n",
+			trunc(nm, 20), k.bucket, k.bin, d1, d2, f1, f2)
+	}
 }
 
 func trunc(s string, n int) string {
