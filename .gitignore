@@ -7,6 +7,8 @@
 # Build output
 go-cs-metrics
 go-cs-metrics.exe
+csraw2-compare
+csraw2-probe
 
 # Private / local analysis notes
 .mine/
