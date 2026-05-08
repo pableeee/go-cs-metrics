@@ -83,7 +83,12 @@ type Round struct {
 // fed into the duel engine's distance computation — Damage.VictimPos and
 // WeaponFire.Pos — are float32 instead so that duels at exact distance-bin
 // boundaries (5/10/15/20/30 m) classify identically to v1's raw-float path.
-// View angles are int16 quantised to 1/100°. Velocities are int16 in u/s.
+// View angles are int16 quantised to 1/100° except for the four fields fed
+// into the duel engine's pre-shot correction calc — WeaponFire.YawDeg/
+// PitchDeg and FirstSight.ObserverYawDeg/ObserverPitchDeg — which are
+// float32 so PctCorrectionUnder2Deg classifies identically to v1 at the
+// 2° boundary. (Schema 2.4.0)
+// Velocities are int16 in u/s.
 
 // Kill is one row per kill event.
 type Kill struct {
@@ -148,9 +153,9 @@ type WeaponFire struct {
 	PosX          float32 `parquet:"pos_x"`
 	PosY          float32 `parquet:"pos_y"`
 	PosZ          float32 `parquet:"pos_z"`
-	YawDeg        int16 `parquet:"yaw_deg"`
-	PitchDeg      int16 `parquet:"pitch_deg"`
-	VelX          int16 `parquet:"vel_x"`
+	YawDeg        float32 `parquet:"yaw_deg"`
+	PitchDeg      float32 `parquet:"pitch_deg"`
+	VelX          int16   `parquet:"vel_x"`
 	VelY          int16 `parquet:"vel_y"`
 	VelZ          int16 `parquet:"vel_z"`
 	IsScoped      bool  `parquet:"is_scoped"`
@@ -183,8 +188,8 @@ type FirstSight struct {
 	AngleDeg          int16 `parquet:"angle_deg"`
 	PitchDeg          int16 `parquet:"pitch_deg"`
 	YawDeg            int16 `parquet:"yaw_deg"`
-	ObserverPitchDeg  int16 `parquet:"observer_pitch_deg"`
-	ObserverYawDeg    int16 `parquet:"observer_yaw_deg"`
+	ObserverPitchDeg  float32 `parquet:"observer_pitch_deg"`
+	ObserverYawDeg    float32 `parquet:"observer_yaw_deg"`
 	ObserverPosX      int16 `parquet:"observer_pos_x"`
 	ObserverPosY      int16 `parquet:"observer_pos_y"`
 	ObserverPosZ      int16 `parquet:"observer_pos_z"`

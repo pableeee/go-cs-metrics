@@ -242,8 +242,8 @@ func ToRawMatch(m *csraw2.Match) (*model.RawMatch, error) {
 			RoundNumber:     int(w.Round),
 			ShooterID:       idOf(w.ShooterSlot),
 			Weapon:          name,
-			PitchDeg:        float64(w.PitchDeg) / 100,
-			YawDeg:          yaw0to360(w.YawDeg),
+			PitchDeg:        float64(w.PitchDeg),
+			YawDeg:          yaw0to360F32(w.YawDeg),
 			AttackerPos:     vec3FromF32(w.PosX, w.PosY, w.PosZ),
 			HorizontalSpeed: hSpeed,
 		})
@@ -277,8 +277,8 @@ func ToRawMatch(m *csraw2.Match) (*model.RawMatch, error) {
 			AngleDeg:         float64(fs.AngleDeg) / 100,
 			PitchDeg:         float64(fs.PitchDeg) / 100,
 			YawDeg:           float64(fs.YawDeg) / 100,
-			ObserverPitchDeg: float64(fs.ObserverPitchDeg) / 100,
-			ObserverYawDeg:   yaw0to360(fs.ObserverYawDeg),
+			ObserverPitchDeg: float64(fs.ObserverPitchDeg),
+			ObserverYawDeg:   yaw0to360F32(fs.ObserverYawDeg),
 		}
 	}
 
@@ -436,6 +436,18 @@ func vec3FromF32(x, y, z float32) model.Vec3 {
 // the v1 RawKill / RawWeaponFire / RawFlash structs expect.
 func yaw0to360(q int16) float64 {
 	d := float64(q) / 100
+	if d < 0 {
+		d += 360
+	}
+	return d
+}
+
+// yaw0to360F32 normalises a float32 yaw (already in degrees, may be in
+// either [-180, 180] or [0, 360)) into the canonical [0, 360) range that
+// downstream v1 structs expect. Used for the schema 2.4.0 float32 angle
+// fields that bypass int16 quantisation.
+func yaw0to360F32(f float32) float64 {
+	d := float64(f)
 	if d < 0 {
 		d += 360
 	}

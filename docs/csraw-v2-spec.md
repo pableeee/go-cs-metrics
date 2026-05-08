@@ -252,7 +252,7 @@ view angles int16 quantised to 1/100°; velocities int16 in u/s.
 | `shooter_slot` | uint8 | |
 | `weapon_id` | uint8 | |
 | `pos_x`, `_y`, `_z` | float32 | sub-unit precision preserved — fed into duel-engine distance computation, see "Position precision" |
-| `yaw_deg`, `pitch_deg` | int16 | 1/100° |
+| `yaw_deg`, `pitch_deg` | float32 | sub-degree precision preserved — fed into duel-engine pre-shot correction, see "Angle precision" |
 | `vel_x`, `_y`, `_z` | int16 | NEW — full velocity vector (v1 had h_speed only) |
 | `is_scoped` | bool | NEW |
 | `clip_ammo_after` | uint8 | NEW |
@@ -277,8 +277,8 @@ view angles int16 quantised to 1/100°; velocities int16 in u/s.
 | `observer_slot` | uint8 | |
 | `enemy_slot` | uint8 | |
 | `angle_deg` | int16 | 1/100° |
-| `pitch_deg`, `yaw_deg` | int16 | |
-| `observer_pitch_deg`, `observer_yaw_deg` | int16 | |
+| `pitch_deg`, `yaw_deg` | int16 | 1/100°, observer-to-enemy deviation |
+| `observer_pitch_deg`, `observer_yaw_deg` | float32 | sub-degree precision preserved — fed into duel-engine pre-shot correction, see "Angle precision" |
 | `observer_pos_x`, `_y`, `_z` | int16 | NEW |
 | `enemy_pos_x`, `_y`, `_z` | int16 | NEW |
 | `was_already_visible` | bool | NEW — distinguishes "first sight after los break" vs "true first sight" |
@@ -403,10 +403,12 @@ round) for cheap per-round seek.
 
 **Quantization:**
 - `pos_*`: int16 covers ±32,768 Hammer units. CS2 maps fit in ±16,384. **Lossless** at integer-unit precision; CS2 internal positions are fixed-point with sub-unit precision lost. Two specific position pairs are an exception — see "Position precision" below.
-- `yaw_deg, pitch_deg`: int16 = ±327.67°, 1/100° step. CS2 view angles are float32; quantizing to 1/100° loses sub-degree-hundredth precision (irrelevant for any metric).
+- `yaw_deg, pitch_deg`: int16 = ±327.67°, 1/100° step. CS2 view angles are float32; quantizing to 1/100° loses sub-degree-hundredth precision (irrelevant for any metric except the four angles fed into duel-engine pre-shot correction — see "Angle precision" below).
 - `vel_*`: int16 = ±327.67 u/s. CS2 max player velocity ~260 u/s. Lossless at 1 u/s precision.
 
 **Position precision (carve-out):** `weapon_fires.pos_*` and `damages.victim_pos_*` are stored as **float32**, not int16. These are the two endpoints fed into the duel engine's distance computation (`distance(weapon_fire.pos, damage.victim_pos)`), which then bins the duel into one of `0-5m / 5-10m / 10-15m / 15-20m / 20-30m / 30m+`. Rounding both endpoints to the nearest Hammer unit can shift the derived distance by up to ~0.86 u (≈1.6 cm) per endpoint, enough to rebin a duel whose true distance is within ~3 cm of a bin boundary. A few duels per match land that close, so int16 positions produce a ~0.1% bin-edge churn vs v1's raw-float distances. Float32 here is byte-exact with v1; the cost is +6 B per row × ~150–500 k rows/match ≈ +1–3 MB/match in the tar. Schema 2.3.0.
+
+**Angle precision (carve-out):** `weapon_fires.yaw_deg` / `pitch_deg` and `first_sights.observer_yaw_deg` / `observer_pitch_deg` are stored as **float32**, not int16-quantised at 1/100°. These are the four angles fed into the duel engine's pre-shot correction calc (`angularDelta(first_sight.observer_*, weapon_fire.*)`), whose output drives the hard-thresholded `PctCorrectionUnder2Deg` metric. Quantising each to 1/100° lets the angular delta drift by up to ~0.014°, which is enough to flip individual shots across the 2° bucket boundary for players whose median pre-shot correction sits near 2°. Measured on the 45-demo personal corpus, this caused ~5pp divergence on `PctCorrectionUnder2Deg` for one player. Float32 here is byte-exact with v1; the cost is +2 B per row × 4 fields × (~30 k FirstSight + ~60 k WeaponFire rows/match) ≈ +0.5–1 MB/match in the tar. Schema 2.4.0. Note: `first_sights.angle_deg` / `pitch_deg` / `yaw_deg` (the *deviation* from observer to enemy) remain int16-quantised — they only feed median/percentile metrics that are robust to sub-1/100° jitter.
 
 ### Estimated size (median pro match)
 
@@ -505,8 +507,8 @@ already in the matching event stream (internal consistency).
 | 2 | done | `internal/parserv2`: walks `.dem` and produces a `csraw2.Match` directly. Captures every event/sample field the v2 schema asks for (visibility mask, full velocity, freeze-time samples, ammo state, scoped/reload flags, penetrated_count, equip changes, item pickup/drop, chat). Event-window dense sampling deferred — Slice 2 emits player_samples at 16 Hz baseline only |
 | 3 | done | `cmd/csraw2-probe`: end-to-end .dem → .csraw2.tar + readback verifier. Measured **1.69 MB / 14-round comp match** (149 MB .dem → 88× compression, 6.6 s parse). Player samples are 83% of the archive. Pro-rated to a 20-round match: ~2.4 MB, in line with the spec's 1.85 MB estimate |
 | 4 | done | `internal/csraw2bridge`: `csraw2.Match → model.RawMatch` adapter so the existing 11-pass aggregator runs unchanged. Schema bumped 2.0.0 → 2.1.0 (added `team` to `PlayerSample` so the bridge can resolve per-round teams across MR12 halftime flips). `cmd/csraw2-compare` validated parity on two real demos: every player row matches v1 byte-for-byte on K/D/Damage/ADR/Rounds; every event count except `duel_segs` (1-tick edge case, ~2%) matches exactly |
-| 5 | done | Validation fixture set: `csraw2-compare -batch` swept all 45 personal `.dem` files (13 GB; pro `.dem` no longer on disk — only `.csdem.gz` remain). **First sweep (schema 2.1.0): 41/45 perfect parity (91.1%)**. Of the 4 divergent demos, 2 hit the known 1-tick `duel_segs` edge case and 2 hit a presence-heuristic divergence in `player_round_stats`. The latter was traced to v2's bridge inferring "did this player play this round?" from samples, while v1 reads it from `Participants().Playing()` at RoundEnd — so a mid-round disconnect's stale samples wrongly credited the player with the round. **Resolved in schema 2.2.0** (added `Round.PlayersAtEnd`). **Re-sweep on 2.2.0: 43/45 (95.6%)** — only the 2 known `duel_segs` cases remain |
-| 6 | next | Resolve the `duel_segs` 1-tick edge (deferred), then rewire `convert` / `parse` / `replay` for v2; delete v1 (`.csdem.gz`) code paths |
+| 5 | done | Validation fixture set: `csraw2-compare -batch` swept all 45 personal `.dem` files (13 GB; pro `.dem` no longer on disk — only `.csdem.gz` remain). **Schema 2.1.0: 41/45 (91.1%)**. Of the 4 divergent demos, 2 hit the `duel_segs` 1-tick edge case and 2 hit a presence-heuristic divergence in `player_round_stats`. The presence issue was traced to v2's bridge inferring "did this player play this round?" from samples, while v1 reads it from `Participants().Playing()` at RoundEnd — so a mid-round disconnect's stale samples wrongly credited the player with the round. **Schema 2.2.0** added `Round.PlayersAtEnd` → **43/45 (95.6%)**. The remaining 2 `duel_segs` cases turned out to be int16 position quantisation rebinning duels at exact distance-bin boundaries; **schema 2.3.0** carved `weapon_fires.pos_*` and `damages.victim_pos_*` out to float32 → **45/45 (100%)** on duel_segs and per-player integer fields. A targeted re-check on demo 14 surfaced a **5.5pp `PctCorrectionUnder2Deg` divergence** for one player whose median pre-shot correction sits at 2.232° — diagnosed as int16 angle quantisation flipping shots across the 2° threshold; **schema 2.4.0** carved the four duel-engine angle inputs out to float32 → byte-exact parity restored on demo 14 |
+| 6 | next | Rewire `convert` / `parse` / `replay` for v2; delete v1 (`.csdem.gz`) code paths |
 
 ---
 
@@ -524,10 +526,12 @@ already in the matching event stream (internal consistency).
    about (counter-strafe needs the velocity at exact `weapon_fire` tick, which
    is captured directly in `weapon_fires.parquet` regardless of sample rate,
    so this should be fine).
-4. **`duel_segs` 1-tick edge case.** ~4% of demos produce one extra/missing
-   duel segment relative to v1. Likely a boundary in how the duel engine
-   decides the start/end tick of a segment when working from `player_samples`
-   vs the original event stream. Needs a one-demo bisection.
+4. ~~**`duel_segs` 1-tick edge case.**~~ **Resolved in schema 2.3.0.** Root
+   cause was int16 quantisation of `weapon_fires.pos_*` and
+   `damages.victim_pos_*` rebinning duels whose true distance sat within
+   ~3 cm of a bin boundary. Fix: those two endpoints are now stored as
+   float32 (see "Position precision" carve-out). Confirmed on the two
+   original divergent demos and the full personal corpus.
 5. ~~**`player_round_stats` presence heuristic.**~~ **Resolved in schema 2.2.0.**
    Root cause was v2 inferring per-round presence from samples, while v1 reads
    it from `Participants().Playing()` at RoundEnd. Mid-round disconnects
