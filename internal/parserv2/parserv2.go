@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"time"
 
@@ -24,6 +25,15 @@ import (
 	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/events"
 
 	"github.com/pable/go-cs-metrics/internal/csraw2"
+)
+
+// Source 2 eye/head offsets (Hammer units) — PositionEyes() panics on
+// Source 2 demos, so eye and head positions are reconstructed manually
+// from Position() + crouch state.
+const (
+	standingEyeHeight = 64.0625
+	crouchEyeHeight   = 46.0469
+	headAboveEye      = 8.0
 )
 
 // Sampling configuration. These mirror the values written into
@@ -767,13 +777,15 @@ func (s *state) scanFirstSights(tick int, players []*common.Player) {
 			}
 			obsPos := observer.Position()
 			enPos := enemy.Position()
+			totalDeg, pitchDev, yawDev := crosshairAngles(observer, enemy)
 			s.match.FirstSights = append(s.match.FirstSights, csraw2.FirstSight{
 				Tick:             int32(tick),
 				Round:            int16(s.roundNumber),
 				ObserverSlot:     obsSlot,
 				EnemySlot:        enemySlot,
-				YawDeg:           quantAngle(float64(observer.ViewDirectionX())),
-				PitchDeg:         quantAngle(normalisePitch(float64(observer.ViewDirectionY()))),
+				AngleDeg:         quantAngle(totalDeg),
+				PitchDeg:         quantAngle(pitchDev),
+				YawDeg:           quantAngle(yawDev),
 				ObserverYawDeg:   quantAngle(float64(observer.ViewDirectionX())),
 				ObserverPitchDeg: quantAngle(normalisePitch(float64(observer.ViewDirectionY()))),
 				ObserverPosX:     quantPos(obsPos.X),
@@ -790,6 +802,64 @@ func (s *state) scanFirstSights(tick int, players []*common.Player) {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+// crosshairAngles returns total angular deviation, pitch deviation, and yaw
+// deviation between observer's crosshair and the direction to enemy's head.
+// Mirrors v1 internal/parser.crosshairAngles so the bridge feeds the
+// aggregator the same float values regardless of which parser produced the
+// FirstSight row.
+func crosshairAngles(observer, enemy *common.Player) (total, pitch, yaw float64) {
+	eyeZ := observer.Position().Z + standingEyeHeight
+	if observer.IsDucking() {
+		eyeZ = observer.Position().Z + crouchEyeHeight
+	}
+	headZ := enemy.Position().Z + standingEyeHeight + headAboveEye
+	if enemy.IsDucking() {
+		headZ = enemy.Position().Z + crouchEyeHeight + headAboveEye
+	}
+
+	dxRaw := enemy.Position().X - observer.Position().X
+	dyRaw := enemy.Position().Y - observer.Position().Y
+	dzRaw := headZ - eyeZ
+	distXY := math.Sqrt(dxRaw*dxRaw + dyRaw*dyRaw)
+	dist := math.Sqrt(dxRaw*dxRaw + dyRaw*dyRaw + dzRaw*dzRaw)
+	if dist < 1e-6 {
+		return 0, 0, 0
+	}
+
+	yawToEnemy := math.Atan2(dyRaw, dxRaw) * 180 / math.Pi
+	if yawToEnemy < 0 {
+		yawToEnemy += 360
+	}
+	pitchToEnemy := math.Atan2(dzRaw, distXY) * 180 / math.Pi
+
+	observerYaw := float64(observer.ViewDirectionX())
+	observerPitch := normalisePitch(float64(observer.ViewDirectionY()))
+	observerPitch = -observerPitch // Source 2: positive pitch = looking down
+
+	yawDev := math.Abs(yawToEnemy - observerYaw)
+	if yawDev > 180 {
+		yawDev = 360 - yawDev
+	}
+	pitchDev := math.Abs(pitchToEnemy - observerPitch)
+
+	dx := dxRaw / dist
+	dy := dyRaw / dist
+	dz := dzRaw / dist
+	yawR := observerYaw * math.Pi / 180
+	pitchR := (-observerPitch) * math.Pi / 180
+	fwdX := math.Cos(pitchR) * math.Cos(yawR)
+	fwdY := math.Cos(pitchR) * math.Sin(yawR)
+	fwdZ := -math.Sin(pitchR)
+
+	dot := fwdX*dx + fwdY*dy + fwdZ*dz
+	if dot > 1 {
+		dot = 1
+	} else if dot < -1 {
+		dot = -1
+	}
+	return math.Acos(dot) * 180 / math.Pi, pitchDev, yawDev
+}
 
 func (s *state) weaponIDForEquipment(eq *common.Equipment) uint8 {
 	if eq == nil {
