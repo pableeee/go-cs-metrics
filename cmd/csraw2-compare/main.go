@@ -194,6 +194,46 @@ func runSingleDetailed(path string) {
 	if len(dsV1) != len(dsV2) {
 		printSegDiff(dsV1, dsV2, msV1)
 	}
+
+	// Crosshair-field diff (always print; flags rows outside tolerance).
+	printCrosshairDiff(v1Stats, v2Stats, ids)
+}
+
+func printCrosshairDiff(v1, v2 map[uint64]model.PlayerMatchStats, ids []uint64) {
+	const angleTol = 0.05
+	const pctTol = 0.5
+
+	fmt.Println()
+	fmt.Println("crosshair fields (v1 vs v2; * = outside tolerance):")
+	fmt.Printf("%-20s %5s %14s %14s %14s %14s %14s\n",
+		"player", "enc", "median°", "medianPitch°", "medianYaw°", "corr°", "pctU2°")
+	for _, id := range ids {
+		s1 := v1[id]
+		s2, ok := v2[id]
+		if !ok {
+			continue
+		}
+		bad := s1.CrosshairEncounters != s2.CrosshairEncounters ||
+			absF(s1.CrosshairMedianDeg-s2.CrosshairMedianDeg) > angleTol ||
+			absF(s1.CrosshairMedianPitchDeg-s2.CrosshairMedianPitchDeg) > angleTol ||
+			absF(s1.CrosshairMedianYawDeg-s2.CrosshairMedianYawDeg) > angleTol ||
+			absF(s1.MedianCorrectionDeg-s2.MedianCorrectionDeg) > angleTol ||
+			absF(s1.PctCorrectionUnder2Deg-s2.PctCorrectionUnder2Deg) > pctTol
+		mark := ""
+		if bad {
+			mark = "  *"
+		}
+		fmt.Printf("%-20s %2d/%-2d %6.3f/%-6.3f %6.3f/%-6.3f %6.3f/%-6.3f %6.3f/%-6.3f %5.1f/%-5.1f%s\n",
+			trunc(s1.Name, 20),
+			s1.CrosshairEncounters, s2.CrosshairEncounters,
+			s1.CrosshairMedianDeg, s2.CrosshairMedianDeg,
+			s1.CrosshairMedianPitchDeg, s2.CrosshairMedianPitchDeg,
+			s1.CrosshairMedianYawDeg, s2.CrosshairMedianYawDeg,
+			s1.MedianCorrectionDeg, s2.MedianCorrectionDeg,
+			s1.PctCorrectionUnder2Deg, s2.PctCorrectionUnder2Deg,
+			mark,
+		)
+	}
 }
 
 func printSegDiff(v1, v2 []model.PlayerDuelSegment, ms []model.PlayerMatchStats) {
@@ -278,7 +318,9 @@ type batchResult struct {
 	// Counts (v1 vs v2). All "ok" fields true mean fully matching.
 	matchOK, roundOK, weaponOK, duelOK, deathOK, flashOK   bool
 	killsOK, dmgsOK, firesOK                               bool
+	crosshairOK                                            bool
 	playersDiverged                                        int
+	crosshairDiverged                                      int
 	roundsV1, roundsV2                                     int
 	weaponV1, weaponV2, duelV1, duelV2, deathV1, deathV2   int
 	flashV1, flashV2                                       int
@@ -359,7 +401,12 @@ func runOne(path string) batchResult {
 	r.dmgsOK = r.dmgV1 == r.dmgV2
 	r.firesOK = r.fireV1 == r.fireV2
 
-	// Per-player divergences on integer fields.
+	// Per-player divergences on integer fields and on crosshair-derived
+	// floats (CrosshairMedianDeg / PctCorrectionUnder2Deg / etc.). Floats
+	// can't be byte-exact across paths because of int16 angle quantisation
+	// (1/100°), so a small tolerance is applied.
+	const angleTol = 0.05  // degrees
+	const pctTol = 0.5     // percentage points
 	v1ByID := map[uint64]model.PlayerMatchStats{}
 	for _, s := range msV1 {
 		v1ByID[s.SteamID] = s
@@ -374,8 +421,23 @@ func runOne(path string) batchResult {
 			s1.TotalDamage != s2.TotalDamage || s1.RoundsPlayed != s2.RoundsPlayed {
 			r.playersDiverged++
 		}
+		if absF(s1.CrosshairMedianDeg-s2.CrosshairMedianDeg) > angleTol ||
+			absF(s1.CrosshairMedianPitchDeg-s2.CrosshairMedianPitchDeg) > angleTol ||
+			absF(s1.CrosshairMedianYawDeg-s2.CrosshairMedianYawDeg) > angleTol ||
+			absF(s1.MedianCorrectionDeg-s2.MedianCorrectionDeg) > angleTol ||
+			absF(s1.PctCorrectionUnder2Deg-s2.PctCorrectionUnder2Deg) > pctTol {
+			r.crosshairDiverged++
+		}
 	}
+	r.crosshairOK = r.crosshairDiverged == 0
 	return r
+}
+
+func absF(f float64) float64 {
+	if f < 0 {
+		return -f
+	}
+	return f
 }
 
 func printOneLine(r batchResult) {
@@ -408,6 +470,9 @@ func printOneLine(r batchResult) {
 	if !r.flashOK {
 		flags += fmt.Sprintf(" flash=%d/%d", r.flashV1, r.flashV2)
 	}
+	if r.crosshairDiverged > 0 {
+		flags += fmt.Sprintf(" xhair=%d", r.crosshairDiverged)
+	}
 	if flags == "" {
 		fmt.Printf("✓ rounds=%d\n", r.rounds)
 	} else {
@@ -422,6 +487,7 @@ func printAggregate(results []batchResult) {
 		duelDiv, killDiv, dmgDiv int
 		fireDiv, weaponDiv       int
 		deathDiv, flashDiv       int
+		xhairDiv                 int
 	)
 	for _, r := range results {
 		if r.parseErr != "" {
@@ -429,7 +495,8 @@ func printAggregate(results []batchResult) {
 			continue
 		}
 		clean := r.killsOK && r.dmgsOK && r.firesOK && r.duelOK &&
-			r.weaponOK && r.deathOK && r.flashOK && r.playersDiverged == 0
+			r.weaponOK && r.deathOK && r.flashOK &&
+			r.playersDiverged == 0 && r.crosshairDiverged == 0
 		if clean {
 			perfect++
 			continue
@@ -437,6 +504,9 @@ func printAggregate(results []batchResult) {
 		hasDiverg++
 		if r.playersDiverged > 0 {
 			anyPlayerDiv++
+		}
+		if r.crosshairDiverged > 0 {
+			xhairDiv++
 		}
 		if !r.duelOK {
 			duelDiv++
@@ -467,6 +537,7 @@ func printAggregate(results []batchResult) {
 	fmt.Printf("  parse errors:     %d\n", errs)
 	fmt.Println("  divergence by category (demos affected, not row counts):")
 	fmt.Printf("    per-player K/D/Dmg/Rds:  %d\n", anyPlayerDiv)
+	fmt.Printf("    crosshair medians:       %d\n", xhairDiv)
 	fmt.Printf("    duel_segs:               %d\n", duelDiv)
 	fmt.Printf("    kills:                   %d\n", killDiv)
 	fmt.Printf("    damages:                 %d\n", dmgDiv)

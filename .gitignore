@@ -4,11 +4,11 @@
 # Keep those in the private workspace repo.
 # -------------------------------------------------------
 
-# Build output
-go-cs-metrics
-go-cs-metrics.exe
-csraw2-compare
-csraw2-probe
+# Build output (repo root only — keep cmd/<name>/ source files trackable)
+/go-cs-metrics
+/go-cs-metrics.exe
+/csraw2-compare
+/csraw2-probe
 
 # Private / local analysis notes
 .mine/
