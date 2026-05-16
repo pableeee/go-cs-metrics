@@ -1,14 +1,12 @@
 # Spec: CSRaw v2 Intermediate Format
 
-> **Status: implementation in progress.**
+> **Status: shipped.** The CLI is cut over to `.csraw2.tar`. `convert`,
+> `parse`, `replay`, `info`, and `query --dir` all read/write the v2
+> archive; the v1 `.csdem.gz` reader/writer/converter has been removed.
 >
-> Slice 1 (this commit): `internal/csraw2` package — Go types matching the
-> schema, tar+parquet writer/reader, round-trip tested. No CLI / converter
-> wiring yet.
->
-> v2 is a clean break: there is no migration path from v1 (`.csdem.gz`).
-> The DB will be wiped and demos re-parsed from `.dem` once the v2 pipeline
-> is functional.
+> v2 was a clean break: there is no migration path from v1 (`.csdem.gz`).
+> Any existing `.csdem.gz` files must be regenerated from the original
+> `.dem` via `convert`.
 
 ---
 
@@ -508,7 +506,7 @@ already in the matching event stream (internal consistency).
 | 3 | done | `cmd/csraw2-probe`: end-to-end .dem → .csraw2.tar + readback verifier. Measured **1.69 MB / 14-round comp match** (149 MB .dem → 88× compression, 6.6 s parse). Player samples are 83% of the archive. Pro-rated to a 20-round match: ~2.4 MB, in line with the spec's 1.85 MB estimate |
 | 4 | done | `internal/csraw2bridge`: `csraw2.Match → model.RawMatch` adapter so the existing 11-pass aggregator runs unchanged. Schema bumped 2.0.0 → 2.1.0 (added `team` to `PlayerSample` so the bridge can resolve per-round teams across MR12 halftime flips). `cmd/csraw2-compare` validated parity on two real demos: every player row matches v1 byte-for-byte on K/D/Damage/ADR/Rounds; every event count except `duel_segs` (1-tick edge case, ~2%) matches exactly |
 | 5 | done | Validation fixture set: `csraw2-compare -batch` swept all 45 personal `.dem` files (13 GB; pro `.dem` no longer on disk — only `.csdem.gz` remain). **Schema 2.1.0: 41/45 (91.1%)**. Of the 4 divergent demos, 2 hit the `duel_segs` 1-tick edge case and 2 hit a presence-heuristic divergence in `player_round_stats`. The presence issue was traced to v2's bridge inferring "did this player play this round?" from samples, while v1 reads it from `Participants().Playing()` at RoundEnd — so a mid-round disconnect's stale samples wrongly credited the player with the round. **Schema 2.2.0** added `Round.PlayersAtEnd` → **43/45 (95.6%)**. The remaining 2 `duel_segs` cases turned out to be int16 position quantisation rebinning duels at exact distance-bin boundaries; **schema 2.3.0** carved `weapon_fires.pos_*` and `damages.victim_pos_*` out to float32 → **45/45 (100%)** on duel_segs and per-player integer fields. A targeted re-check on demo 14 surfaced a **5.5pp `PctCorrectionUnder2Deg` divergence** for one player whose median pre-shot correction sits at 2.232° — diagnosed as int16 angle quantisation flipping shots across the 2° threshold; **schema 2.4.0** carved the four duel-engine angle inputs out to float32 → byte-exact parity restored on demo 14 |
-| 6 | next | Rewire `convert` / `parse` / `replay` for v2; delete v1 (`.csdem.gz`) code paths |
+| 6 | done | Rewired `convert` (emits `.csraw2.tar`), `parse` / `replay` (consume `.csraw2.tar` via parserv2 + bridge), `info` (header-only read), and `query --dir` (refactored `internal/roundquery` to consume `csraw2.Match` directly, viewer rebuilt from `PlayerSamples` + `WeaponFires` + `ProjectileSamples`). Deleted `internal/converter`, `internal/model/unified.go`, `internal/model/unified_io.go`, `docs/csdem-spec.md`, and `docs/rawmatch-gz-spec.md` |
 
 ---
 

@@ -1,70 +1,79 @@
 package roundquery
 
 import (
-	"github.com/pable/go-cs-metrics/internal/model"
+	"strconv"
+	"strings"
+
+	"github.com/pable/go-cs-metrics/internal/csraw2"
 )
 
-// Grenade type constants (from model.UnifiedGrenade.Type).
-const (
-	grenadeFlash   = 1
-	grenadeHE      = 2
-	grenadeMolotov = 3
-	grenadeCTSmoke = 4
-	grenadeTSmoke  = 5
-)
-
-// BombAction constants (from model.UnifiedBombAction.Action).
-const (
-	bombPlanted  = 1
-	bombDefused  = 3
-	bombExploded = 4
-)
-
-// BuildRecords converts a UnifiedMatch into a slice of RoundRecords,
-// one per round. If collectData is true, each record's ViewerData field is
-// populated with the raw per-round data needed by the 2D HTML viewer.
-func BuildRecords(m *model.UnifiedMatch, matchFile, date string, collectData bool) []RoundRecord {
-	// Build player index → SteamID slice.
-	idxToSteam := make([]uint64, len(m.Players))
-	for i, p := range m.Players {
-		idxToSteam[i] = p.SteamID
+// BuildRecords converts a csraw2.Match into a slice of RoundRecords, one
+// per round. If collectData is true, each record's ViewerData field is
+// populated with the per-round data needed by the 2D HTML viewer.
+func BuildRecords(m *csraw2.Match, matchFile, date string, collectData bool) []RoundRecord {
+	if m == nil {
+		return nil
 	}
 
-	// Index events by round number for O(1) lookup.
-	grenadesByRound := indexGrenades(m.Grenades)
-	damagesByRound := indexDamages(m.Damages)
-	killsByRound := indexKills(m.Kills)
-	bombsByRound := indexBombs(m.Bombs)
-	framesByRound := indexFrames(m.Frames)
+	// Per-round, per-slot team resolution. Same rule as csraw2bridge: last
+	// sample in the round wins; fall back to header.players starting team if
+	// no samples were emitted for that slot.
+	roundTeams := buildRoundTeams(m)
+	startingTeams := buildStartingTeams(m.Header.Players)
 
-	var trailsByRound map[int][]model.UnifiedGrenadeTrail
-	var shotsByRound map[int][]model.UnifiedShot
-	if collectData {
-		trailsByRound = indexTrails(m.Trails)
-		shotsByRound = indexShots(m.Shots)
-	}
-
-	records := make([]RoundRecord, 0, len(m.Rounds))
-	for _, round := range m.Rounds {
-		rec := buildRecord(m, round, idxToSteam,
-			grenadesByRound[round.Number],
-			damagesByRound[round.Number],
-			killsByRound[round.Number],
-			bombsByRound[round.Number],
-			framesByRound[round.Number],
-			matchFile, date)
-		if collectData {
-			rec.ViewerData = &QueryViewerData{
-				Players:   m.Players,
-				RoundMeta: round,
-				Tickrate:  m.Tickrate,
-				Frames:    framesByRound[round.Number],
-				Kills:     killsByRound[round.Number],
-				Grenades:  grenadesByRound[round.Number],
-				Trails:    trailsByRound[round.Number],
-				Shots:     shotsByRound[round.Number],
-				Bombs:     bombsByRound[round.Number],
+	teamAt := func(round int, slot uint8) uint8 {
+		if rt, ok := roundTeams[round]; ok {
+			if t, ok := rt[slot]; ok {
+				return t
 			}
+		}
+		if t, ok := startingTeams[slot]; ok {
+			return t
+		}
+		return csraw2.TeamUnknown
+	}
+
+	// Index events by round number for O(1) lookup per round.
+	kills := indexByRound(m.Kills, func(k csraw2.Kill) int { return int(k.Round) })
+	damages := indexByRound(m.Damages, func(d csraw2.Damage) int { return int(d.Round) })
+	throws := indexByRound(m.GrenadeThrows, func(g csraw2.GrenadeThrow) int { return int(g.Round) })
+	detos := indexByRound(m.GrenadeDetonations, func(d csraw2.GrenadeDetonate) int { return int(d.Round) })
+	bombs := indexByRound(m.BombActions, func(b csraw2.BombAction) int { return int(b.Round) })
+
+	// freeze-end samples per (round, slot) for equip values.
+	freezeEnd := indexFreezeEndSamples(m)
+
+	// Last sample at-or-before each tick for alive-count queries. Built once
+	// per round on demand inside the builder.
+	samplesByRound := indexSamplesByRound(m.PlayerSamples)
+
+	// Viewer-only data sources.
+	var firesByRound map[int][]csraw2.WeaponFire
+	var projByRound map[int][]csraw2.ProjectileSample
+	if collectData {
+		firesByRound = indexByRound(m.WeaponFires, func(f csraw2.WeaponFire) int { return int(f.Round) })
+		projByRound = indexByRound(m.ProjectileSamples, func(s csraw2.ProjectileSample) int { return int(s.Round) })
+	}
+
+	weaponNameForID := func(id uint8) string {
+		return m.Header.WeaponTable[strconv.FormatUint(uint64(id), 10)]
+	}
+
+	records := make([]RoundRecord, 0, len(m.Header.Rounds))
+	for _, r := range m.Header.Rounds {
+		rec := buildRecord(
+			m, r, teamAt, freezeEnd, samplesByRound[r.N],
+			kills[r.N], damages[r.N], throws[r.N], bombs[r.N],
+			weaponNameForID, matchFile, date,
+		)
+		if collectData {
+			rec.ViewerData = buildViewerData(
+				m, r, teamAt,
+				samplesByRound[r.N],
+				kills[r.N], throws[r.N], detos[r.N], bombs[r.N],
+				firesByRound[r.N], projByRound[r.N],
+				weaponNameForID,
+			)
 		}
 		records = append(records, rec)
 	}
@@ -72,64 +81,52 @@ func BuildRecords(m *model.UnifiedMatch, matchFile, date string, collectData boo
 }
 
 func buildRecord(
-	m *model.UnifiedMatch,
-	round model.UnifiedRound,
-	idxToSteam []uint64,
-	grenades []model.UnifiedGrenade,
-	damages []model.UnifiedDamage,
-	kills []model.UnifiedKill,
-	bombs []model.UnifiedBombAction,
-	frames []model.UnifiedFrame,
+	m *csraw2.Match,
+	r csraw2.Round,
+	teamAt func(round int, slot uint8) uint8,
+	freezeEnd map[roundSlot]csraw2.PlayerSample,
+	samples []csraw2.PlayerSample,
+	kills []csraw2.Kill,
+	damages []csraw2.Damage,
+	throws []csraw2.GrenadeThrow,
+	bombs []csraw2.BombAction,
+	weaponNameForID func(uint8) string,
 	matchFile, date string,
 ) RoundRecord {
-	// Build player index → team map from end-of-round state.
-	// Teams don't switch mid-round so end state is authoritative.
-	idxTeam := make(map[int]model.Team, len(round.PlayerEndState))
-	for i, steamID := range idxToSteam {
-		if state, ok := round.PlayerEndState[steamID]; ok {
-			idxTeam[i] = state.Team
+	// Equipment values per side from the freeze-end snapshot.
+	var equipT, equipCT int
+	for slot := uint8(0); slot < 10; slot++ {
+		fe, ok := freezeEnd[roundSlot{round: r.N, slot: slot}]
+		if !ok {
+			continue
+		}
+		switch teamAt(r.N, slot) {
+		case csraw2.TeamT:
+			equipT += int(fe.EquipValue)
+		case csraw2.TeamCT:
+			equipCT += int(fe.EquipValue)
 		}
 	}
 
-	// Equipment values and buy types per side.
-	equipT, equipCT := sumEquip(round.PlayerEquipValues, round.PlayerEndState)
-
-	// Util counts per side.
 	smokesT, smokesCT, flashesT, flashesCT, molotovsT, molotovsCT, hesT, hesCT :=
-		countGrenades(grenades, idxTeam)
+		countGrenades(throws, teamAt, r.N)
 
-	// HE damage per side.
-	heDmgT, heDmgCT := sumHEDamage(damages)
+	heDmgT, heDmgCT := sumHEDamage(damages, teamAt, weaponNameForID)
+	flashKillsT, flashKillsCT := countFlashKills(kills, teamAt)
 
-	// Flash-assisted kills per side.
-	flashKillsT, flashKillsCT := countFlashKills(kills)
-
-	// Alive counts at round start and at plant.
-	aliveStartT, aliveStartCT := countAliveAtTick(frames, round.FreezeEndTick)
-	var alivePlantT, alivePlantCT int
+	aliveStartT, aliveStartCT := countAliveAtTick(samples, r.FreezeEndTick, teamAt, r.N)
 	planted, defused, exploded, plantTick := bombEvents(bombs)
+	var alivePlantT, alivePlantCT int
 	if planted {
-		alivePlantT, alivePlantCT = countAliveAtTick(frames, plantTick)
-	}
-
-	// Entry side: killer team on the first kill of the round.
-	entrySide := entrySide(kills)
-
-	// Winner.
-	winner := ""
-	switch round.WinnerTeam {
-	case model.TeamT:
-		winner = "T"
-	case model.TeamCT:
-		winner = "CT"
+		alivePlantT, alivePlantCT = countAliveAtTick(samples, plantTick, teamAt, r.N)
 	}
 
 	return RoundRecord{
 		MatchFile:    matchFile,
 		Date:         date,
-		Map:          m.MapName,
-		RoundNum:     round.Number,
-		Winner:       winner,
+		Map:          m.Header.Map,
+		RoundNum:     r.N,
+		Winner:       r.Winner,
 		TypeT:        classifyBuy(equipT),
 		TypeCT:       classifyBuy(equipCT),
 		EquipT:       equipT,
@@ -153,25 +150,8 @@ func buildRecord(
 		Planted:      planted,
 		Defused:      defused,
 		Exploded:     exploded,
-		EntrySide:    entrySide,
+		EntrySide:    entrySideFromKills(kills, teamAt),
 	}
-}
-
-// sumEquip returns total equipment value in USD for each side.
-func sumEquip(equipValues map[uint64]int, endState map[uint64]model.PlayerRoundEndState) (t, ct int) {
-	for steamID, val := range equipValues {
-		state, ok := endState[steamID]
-		if !ok {
-			continue
-		}
-		switch state.Team {
-		case model.TeamT:
-			t += val
-		case model.TeamCT:
-			ct += val
-		}
-	}
-	return
 }
 
 // classifyBuy returns a buy type label based on total team equipment value.
@@ -194,34 +174,35 @@ func classifyBuy(total int) string {
 	}
 }
 
-// countGrenades tallies utility counts by side.
-// Grenade types: 0=smoke 1=flash 2=HE 3=molotov 4=CT-smoke 5=T-smoke
-func countGrenades(grenades []model.UnifiedGrenade, idxTeam map[int]model.Team) (
+// countGrenades tallies utility throws by side.
+func countGrenades(throws []csraw2.GrenadeThrow, teamAt func(int, uint8) uint8, round int) (
 	smokesT, smokesCT, flashesT, flashesCT, molotovsT, molotovsCT, hesT, hesCT int,
 ) {
-	for _, g := range grenades {
-		side := sideFromGrenadeType(g.Type, g.ThrowerIdx, idxTeam)
-		switch g.Type {
-		case grenadeTSmoke:
-			smokesT++
-		case grenadeCTSmoke:
-			smokesCT++
-		case grenadeFlash:
-			if side == model.TeamT {
+	for _, g := range throws {
+		side := teamAt(round, g.ThrowerSlot)
+		switch g.GrenadeType {
+		case csraw2.GrenadeSmoke:
+			if side == csraw2.TeamT {
+				smokesT++
+			} else if side == csraw2.TeamCT {
+				smokesCT++
+			}
+		case csraw2.GrenadeFlash:
+			if side == csraw2.TeamT {
 				flashesT++
-			} else if side == model.TeamCT {
+			} else if side == csraw2.TeamCT {
 				flashesCT++
 			}
-		case grenadeMolotov:
-			if side == model.TeamT {
+		case csraw2.GrenadeMolotov:
+			if side == csraw2.TeamT {
 				molotovsT++
-			} else if side == model.TeamCT {
+			} else if side == csraw2.TeamCT {
 				molotovsCT++
 			}
-		case grenadeHE:
-			if side == model.TeamT {
+		case csraw2.GrenadeHE:
+			if side == csraw2.TeamT {
 				hesT++
-			} else if side == model.TeamCT {
+			} else if side == csraw2.TeamCT {
 				hesCT++
 			}
 		}
@@ -229,99 +210,114 @@ func countGrenades(grenades []model.UnifiedGrenade, idxTeam map[int]model.Team) 
 	return
 }
 
-// sideFromGrenadeType returns the throwing team. For smoke grenades (type 4/5)
-// the side is encoded in the type; for all others use the thrower's team.
-func sideFromGrenadeType(gType, throwerIdx int, idxTeam map[int]model.Team) model.Team {
-	switch gType {
-	case grenadeTSmoke:
-		return model.TeamT
-	case grenadeCTSmoke:
-		return model.TeamCT
-	default:
-		if throwerIdx >= 0 {
-			return idxTeam[throwerIdx]
-		}
-		return model.TeamUnknown
-	}
-}
-
 // sumHEDamage returns total HP damage dealt by HE grenades per side.
-func sumHEDamage(damages []model.UnifiedDamage) (t, ct int) {
+func sumHEDamage(damages []csraw2.Damage, teamAt func(int, uint8) uint8, weaponNameForID func(uint8) string) (t, ct int) {
 	for _, d := range damages {
-		if d.Weapon != "he_grenade" {
+		if d.AttackerSlot < 0 {
 			continue
 		}
-		switch d.AttackerTeam {
-		case model.TeamT:
-			t += d.HealthDamage
-		case model.TeamCT:
-			ct += d.HealthDamage
+		if !isHEGrenadeName(weaponNameForID(d.WeaponID)) {
+			continue
+		}
+		switch teamAt(int(d.Round), uint8(d.AttackerSlot)) {
+		case csraw2.TeamT:
+			t += int(d.HealthDamage)
+		case csraw2.TeamCT:
+			ct += int(d.HealthDamage)
 		}
 	}
 	return
 }
 
-// countFlashKills returns kills where the victim was flashed, per killer side.
-func countFlashKills(kills []model.UnifiedKill) (t, ct int) {
+// isHEGrenadeName reports whether the weapon name (as recorded in
+// header.weapon_table) refers to a HE grenade. The string is whatever
+// demoinfocs EquipmentType.String() returns at parse time, so accept the
+// common variants.
+func isHEGrenadeName(name string) bool {
+	switch strings.ToLower(name) {
+	case "he grenade", "he_grenade", "hegrenade":
+		return true
+	}
+	return false
+}
+
+// countFlashKills returns kills where the killer's victim was flashed.
+func countFlashKills(kills []csraw2.Kill, teamAt func(int, uint8) uint8) (t, ct int) {
 	for _, k := range kills {
-		if !k.AssistedFlash {
+		if !k.FlashAssist {
 			continue
 		}
-		switch k.KillerTeam {
-		case model.TeamT:
+		if k.KillerSlot < 0 {
+			continue
+		}
+		switch teamAt(int(k.Round), uint8(k.KillerSlot)) {
+		case csraw2.TeamT:
 			t++
-		case model.TeamCT:
+		case csraw2.TeamCT:
 			ct++
 		}
 	}
 	return
 }
 
-// bombEvents returns plant/defuse/explode flags, the plant tick, and site.
-func bombEvents(bombs []model.UnifiedBombAction) (planted, defused, exploded bool, plantTick int) {
-	for _, b := range bombs {
-		switch b.Action {
-		case bombPlanted:
+// bombEvents returns plant/defuse/explode flags plus the plant tick.
+func bombEvents(actions []csraw2.BombAction) (planted, defused, exploded bool, plantTick int) {
+	for _, a := range actions {
+		switch a.Action {
+		case csraw2.BombActionPlantComplete:
 			planted = true
-			plantTick = b.Tick
-		case bombDefused:
+			plantTick = int(a.Tick)
+		case csraw2.BombActionDefuseComplete:
 			defused = true
-		case bombExploded:
+		case csraw2.BombActionExplode:
 			exploded = true
 		}
 	}
 	return
 }
 
-// countAliveAtTick returns alive player counts per side at the frame at or
-// just before targetTick. Frame player flags: 0=CT+alive 1=CT+dead 2=T+alive 3=T+dead.
-func countAliveAtTick(frames []model.UnifiedFrame, targetTick int) (aliveT, aliveCT int) {
-	best := -1
-	for i, f := range frames {
-		if f.Tick <= targetTick {
-			best = i
-		} else {
-			break
+// countAliveAtTick returns alive player counts per side using the most
+// recent sample for each slot at-or-before targetTick. Round-scoped: only
+// samples whose Round matches round are considered.
+func countAliveAtTick(samples []csraw2.PlayerSample, targetTick int, teamAt func(int, uint8) uint8, round int) (aliveT, aliveCT int) {
+	target := int32(targetTick)
+	type latest struct {
+		hp   uint8
+		tick int32
+		ok   bool
+	}
+	var perSlot [10]latest
+	for _, s := range samples {
+		if s.Tick > target {
+			continue
+		}
+		if s.PlayerSlot >= uint8(len(perSlot)) {
+			continue
+		}
+		cur := &perSlot[s.PlayerSlot]
+		if !cur.ok || s.Tick > cur.tick {
+			cur.hp = s.HP
+			cur.tick = s.Tick
+			cur.ok = true
 		}
 	}
-	if best < 0 {
-		return
-	}
-	for _, s := range frames[best].States {
-		flags := s.Flags & 3
-		switch flags {
-		case 2: // T + alive
+	for slot, l := range perSlot {
+		if !l.ok || l.hp == 0 {
+			continue
+		}
+		switch teamAt(round, uint8(slot)) {
+		case csraw2.TeamT:
 			aliveT++
-		case 0: // CT + alive
+		case csraw2.TeamCT:
 			aliveCT++
 		}
 	}
 	return
 }
 
-// entrySide returns "T" or "CT" based on who got the first kill in the round,
-// or "" if there were no kills.
-func entrySide(kills []model.UnifiedKill) string {
+// entrySideFromKills returns the side of whoever scored the first kill in
+// the round, or "" if there were none.
+func entrySideFromKills(kills []csraw2.Kill, teamAt func(int, uint8) uint8) string {
 	if len(kills) == 0 {
 		return ""
 	}
@@ -331,69 +327,94 @@ func entrySide(kills []model.UnifiedKill) string {
 			first = k
 		}
 	}
-	switch first.KillerTeam {
-	case model.TeamT:
-		return "T"
-	case model.TeamCT:
-		return "CT"
+	if first.KillerSlot < 0 {
+		return ""
 	}
-	return ""
+	return teamLabel(teamAt(int(first.Round), uint8(first.KillerSlot)))
 }
 
-// --- indexers ---
+// ── Indexers ────────────────────────────────────────────────────────────
 
-func indexGrenades(grenades []model.UnifiedGrenade) map[int][]model.UnifiedGrenade {
-	m := make(map[int][]model.UnifiedGrenade)
-	for _, g := range grenades {
-		m[g.Round] = append(m[g.Round], g)
-	}
-	return m
+type roundSlot struct {
+	round int
+	slot  uint8
 }
 
-func indexDamages(damages []model.UnifiedDamage) map[int][]model.UnifiedDamage {
-	m := make(map[int][]model.UnifiedDamage)
-	for _, d := range damages {
-		m[d.Round] = append(m[d.Round], d)
+func indexByRound[T any](rows []T, roundOf func(T) int) map[int][]T {
+	out := map[int][]T{}
+	for _, row := range rows {
+		r := roundOf(row)
+		out[r] = append(out[r], row)
 	}
-	return m
+	return out
 }
 
-func indexKills(kills []model.UnifiedKill) map[int][]model.UnifiedKill {
-	m := make(map[int][]model.UnifiedKill)
-	for _, k := range kills {
-		m[k.Round] = append(m[k.Round], k)
+func indexSamplesByRound(samples []csraw2.PlayerSample) map[int][]csraw2.PlayerSample {
+	out := map[int][]csraw2.PlayerSample{}
+	for _, s := range samples {
+		out[int(s.Round)] = append(out[int(s.Round)], s)
 	}
-	return m
+	return out
 }
 
-func indexBombs(bombs []model.UnifiedBombAction) map[int][]model.UnifiedBombAction {
-	m := make(map[int][]model.UnifiedBombAction)
-	for _, b := range bombs {
-		m[b.Round] = append(m[b.Round], b)
+// indexFreezeEndSamples returns the first PlayerSample at-or-after each
+// round's freeze_end_tick per (round, slot). Mirrors the csraw2bridge helper
+// so equip values agree with the aggregator.
+func indexFreezeEndSamples(m *csraw2.Match) map[roundSlot]csraw2.PlayerSample {
+	type bestEntry struct {
+		s    csraw2.PlayerSample
+		diff int32
 	}
-	return m
+	freezeEnds := map[int]int32{}
+	for _, r := range m.Header.Rounds {
+		freezeEnds[r.N] = int32(r.FreezeEndTick)
+	}
+	best := map[roundSlot]bestEntry{}
+	for _, s := range m.PlayerSamples {
+		fe, ok := freezeEnds[int(s.Round)]
+		if !ok || s.Tick < fe {
+			continue
+		}
+		diff := s.Tick - fe
+		k := roundSlot{round: int(s.Round), slot: s.PlayerSlot}
+		if cur, ok := best[k]; !ok || diff < cur.diff {
+			best[k] = bestEntry{s: s, diff: diff}
+		}
+	}
+	out := map[roundSlot]csraw2.PlayerSample{}
+	for k, v := range best {
+		out[k] = v.s
+	}
+	return out
 }
 
-func indexFrames(frames []model.UnifiedFrame) map[int][]model.UnifiedFrame {
-	m := make(map[int][]model.UnifiedFrame)
-	for _, f := range frames {
-		m[f.Round] = append(m[f.Round], f)
+// buildRoundTeams produces (round → slot → team) using the latest sample
+// per (round, slot).
+func buildRoundTeams(m *csraw2.Match) map[int]map[uint8]uint8 {
+	out := map[int]map[uint8]uint8{}
+	for _, s := range m.PlayerSamples {
+		round := int(s.Round)
+		if _, ok := out[round]; !ok {
+			out[round] = map[uint8]uint8{}
+		}
+		out[round][s.PlayerSlot] = s.Team
 	}
-	return m
+	return out
 }
 
-func indexTrails(trails []model.UnifiedGrenadeTrail) map[int][]model.UnifiedGrenadeTrail {
-	m := make(map[int][]model.UnifiedGrenadeTrail)
-	for _, t := range trails {
-		m[t.Round] = append(m[t.Round], t)
+// buildStartingTeams resolves header.players[].starting_team into csraw2 enum
+// values for fallback team lookups.
+func buildStartingTeams(players []csraw2.Player) map[uint8]uint8 {
+	out := map[uint8]uint8{}
+	for _, p := range players {
+		switch p.StartingTeam {
+		case "T":
+			out[p.Slot] = csraw2.TeamT
+		case "CT":
+			out[p.Slot] = csraw2.TeamCT
+		default:
+			out[p.Slot] = csraw2.TeamUnknown
+		}
 	}
-	return m
-}
-
-func indexShots(shots []model.UnifiedShot) map[int][]model.UnifiedShot {
-	m := make(map[int][]model.UnifiedShot)
-	for _, s := range shots {
-		m[s.Round] = append(m[s.Round], s)
-	}
-	return m
+	return out
 }

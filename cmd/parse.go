@@ -15,8 +15,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pable/go-cs-metrics/internal/aggregator"
+	"github.com/pable/go-cs-metrics/internal/csraw2"
+	"github.com/pable/go-cs-metrics/internal/csraw2bridge"
 	"github.com/pable/go-cs-metrics/internal/model"
 	"github.com/pable/go-cs-metrics/internal/parser"
+	"github.com/pable/go-cs-metrics/internal/parserv2"
 	"github.com/pable/go-cs-metrics/internal/report"
 	"github.com/pable/go-cs-metrics/internal/storage"
 )
@@ -31,7 +34,7 @@ var (
 	parseTier string
 	// parseBaseline marks the demo as a baseline reference match when true.
 	parseBaseline bool
-	// parseDir is an optional directory path; all *.dem files inside are parsed.
+	// parseDir is an optional directory path; all *.dem and *.csraw2.tar files inside are parsed.
 	parseDir string
 	// parseWorkers is the number of parallel parse workers (0 = NumCPU).
 	parseWorkers int
@@ -39,21 +42,21 @@ var (
 
 // parseCmd is the cobra command for parsing a CS2 demo file and storing its metrics.
 var parseCmd = &cobra.Command{
-	Use:   "parse [<demo.dem>...] [--dir <directory>]",
+	Use:   "parse [<demo.dem or .csraw2.tar>...] [--dir <directory>]",
 	Short: "Parse one or more CS2 demo files and store metrics",
 	Long: `Parse CS2 demo files and store all metrics in the database.
 
-Accepts both raw .dem files (full demoinfocs parse) and .csdem.gz unified
-intermediate files (fast load via LoadUnifiedMatchFile + ToRawMatch).
+Accepts both raw .dem files (parserv2 → bridge) and .csraw2.tar intermediate
+files (no demoinfocs, fast load).
 
 Single file:
   parse match.dem
-  parse match.csdem.gz
+  parse match.csraw2.tar
 
 Multiple files (shell glob):
   parse /replays/*.dem
 
-Whole directory (picks up both .dem and .csdem.gz):
+Whole directory (picks up both .dem and .csraw2.tar):
   parse --dir /path/to/replays
 
 When more than one demo is provided, full tables are suppressed and a
@@ -69,7 +72,7 @@ func init() {
 	parseCmd.Flags().StringVar(&matchType, "type", "Competitive", "match type label")
 	parseCmd.Flags().StringVar(&parseTier, "tier", "", "tier label for baseline comparisons (e.g. faceit-5)")
 	parseCmd.Flags().BoolVar(&parseBaseline, "baseline", false, "mark this demo as a baseline reference match")
-	parseCmd.Flags().StringVar(&parseDir, "dir", "", "directory containing .dem or .csdem.gz files to parse in bulk")
+	parseCmd.Flags().StringVar(&parseDir, "dir", "", "directory containing .dem or .csraw2.tar files to parse in bulk")
 	parseCmd.Flags().IntVar(&parseWorkers, "workers", 0, "parallel parse+aggregate workers (0 = NumCPU)")
 }
 
@@ -123,34 +126,75 @@ type parseResult struct {
 	err          error
 }
 
-// isCSDEM reports whether path is a .csdem.gz unified demo file.
-func isCSDEM(path string) bool {
-	return strings.HasSuffix(path, ".csdem.gz")
+// isCSRaw2 reports whether path is a .csraw2.tar intermediate file.
+func isCSRaw2(path string) bool {
+	return strings.HasSuffix(path, ".csraw2.tar")
 }
 
-// runDemoWorker consumes parseJobs, calls ParseDemo+Aggregate for each, and
+// loadAndBridge parses path (either .dem via parserv2 or .csraw2.tar via the
+// archive reader) and runs the csraw2bridge to produce a model.RawMatch ready
+// for the aggregator. It also returns the unprefixed quick hash from the
+// header so callers can pass it to the DB.
+func loadAndBridge(path, matchType, tier string) (raw *model.RawMatch, quickHash string, err error) {
+	var m *csraw2.Match
+	if isCSRaw2(path) {
+		f, openErr := os.Open(path)
+		if openErr != nil {
+			return nil, "", fmt.Errorf("open archive: %w", openErr)
+		}
+		defer f.Close()
+		m, err = csraw2.Read(f)
+		if err != nil {
+			return nil, "", fmt.Errorf("read archive: %w", err)
+		}
+	} else {
+		m, err = parserv2.ParseDemoV2(path, tier, matchType)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	raw, err = csraw2bridge.ToRawMatch(m)
+	if err != nil {
+		return nil, "", fmt.Errorf("bridge: %w", err)
+	}
+	quickHash = strings.TrimPrefix(m.Header.QuickHash, "sha256:")
+	return raw, quickHash, nil
+}
+
+// quickHashFromArchive reads only header.json from a .csraw2.tar and returns
+// the embedded quick hash with the "sha256:" prefix stripped. Cheap enough to
+// use as a pre-check before the full parquet decode.
+func quickHashFromArchive(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h, err := csraw2.ReadHeader(f)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(h.QuickHash, "sha256:"), nil
+}
+
+// runDemoWorker consumes parseJobs, calls loadAndBridge+Aggregate for each, and
 // sends a parseResult to results. It exits when jobs is closed.
-func runDemoWorker(jobs <-chan parseJob, results chan<- parseResult, mt string) {
+func runDemoWorker(jobs <-chan parseJob, results chan<- parseResult, mt, tier string) {
 	for job := range jobs {
 		res := parseResult{idx: job.idx, path: job.path, quickHash: job.quickHash}
 
 		t0 := time.Now()
-		var raw *model.RawMatch
-		var err error
-		if isCSDEM(job.path) {
-			var uf *model.UnifiedMatchFile
-			uf, err = model.LoadUnifiedMatchFile(job.path)
-			if err == nil {
-				raw = uf.Match.ToRawMatch()
-			}
-		} else {
-			raw, err = parser.ParseDemo(job.path, mt)
-		}
+		raw, qh, err := loadAndBridge(job.path, mt, tier)
 		res.parseElapsed = time.Since(t0)
 		if err != nil {
 			res.err = fmt.Errorf("parse: %w", err)
 			results <- res
 			continue
+		}
+		// Prefer the just-computed quick hash if we didn't have one already
+		// (e.g. .csraw2.tar inputs skip the cheap pre-check phase).
+		if res.quickHash == "" {
+			res.quickHash = qh
 		}
 		res.raw = raw
 
@@ -186,8 +230,12 @@ func runParse(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("read dir: %w", err)
 		}
 		for _, e := range entries {
-			if !e.IsDir() && (filepath.Ext(e.Name()) == ".dem" || strings.HasSuffix(e.Name(), ".csdem.gz")) {
-				paths = append(paths, filepath.Join(parseDir, e.Name()))
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if filepath.Ext(name) == ".dem" || strings.HasSuffix(name, ".csraw2.tar") {
+				paths = append(paths, filepath.Join(parseDir, name))
 			}
 		}
 	}
@@ -274,61 +322,49 @@ func runParse(cmd *cobra.Command, args []string) error {
 		demoPath := paths[0]
 		fmt.Fprintf(os.Stdout, "Parsing %s...\n", demoPath)
 
+		// Cheap quick-hash pre-check before the full parse.
 		var singleQuickHash string
-		var raw *model.RawMatch
-		var parseElapsed time.Duration
-
-		if isCSDEM(demoPath) {
-			// .csdem.gz: read embedded hash for the pre-check; no quick-hash concept.
-			t0 := time.Now()
-			uf, loadErr := model.LoadUnifiedMatchFile(demoPath)
-			parseElapsed = time.Since(t0)
-			restoreStderr()
-			if loadErr != nil {
-				return fmt.Errorf("load csdem: %w", loadErr)
-			}
-			exists, dbErr := db.DemoExists(uf.Match.DemoHash)
-			if dbErr != nil {
-				return fmt.Errorf("check demo: %w", dbErr)
-			}
-			if exists {
-				fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", uf.Match.DemoHash[:12])
-				return showByHash(db, uf.Match.DemoHash)
-			}
-			raw = uf.Match.ToRawMatch()
+		if isCSRaw2(demoPath) {
+			singleQuickHash, _ = quickHashFromArchive(demoPath)
 		} else {
-			// .dem: cheap pre-check via quick-hash before the expensive full parse.
 			singleQuickHash, _ = parser.QuickHash(demoPath)
-			if singleQuickHash != "" {
-				found, fullHash, _ := db.DemoExistsByQuickHash(singleQuickHash)
-				if found {
-					restoreStderr()
-					if err := db.UpdateDemoMeta(fullHash, singleQuickHash, matchType, effectiveTier, effectiveEventID, parseBaseline); err != nil {
-						return fmt.Errorf("update demo meta: %w", err)
-					}
-					fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", fullHash[:12])
-					return showByHash(db, fullHash)
-				}
-			}
-			t0 := time.Now()
-			var parseErr error
-			raw, parseErr = parser.ParseDemo(demoPath, matchType)
-			parseElapsed = time.Since(t0)
-			restoreStderr() // no more library stderr output after this point
-			if parseErr != nil {
-				return fmt.Errorf("parse demo: %w", parseErr)
-			}
-			exists, dbErr := db.DemoExists(raw.DemoHash)
-			if dbErr != nil {
-				return fmt.Errorf("check demo: %w", dbErr)
-			}
-			if exists {
-				if err := db.UpdateDemoMeta(raw.DemoHash, singleQuickHash, matchType, effectiveTier, effectiveEventID, parseBaseline); err != nil {
+		}
+		if singleQuickHash != "" {
+			found, fullHash, _ := db.DemoExistsByQuickHash(singleQuickHash)
+			if found {
+				restoreStderr()
+				if err := db.UpdateDemoMeta(fullHash, singleQuickHash, matchType, effectiveTier, effectiveEventID, parseBaseline); err != nil {
 					return fmt.Errorf("update demo meta: %w", err)
 				}
-				fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", raw.DemoHash[:12])
-				return showByHash(db, raw.DemoHash)
+				fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", fullHash[:12])
+				return showByHash(db, fullHash)
 			}
+		}
+
+		t0 := time.Now()
+		raw, qh, parseErr := loadAndBridge(demoPath, matchType, effectiveTier)
+		parseElapsed := time.Since(t0)
+		restoreStderr() // no more library stderr output after this point
+		if parseErr != nil {
+			return fmt.Errorf("parse demo: %w", parseErr)
+		}
+		if singleQuickHash == "" {
+			singleQuickHash = qh
+		}
+
+		// Final DB existence check by full hash (handles cases where the
+		// quick-hash pre-check missed because the column wasn't populated for
+		// older rows).
+		exists, dbErr := db.DemoExists(raw.DemoHash)
+		if dbErr != nil {
+			return fmt.Errorf("check demo: %w", dbErr)
+		}
+		if exists {
+			if err := db.UpdateDemoMeta(raw.DemoHash, singleQuickHash, matchType, effectiveTier, effectiveEventID, parseBaseline); err != nil {
+				return fmt.Errorf("update demo meta: %w", err)
+			}
+			fmt.Fprintf(os.Stdout, "Demo %s already stored — showing cached results.\n\n", raw.DemoHash[:12])
+			return showByHash(db, raw.DemoHash)
 		}
 
 		t1 := time.Now()
@@ -411,24 +447,21 @@ func runParse(cmd *cobra.Command, args []string) error {
 	var stored, skipped, failed int
 
 	// Phase 1: quick-hash pre-check — identify already-stored demos without
-	// a full parse. Reading 64 KB per file costs milliseconds vs. 4+ minutes
-	// for a full parse of a ~500 MB pro demo.
+	// a full parse. Reading 64 KB per .dem or just the tar header for a
+	// .csraw2.tar costs milliseconds vs. minutes for a full parse.
 	var pendingJobs []parseJob
 	for i, p := range paths {
 		name := filepath.Base(p)
 		tag := fmt.Sprintf("[%d/%d] %s", i+1, len(paths), name)
 
-		if isCSDEM(p) {
-			// .csdem.gz: no cheap pre-check equivalent — loading the full file just
-			// to read the hash is as expensive as letting the worker do it.
-			// Send directly to workers; writeDemoResult handles the DemoExists check.
-			pendingJobs = append(pendingJobs, parseJob{idx: i, path: p})
-			continue
+		var qh string
+		var qhErr error
+		if isCSRaw2(p) {
+			qh, qhErr = quickHashFromArchive(p)
+		} else {
+			qh, qhErr = parser.QuickHash(p)
 		}
-
-		// .dem: cheap quick-hash pre-check.
-		qh, err := parser.QuickHash(p)
-		if err == nil {
+		if qhErr == nil && qh != "" {
 			found, fullHash, dbErr := db.DemoExistsByQuickHash(qh)
 			if dbErr == nil && found {
 				if err := db.UpdateDemoMeta(fullHash, qh, matchType, effectiveTier, effectiveEventID, parseBaseline); err != nil {
@@ -536,21 +569,14 @@ func runParse(cmd *cobra.Command, args []string) error {
 		for _, job := range pendingJobs {
 			res := parseResult{idx: job.idx, path: job.path, quickHash: job.quickHash}
 			t0 := time.Now()
-			var raw *model.RawMatch
-			var parseErr error
-			if isCSDEM(job.path) {
-				var uf *model.UnifiedMatchFile
-				uf, parseErr = model.LoadUnifiedMatchFile(job.path)
-				if parseErr == nil {
-					raw = uf.Match.ToRawMatch()
-				}
-			} else {
-				raw, parseErr = parser.ParseDemo(job.path, matchType)
-			}
+			raw, qh, parseErr := loadAndBridge(job.path, matchType, effectiveTier)
 			res.parseElapsed = time.Since(t0)
 			if parseErr != nil {
 				res.err = fmt.Errorf("parse: %w", parseErr)
 			} else {
+				if res.quickHash == "" {
+					res.quickHash = qh
+				}
 				res.raw = raw
 				t1 := time.Now()
 				ms, rs, ws, ds, des, fes, aggErr := aggregator.Aggregate(raw)
@@ -593,7 +619,7 @@ func runParse(cmd *cobra.Command, args []string) error {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				runDemoWorker(jobs, resultsCh, matchType)
+				runDemoWorker(jobs, resultsCh, matchType, effectiveTier)
 			}()
 		}
 		go func() {

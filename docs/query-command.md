@@ -1,6 +1,6 @@
 # `query` — Round Pattern Search
 
-The `query` command scans `.csdem.gz` files and returns every round that satisfies a [CEL](https://cel.dev) expression. It reads the converted demo files directly — no database required.
+The `query` command scans `.csraw2.tar` files and returns every round that satisfies a [CEL](https://cel.dev) expression. It reads the converted demo files directly — no database required.
 
 ```sh
 go-cs-metrics query --dir <dir> '<expression>' [--csv] [--html <file>]
@@ -10,7 +10,7 @@ go-cs-metrics query --dir <dir> '<expression>' [--csv] [--html <file>]
 
 ## How it works
 
-Every round in every `.csdem.gz` file under `--dir` is evaluated against the expression. A round is included in the output if the expression evaluates to `true`.
+Every round in every `.csraw2.tar` file under `--dir` is evaluated against the expression. A round is included in the output if the expression evaluates to `true`.
 
 The expression is written in **CEL** (Common Expression Language) — a simple, readable expression language used in Firebase, Kubernetes, and Google Cloud. You don't need to know SQL or the internal data model. The variables are named to match the concepts directly.
 
@@ -365,6 +365,6 @@ go-cs-metrics query --dir ~/demos/converted-pro/ \
 
 ## Performance
 
-The command reads `.csdem.gz` files sequentially, one per match. Each file is decompressed and all rounds evaluated in memory before moving on. No database is touched.
+The command reads `.csraw2.tar` files sequentially, one per match. Each archive's parquet streams are decoded into memory and all rounds evaluated before moving on. No database is touched.
 
-**Typical throughput:** ~800–1 200 rounds/second on a normal event directory. A full `converted-pro/` scan (1 100+ demos, 50 000+ rounds) completes in under a minute.
+**Expected throughput:** parquet decode dominates per-file cost. A full `converted-pro/` scan (1 000+ demos, 50 000+ rounds) completes in well under a minute.

@@ -19,21 +19,22 @@ import (
 
 var (
 	replayDir     string
+	replayTier    string
 	replayWorkers int
 	replayForce   bool
 )
 
 var replayCmd = &cobra.Command{
 	Use:   "replay --dir <event_dir>",
-	Short: "Re-aggregate .csdem.gz files into the database",
-	Long: `Re-aggregate .csdem.gz intermediate files into the metrics database.
+	Short: "Re-aggregate .csraw2.tar files into the database",
+	Long: `Re-aggregate .csraw2.tar intermediate files into the metrics database.
 
-Unlike 'parse', replay reads the compact .csdem.gz format instead of full .dem files,
-making it much faster and requiring far less memory. Multiple workers are viable.
+Unlike 'parse', replay only reads the compact .csraw2.tar format instead of
+full .dem files, so no demoinfocs work is needed and many workers are viable.
 
 Useful for:
   - Full DB rebuilds after metric changes (drop + replay all events)
-  - Initial ingest after 'convert' has produced .csdem.gz files
+  - Initial ingest after 'convert' has produced .csraw2.tar files
 
 Example:
   go-cs-metrics replay --dir ~/demos/pro/iem_katowice_2025/
@@ -42,7 +43,8 @@ Example:
 }
 
 func init() {
-	replayCmd.Flags().StringVar(&replayDir, "dir", "", "directory containing .csdem.gz files (required)")
+	replayCmd.Flags().StringVar(&replayDir, "dir", "", "directory containing .csraw2.tar files (required)")
+	replayCmd.Flags().StringVar(&replayTier, "tier", "", "tier label override (defaults to value in archive header)")
 	replayCmd.Flags().IntVar(&replayWorkers, "workers", 1, "parallel load+aggregate workers")
 	replayCmd.Flags().BoolVar(&replayForce, "force", false, "re-aggregate even if demo hash already in DB")
 	replayCmd.MarkFlagRequired("dir")
@@ -58,7 +60,8 @@ type replayJob struct {
 type replayResult struct {
 	idx         int
 	path        string
-	uf          *model.UnifiedMatchFile
+	raw         *model.RawMatch
+	quickHash   string
 	matchStats  []model.PlayerMatchStats
 	roundStats  []model.PlayerRoundStats
 	weaponStats []model.PlayerWeaponStats
@@ -77,21 +80,27 @@ func runReplay(cmd *cobra.Command, args []string) error {
 
 	var paths []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".csdem.gz") {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".csraw2.tar") {
 			paths = append(paths, filepath.Join(replayDir, e.Name()))
 		}
 	}
 	if len(paths) == 0 {
-		return fmt.Errorf("no .csdem.gz files found in %s", replayDir)
+		return fmt.Errorf("no .csraw2.tar files found in %s", replayDir)
 	}
 
 	// Load event metadata from event.json sidecar (same as parse).
 	meta := loadDemoMeta(replayDir)
+	effectiveTier := replayTier
 	effectiveEventID := ""
-	if meta != nil && meta.EventID != "" {
+	if meta != nil {
+		if effectiveTier == "" {
+			effectiveTier = meta.Tier
+		}
 		effectiveEventID = meta.EventID
-		fmt.Fprintf(os.Stderr, "Event: %s (%s), tier=%q\n",
-			meta.EventName, meta.EventID, meta.Tier)
+		if meta.EventID != "" {
+			fmt.Fprintf(os.Stderr, "Event: %s (%s), tier=%q\n",
+				meta.EventName, meta.EventID, meta.Tier)
+		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
@@ -103,8 +112,9 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	// Suppress "unknown grenade model N" from demoinfocs (carried through in
-	// the raw data; should be silent, but guard anyway).
+	// Replay reads archives only — no demoinfocs is involved, so the parser
+	// stderr filter is unnecessary. Still wire a minimal pipe for parity with
+	// other commands so any unexpected library noise gets filtered.
 	origStderr := os.Stderr
 	pr, pw, pipeErr := os.Pipe()
 	var stderrDone chan struct{}
@@ -149,8 +159,8 @@ func runReplay(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 
-		m := res.uf.Match
-		exists, err := db.DemoExists(m.DemoHash)
+		raw := res.raw
+		exists, err := db.DemoExists(raw.DemoHash)
 		if err != nil {
 			return fmt.Errorf("check demo %s: %w", name, err)
 		}
@@ -160,26 +170,20 @@ func runReplay(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 
-		// Effective tier: from file, overridden by event.json if present.
-		effectiveTier := res.uf.Tier
-		if meta != nil && meta.Tier != "" {
-			effectiveTier = meta.Tier
-		}
-
-		ctScore, tScore := replayComputeScore(m.Rounds)
+		ctScore, tScore := computeScore(raw.Rounds)
 		summary := model.MatchSummary{
-			DemoHash:  m.DemoHash,
-			MapName:   m.MapName,
-			MatchDate: m.MatchDate,
-			MatchType: m.MatchType,
-			Tickrate:  m.Tickrate,
+			DemoHash:  raw.DemoHash,
+			MapName:   raw.MapName,
+			MatchDate: raw.MatchDate,
+			MatchType: raw.MatchType,
+			Tickrate:  raw.Tickrate,
 			CTScore:   ctScore,
 			TScore:    tScore,
 			Tier:      effectiveTier,
 			EventID:   effectiveEventID,
 		}
 
-		if err := db.InsertDemo(summary, ""); err != nil {
+		if err := db.InsertDemo(summary, res.quickHash); err != nil {
 			return fmt.Errorf("insert demo: %w", err)
 		}
 		if err := db.InsertPlayerMatchStats(res.matchStats); err != nil {
@@ -194,36 +198,20 @@ func runReplay(cmd *cobra.Command, args []string) error {
 		if err := db.InsertPlayerDuelSegments(res.duelSegs); err != nil {
 			return fmt.Errorf("insert duel segments: %w", err)
 		}
-		// GrenadeEvents are absent in .csdem.gz files produced before the field
-		// was added; passing an empty slice is a safe no-op (clears any stale rows).
-		grenades := make([]model.RawGrenadeEvent, len(m.GrenadeEvents))
-		for i, g := range m.GrenadeEvents {
-			grenades[i] = model.RawGrenadeEvent{
-				ThrowTick:      g.ThrowTick,
-				EndTick:        g.EndTick,
-				RoundNumber:    g.Round,
-				ThrowerSteamID: g.ThrowerSteamID,
-				ThrowerTeam:    g.ThrowerTeam,
-				GrenadeType:    g.GrenadeType,
-				ThrowPos:       g.ThrowPos,
-				LandPos:        g.LandPos,
-			}
-		}
-		if err := db.InsertGrenadeEvents(m.DemoHash, m.MatchDate, m.MapName, grenades); err != nil {
+		if err := db.InsertGrenadeEvents(raw.DemoHash, raw.MatchDate, raw.MapName, raw.Grenades); err != nil {
 			return fmt.Errorf("insert grenade events: %w", err)
 		}
-		if err := db.InsertPlayerDeathEvents(m.DemoHash, res.deathEvents); err != nil {
+		if err := db.InsertPlayerDeathEvents(raw.DemoHash, res.deathEvents); err != nil {
 			return fmt.Errorf("insert death events: %w", err)
 		}
-		if err := db.InsertFlashEvents(m.DemoHash, res.flashEvents); err != nil {
+		if err := db.InsertFlashEvents(raw.DemoHash, res.flashEvents); err != nil {
 			return fmt.Errorf("insert flash events: %w", err)
 		}
 
-		ctScore2, tScore2 := ctScore, tScore
 		fmt.Fprintf(os.Stdout, "  %s  stored: %s  %s  %d–%d  %d players  %d rounds  (%s)\n",
 			tag,
-			summary.MapName, summary.MatchDate, ctScore2, tScore2,
-			len(res.matchStats), len(m.Rounds),
+			summary.MapName, summary.MatchDate, ctScore, tScore,
+			len(res.matchStats), len(raw.Rounds),
 			res.elapsed.Round(time.Millisecond))
 		stored++
 		return nil
@@ -233,14 +221,14 @@ func runReplay(cmd *cobra.Command, args []string) error {
 		res := replayResult{idx: job.idx, path: job.path}
 		t0 := time.Now()
 
-		uf, err := model.LoadUnifiedMatchFile(job.path)
+		raw, qh, err := loadAndBridge(job.path, "Competitive", effectiveTier)
 		if err != nil {
 			res.err = fmt.Errorf("load: %w", err)
 			return res
 		}
-		res.uf = uf
+		res.raw = raw
+		res.quickHash = qh
 
-		raw := uf.Match.ToRawMatch()
 		ms, rs, ws, ds, des, fes, err := aggregator.Aggregate(raw)
 		if err != nil {
 			res.err = fmt.Errorf("aggregate: %w", err)
@@ -249,9 +237,9 @@ func runReplay(cmd *cobra.Command, args []string) error {
 		res.matchStats = ms
 		res.roundStats = rs
 		res.weaponStats = ws
+		res.duelSegs = ds
 		res.deathEvents = des
 		res.flashEvents = fes
-		res.duelSegs = ds
 		res.elapsed = time.Since(t0)
 		return res
 	}
@@ -268,7 +256,7 @@ func runReplay(cmd *cobra.Command, args []string) error {
 				return err
 			}
 			// Release references and return heap pages before next file.
-			res.uf = nil
+			res.raw = nil
 			res.matchStats = nil
 			res.roundStats = nil
 			res.weaponStats = nil
@@ -309,17 +297,4 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stdout, "\nDone: %d stored, %d skipped, %d failed (total %d)\n",
 		stored, skipped, failed, len(paths))
 	return nil
-}
-
-// replayComputeScore tallies CT and T round wins from unified rounds.
-func replayComputeScore(rounds []model.UnifiedRound) (ctScore, tScore int) {
-	for _, r := range rounds {
-		switch r.WinnerTeam {
-		case model.TeamCT:
-			ctScore++
-		case model.TeamT:
-			tScore++
-		}
-	}
-	return
 }

@@ -23,22 +23,23 @@ go vet ./...
 
 ## Architecture
 
-The processing pipeline has four stages:
+The processing pipeline has five stages:
 
-1. **Ingestion** — Accept a `.dem` file, compute its hash, and store it.
-2. **Parsing** — Convert the demo into structured, tick-based events (`RawMatch`).
-3. **Aggregation** — 11-pass algorithm producing `[]PlayerMatchStats`, `[]PlayerRoundStats`, `[]PlayerWeaponStats`, `[]PlayerDuelSegment`.
-4. **Presentation** — CLI output via `tablewriter`; storage is SQLite.
+1. **Ingestion** — Accept a `.dem` (or pre-converted `.csraw2.tar`), compute the SHA-256 hash, and dedup against the DB.
+2. **Parsing** — `internal/parserv2` walks the `.dem` and produces a `*csraw2.Match` (events + per-tick player samples). The reader in `internal/csraw2` produces the same value from a `.csraw2.tar` archive without demoinfocs.
+3. **Bridging** — `internal/csraw2bridge.ToRawMatch(m)` adapts `csraw2.Match` to the legacy `*model.RawMatch` the aggregator expects. (The bridge will disappear once the aggregator is rewritten against csraw2 directly.)
+4. **Aggregation** — 11-pass algorithm producing `[]PlayerMatchStats`, `[]PlayerRoundStats`, `[]PlayerWeaponStats`, `[]PlayerDuelSegment`.
+5. **Presentation** — CLI output via `tablewriter`; storage is SQLite.
 
-Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.csmetrics/metrics.db`.
+Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.csmetrics/metrics.db`. Intermediate-format spec: `docs/csraw-v2-spec.md`.
 
 ## CLI Commands
 
 | Command | Description |
 |---------|-------------|
-| `parse [<demo.dem or .csdem.gz>...] [--dir <dir>]` | Parse + store one or more demos; accepts both `.dem` and `.csdem.gz`; bulk mode parses in parallel (`--workers N`, default `NumCPU`) with serialised DB writes; prints compact status per demo |
+| `parse [<demo.dem or .csraw2.tar>...] [--dir <dir>]` | Parse + store one or more demos; accepts both `.dem` (parserv2 + bridge) and `.csraw2.tar` (archive reader); bulk mode parses in parallel (`--workers N`, default `NumCPU`) with serialised DB writes; prints compact status per demo |
 | `list` | List all stored demos |
-| `info <demo.dem or .csdem.gz>...` | Show file metadata and DB status; for `.csdem.gz` reads embedded hash/metadata directly (no parse needed); for `.dem` uses quick 64 KB hash |
+| `info <demo.dem or .csraw2.tar>...` | Show file metadata and DB status; for `.csraw2.tar` reads `header.json` directly (no parquet decode); for `.dem` uses quick 64 KB hash |
 | `show <hash-prefix>` | Re-display a stored demo's tables |
 | `player <steamid64>...` | Cross-match aggregate report for one or more players (`--map`, `--since`, `--last` filters); `--top N` appends the top N players by Rating 2.0 proxy for comparison |
 | `rounds <hash-prefix> <steamid64>` | Per-round drill-down with buy type, flags (POST_PLT, CLUTCH_1vN); `--clutch`, `--post-plant`, `--side`, `--buy` filters |
@@ -47,20 +48,20 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `drop [--force]` | Delete the metrics database file; requires `--force` to actually delete |
 | `analyze player <steamid64> <question>` | AI-powered grounded analysis of a player's aggregate stats (requires `ANTHROPIC_API_KEY`) |
 | `analyze match <hash-prefix> <question>` | AI-powered grounded analysis of a single match (requires `ANTHROPIC_API_KEY`) |
-| `convert --dir <dir> --tier <tier>` | Convert `.dem` files to `.csdem.gz` intermediate format (one demoinfocs pass; no DB write); `--out-dir` writes output elsewhere; `--workers N`, `--force` |
-| `replay --dir <dir>` | Ingest `.csdem.gz` files into the DB without demoinfocs; fast, low RAM, supports many workers |
+| `convert --dir <dir> --tier <tier>` | Convert `.dem` files to `.csraw2.tar` intermediate format (one demoinfocs pass via `parserv2`; no DB write); `--out-dir` writes output elsewhere; `--workers N`, `--force` |
+| `replay --dir <dir>` | Ingest `.csraw2.tar` files into the DB without demoinfocs; fast, low RAM, supports many workers |
 | `export` | Export team stats as a JSON file compatible with Monte Carlo match simulators (`--team`, `--players`, `--roster`, `--since`, `--quorum`, `--out`) |
 | `summary` | High-level database overview: match count, date range, map breakdown, top players, match type distribution |
-| `query --dir <dir> <expr>` | Find rounds matching a CEL expression across `.csdem.gz` files (no DB needed); walks `--dir` recursively; `--csv` for full column output; `--html <file>` for interactive 2D radar replay viewer (self-contained HTML, `--limit N` caps clip count, `--radar-dir` for map PNGs). Variables cover util counts, HE damage, flash kills, alive counts, buy types, bomb events, and entry side — both T and CT explicitly. |
+| `query --dir <dir> <expr>` | Find rounds matching a CEL expression across `.csraw2.tar` files (no DB needed); walks `--dir` recursively; `--csv` for full column output; `--html <file>` for interactive 2D radar replay viewer (self-contained HTML, `--limit N` caps clip count, `--radar-dir` for map PNGs). Variables cover util counts, HE damage, flash kills, alive counts, buy types, bomb events, and entry side — both T and CT explicitly. |
 
 All commands share `--db` to point at an alternate database and `--silent` / `-s` to suppress column legends (verbose output is on by default).
 
-## Preferred Parsing Method: `.csdem.gz` via `convert` + `replay`
+## Preferred Parsing Method: `.csraw2.tar` via `convert` + `replay`
 
-**Always prefer the `.csdem.gz` pipeline over direct `.dem` parsing for any batch work.**
+**Always prefer the `.csraw2.tar` pipeline over direct `.dem` parsing for any batch work.**
 
 ```sh
-# Step 1 — convert .dem → .csdem.gz (one-time, sequential, GOMEMLIMIT required)
+# Step 1 — convert .dem → .csraw2.tar (one-time, sequential, GOMEMLIMIT required)
 GOMEMLIMIT=4294967296 ./go-cs-metrics convert --dir ~/demos/pro/<event>/ --tier pro --workers 1
 
 # Step 2 — ingest into DB (fast, many workers, no GOMEMLIMIT needed)
@@ -71,24 +72,33 @@ GOMEMLIMIT=4294967296 ./go-cs-metrics convert --dir ~/demos/pro/<event>/ --tier 
 
 ### Why
 
-| | `.dem` via `parse` | `.csdem.gz` via `replay`/`parse` |
+| | `.dem` via `parse` | `.csraw2.tar` via `replay`/`parse` |
 |---|---|---|
 | Workers | 1 (forced — OOM with >1) | 32+ (no demoinfocs pressure) |
-| RAM peak | 4–29 GB per demo | negligible |
+| RAM peak | 4–29 GB per demo | a few MB (parquet decode only) |
 | GOMEMLIMIT required | yes | no |
-| Speed (1,100 demos) | ~55 hours | **~80 seconds** (~2,500× faster) |
-| Re-ingest after schema change | re-parse .dem (slow) | `replay` from .csdem.gz (fast) |
-| 2D viewer support | requires original .dem | works directly |
+| Re-ingest after schema change | re-parse .dem (slow) | `replay` from .csraw2.tar (fast) |
+| 2D viewer support | yes (via `parserv2` → bridge) | yes (samples → frames) |
+
+`.dem` parsing in `cmd/parse` goes through `parserv2` (the same code `convert` uses) and the `csraw2bridge`, so both pipelines produce identical aggregator inputs.
 
 ### Accuracy
 
-Validated against 989 demos parsed both ways. Results are identical across all tables except 2 demos where `won_round` differs by 1 on the final round of the match (converter last-round edge case, <0.3% of demos). All other metrics — kills, deaths, damage, trades, KAST, TTK, counter-strafe, crosshair, duels, weapons — match exactly.
+Validated on the 45-demo personal corpus: every metric matches the
+`.dem`-direct baseline byte-for-byte. The two duel-engine-sensitive
+position/angle inputs (`weapon_fires.pos_*` / `damages.victim_pos_*` and
+`weapon_fires.{yaw,pitch}_deg` / `first_sights.observer_{yaw,pitch}_deg`)
+are stored as `float32` to preserve duel-distance and pre-shot-correction
+bucket boundaries; everything else is `int16`-quantised.
 
-### `.csdem.gz` archive
+### `.csraw2.tar` archive
 
-Converted files live in `~/demos/converted-pro/<event>/` (same structure as `~/demos/pro/`). Total: **1,123 demos, 519 GB `.dem` → 821 MB `.csdem.gz`** (647× compression).
+Converted files live in `~/demos/converted-pro/<event>/` (same structure as
+`~/demos/pro/`). Schema and per-stream layout are documented in
+`docs/csraw-v2-spec.md`.
 
-The `parse` command accepts `.csdem.gz` directly (single file or `--dir`), making it a drop-in for `.dem` in all workflows.
+The `parse` command accepts `.csraw2.tar` directly (single file or `--dir`),
+making it a drop-in for `.dem` in all workflows.
 
 ## Data Model
 
@@ -147,7 +157,12 @@ Some demos (~577 MB) allocate far more than their file size suggests — likely 
 
 ### Quick-hash pre-check
 
-The `parse --dir` command computes a SHA-256 of the first 64 KB of each file and checks it against the DB before doing the expensive full parse. Already-stored demos are skipped in milliseconds. This makes re-running `parse --dir` after an interrupted batch essentially free for the already-ingested demos.
+`parse --dir` does a cheap existence check before the expensive full parse:
+
+- `.dem` inputs — SHA-256 of the first 64 KB (`parser.QuickHash`).
+- `.csraw2.tar` inputs — read just `header.json` via `csraw2.ReadHeader` and use its embedded `quick_hash`.
+
+Either way the check costs milliseconds, so re-running `parse --dir` after an interrupted batch is essentially free for already-ingested demos.
 
 ## Key Implementation Notes
 
@@ -159,18 +174,19 @@ The `parse --dir` command computes a SHA-256 of the first 64 KB of each file and
 - **Schema migrations**: new columns are added automatically at startup via `ALTER TABLE ... ADD COLUMN ... DEFAULT` statements (duplicate-column errors silently ignored). Existing rows default to `0`/`''`. A full DB rebuild is only required if a column type or a table structure changes (not just additions).
 - **Parse skips already-stored demos**: `parse --dir` skips any demo whose hash is already in the `demos` table. Passing the same directory again after a schema migration will NOT backfill new columns for old rows — see below.
 - **`match_date` comes from file mtime**: the parser reads the `.dem` file's filesystem modification time, not anything inside the demo. Always fix file mtimes to actual match dates before the first parse, otherwise every demo gets `match_date = today` and `--since` filtering in `export` breaks silently.
-- **`--dir` is not recursive**: only finds `.dem` files directly in the given directory. Pass each event subdirectory individually, not the parent.
+- **`--dir` is not recursive**: only finds `.dem` and `.csraw2.tar` files directly in the given directory. Pass each event subdirectory individually, not the parent.
 
 ## Recovering from a Schema Migration (New Columns on Old Demos)
 
-When a new column is added to `player_match_stats` or `player_round_stats`, existing rows get the column's `DEFAULT` value (usually `0`). Demos are not re-parsed automatically because the parser skips files whose hash is already stored.
+When a new column is added to `player_match_stats` or `player_round_stats`, existing rows get the column's `DEFAULT` value (usually `0`). Demos are not re-aggregated automatically because `parse` / `replay` skip files whose hash is already stored.
 
-**Which columns can be backfilled with SQL vs. which require a full re-parse:**
+**Which columns can be backfilled with SQL vs. which require a full re-aggregation:**
 
 | Scenario | Fix |
 |---|---|
-| New column in `player_match_stats` is derivable from `player_round_stats` | SQL `UPDATE` backfill (fast, no re-parse) |
-| New column requires re-running the aggregator (e.g. counter-strafe, TTK, duel engine) | Full re-parse — drop DB and re-parse all demos |
+| New column in `player_match_stats` is derivable from `player_round_stats` | SQL `UPDATE` backfill (fast, no re-aggregation) |
+| New column requires re-running the aggregator (e.g. counter-strafe, TTK, duel engine) | `replay --dir <event>/ --force` against `.csraw2.tar` archives — fast, no demoinfocs |
+| Aggregator needs a field the converter never wrote (csraw2 schema bump) | Full re-convert from `.dem` + replay |
 
 ### Example: backfilling `rounds_won`
 
@@ -203,10 +219,10 @@ FROM player_match_stats;
 
 ### Recovering from wrong match_dates (forgot touch-dates)
 
-If file mtimes were not fixed before parsing, all affected demos will have `match_date = <parse date>` instead of the actual match date. This silently breaks `export --since` filtering. There is no SQL-only fix — the correct date can only be obtained by re-parsing the file after fixing its mtime.
+`match_date` is sourced from the `.dem` file's mtime at convert/parse time and is baked into `header.match_date` of the `.csraw2.tar`. If mtimes weren't fixed before that step, every demo gets `match_date = <convert date>` and `export --since` filtering breaks silently. There is no SQL-only fix — the correct date can only be obtained by re-converting from a `.dem` with the right mtime, then replaying.
 
 ```sh
-# 1. Fix file mtimes
+# 1. Fix file mtimes on the .dem files
 ./demoget touch-dates --out /path/to/demos
 
 # 2. Delete affected demos from DB (all tables, respecting foreign keys)
@@ -219,9 +235,10 @@ DELETE FROM player_match_stats    WHERE demo_hash IN (SELECT hash FROM demos WHE
 DELETE FROM demos WHERE match_date = 'YYYY-MM-DD' AND tier = 'pro';
 "
 
-# 3. Re-parse (now reads correct mtime from fixed files)
+# 3. Re-convert (header now picks up the fixed mtime) + replay
 for dir in /path/to/demos/*/; do
-  ./go-cs-metrics parse --dir "$dir" --tier pro
+  GOMEMLIMIT=4294967296 ./go-cs-metrics convert --dir "$dir" --tier pro --force --workers 1
+  ./go-cs-metrics replay --dir "$dir"
 done
 ```
 
@@ -230,19 +247,21 @@ Verify dates look right afterward:
 sqlite3 ~/.csmetrics/metrics.db "SELECT MIN(match_date), MAX(match_date), COUNT(*) FROM demos WHERE tier='pro';"
 ```
 
-### Full re-parse (when SQL backfill isn't possible)
+### Full re-aggregation (when SQL backfill isn't possible)
 
-The parser won't re-parse demos already in the DB. To force a full rebuild:
+`parse` / `replay` won't re-aggregate demos already in the DB. To force a full rebuild:
 
 ```sh
 ./go-cs-metrics drop --force
-# Then re-parse all events:
+# Then replay every event from its .csraw2.tar archive (fast, no demoinfocs):
 for dir in /path/to/demos/*/; do
-  ./go-cs-metrics parse --dir "$dir" --tier pro
+  ./go-cs-metrics replay --dir "$dir"
 done
 ```
 
-Note: `--dir` does a flat search for `.dem` files — pass each event subdirectory individually, not the parent directory.
+If the csraw2 schema itself bumped and the archives lack a needed field, re-convert from `.dem` first (see the recovery flow above).
+
+Note: `--dir` does a flat search — pass each event subdirectory individually, not the parent directory.
 
 ## Documentation Rule
 

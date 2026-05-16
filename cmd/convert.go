@@ -12,7 +12,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pable/go-cs-metrics/internal/converter"
+	"github.com/pable/go-cs-metrics/internal/csraw2"
+	"github.com/pable/go-cs-metrics/internal/parserv2"
 )
 
 var (
@@ -25,14 +26,15 @@ var (
 
 var convertCmd = &cobra.Command{
 	Use:   "convert --dir <event_dir> --tier <tier>",
-	Short: "Convert .dem files to .csdem.gz intermediate format",
-	Long: `Parse CS2 demo files and write them as .csdem.gz files alongside the originals.
+	Short: "Convert .dem files to .csraw2.tar intermediate format",
+	Long: `Parse CS2 demo files and write them as .csraw2.tar files alongside the originals.
 
-The .csdem.gz format is ~150–500× smaller than a raw .dem and contains all data
-needed by both go-cs-metrics (replay) and cs-demo-viewer (2D replay).
+The .csraw2.tar format is a tar archive of header.json + per-stream parquet
+files (see docs/csraw-v2-spec.md). It captures every gameplay-relevant field
+the parser sees, so re-aggregation never needs to re-read the .dem.
 
 After converting, the original .dem files may be deleted to reclaim disk space.
-Use 'replay' to re-ingest from .csdem.gz files without needing the originals.
+Use 'replay' to re-ingest from .csraw2.tar files without needing the originals.
 
 Example:
   GOMEMLIMIT=4294967296 go-cs-metrics convert --dir ~/demos/pro/iem_katowice_2025/ --tier pro
@@ -42,10 +44,10 @@ Example:
 
 func init() {
 	convertCmd.Flags().StringVar(&convertDir, "dir", "", "directory containing .dem files (required)")
-	convertCmd.Flags().StringVar(&convertOutDir, "out-dir", "", "output directory for .csdem.gz files (default: same as --dir)")
+	convertCmd.Flags().StringVar(&convertOutDir, "out-dir", "", "output directory for .csraw2.tar files (default: same as --dir)")
 	convertCmd.Flags().StringVar(&convertTier, "tier", "", "tier label, e.g. pro (required)")
 	convertCmd.Flags().IntVar(&convertWorkers, "workers", 1, "parallel conversion workers (default 1; see GOMEMLIMIT note)")
-	convertCmd.Flags().BoolVar(&convertForce, "force", false, "overwrite existing .csdem.gz files")
+	convertCmd.Flags().BoolVar(&convertForce, "force", false, "overwrite existing .csraw2.tar files")
 	convertCmd.MarkFlagRequired("dir")
 	convertCmd.MarkFlagRequired("tier")
 }
@@ -142,7 +144,7 @@ func runConvert(cmd *cobra.Command, args []string) error {
 
 	doConvert := func(job convertJob) convertResult {
 		res := convertResult{idx: job.idx, path: job.path}
-		base := filepath.Base(replaceExtConvert(job.path, ".csdem.gz"))
+		base := filepath.Base(replaceExtConvert(job.path, ".csraw2.tar"))
 		outPath := filepath.Join(outDir, base)
 		if !convertForce {
 			if _, err := os.Stat(outPath); err == nil {
@@ -151,14 +153,32 @@ func runConvert(cmd *cobra.Command, args []string) error {
 			}
 		}
 		t0 := time.Now()
-		uf, err := converter.ConvertDemo(job.path, "Competitive")
+		m, err := parserv2.ParseDemoV2(job.path, convertTier, "competitive")
 		if err != nil {
-			res.err = fmt.Errorf("convert: %w", err)
+			res.err = fmt.Errorf("parse: %w", err)
 			return res
 		}
-		uf.Tier = convertTier
-		if err := uf.Save(outPath); err != nil {
-			res.err = fmt.Errorf("save: %w", err)
+		// Stage to a tmp file and rename so partial archives never appear.
+		tmpPath := outPath + ".tmp"
+		f, err := os.Create(tmpPath)
+		if err != nil {
+			res.err = fmt.Errorf("create tmp: %w", err)
+			return res
+		}
+		if err := csraw2.Write(f, m); err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			res.err = fmt.Errorf("write archive: %w", err)
+			return res
+		}
+		if err := f.Close(); err != nil {
+			os.Remove(tmpPath)
+			res.err = fmt.Errorf("close tmp: %w", err)
+			return res
+		}
+		if err := os.Rename(tmpPath, outPath); err != nil {
+			os.Remove(tmpPath)
+			res.err = fmt.Errorf("rename: %w", err)
 			return res
 		}
 		res.elapsed = time.Since(t0)
@@ -218,4 +238,3 @@ func replaceExtConvert(path, ext string) string {
 	}
 	return path + ext
 }
-

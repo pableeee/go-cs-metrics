@@ -22,6 +22,40 @@ func Read(r io.Reader) (*Match, error) {
 	return decodeMatch(files)
 }
 
+// ReadHeader decodes only the header.json from a .csraw2.tar archive. The
+// writer always emits header.json as the first archive entry, so this stops
+// reading as soon as the header is found — useful for cheap pre-checks
+// (quick-hash existence lookup, info display) without paying for parquet
+// decode of every stream.
+func ReadHeader(r io.Reader) (*Header, error) {
+	tr := tar.NewReader(r)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("missing %s in archive", HeaderName)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("tar next: %w", err)
+		}
+		if hdr.Name != HeaderName {
+			continue
+		}
+		data, err := io.ReadAll(tr)
+		if err != nil {
+			return nil, fmt.Errorf("tar read %s: %w", hdr.Name, err)
+		}
+		var h Header
+		if err := json.Unmarshal(data, &h); err != nil {
+			return nil, fmt.Errorf("unmarshal header: %w", err)
+		}
+		if h.CSRawVersion != Version {
+			return nil, fmt.Errorf("csraw version %d not supported (build expects %d)",
+				h.CSRawVersion, Version)
+		}
+		return &h, nil
+	}
+}
+
 func readArchive(r io.Reader) (map[string][]byte, error) {
 	tr := tar.NewReader(r)
 	files := map[string][]byte{}

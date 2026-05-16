@@ -59,7 +59,7 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
 - **Cross-match player analysis** — `player` command aggregates stats across all stored demos for one or more SteamID64s, producing a full overview + duel + AWP + FHHS + aim timing report per player.
 - **Per-round drill-down** — `rounds` command shows per-round side, buy type, K/A/damage, KAST, and tactical flags for one player in one match, with a buy profile summary.
 - **Per-weapon breakdown** — kills, HS%, assists, deaths, damage, hits, damage-per-hit per weapon per player.
-- **`.csdem.gz` intermediate format** — `convert` extracts all events in a single demoinfocs pass and saves a gzip-compressed JSON file 545–718× smaller than the raw `.dem`. The `replay` command re-ingests from `.csdem.gz` without the original demo: 1,100 demos in ~80 seconds with 32 workers vs ~55 hours sequential `.dem` parsing (~2,500× faster). No RAM constraint, no `GOMEMLIMIT` needed.
+- **`.csraw2.tar` intermediate format** — `convert` runs a single demoinfocs pass via `parserv2` and writes a tar of `header.json` + per-stream zstd-parquet files. The `replay` command re-ingests from `.csraw2.tar` without the original demo at parquet-decode speed (no demoinfocs, no GOMEMLIMIT, many workers). Schema details: `docs/csraw-v2-spec.md`.
 - **Idempotent ingestion** — demos are SHA-256 hashed; re-parsing the same file is a no-op.
 - **SQLite storage** — portable single-file database at `~/.csmetrics/metrics.db`; no server required.
 - **Focus mode** — any output command accepts `--player <SteamID64>` to highlight your row and filter weapon tables to your stats only.
@@ -106,10 +106,10 @@ The binary is named `go-cs-metrics` (or `csmetrics` if you install via `go insta
 **Batch workflow (preferred for large event directories):**
 
 ```sh
-# Step 1 — convert .dem → .csdem.gz (one demoinfocs pass per demo, ~650× smaller)
+# Step 1 — convert .dem → .csraw2.tar (one demoinfocs pass per demo)
 GOMEMLIMIT=4294967296 ./go-cs-metrics convert --dir ~/demos/pro/iem_katowice_2025/ --tier pro
 
-# Step 2 — ingest into DB (no demoinfocs, 32 workers, ~80 s for 1,100 demos)
+# Step 2 — ingest into DB (no demoinfocs, many workers, parquet decode only)
 ./go-cs-metrics replay --dir ~/demos/pro/iem_katowice_2025/
 ```
 
@@ -149,17 +149,17 @@ All commands share two global flags:
 
 ### parse
 
-Parse one or more `.dem` or `.csdem.gz` files, aggregate all metrics, and store the results. If a demo was already parsed (same SHA-256 hash), the cached results are shown (single mode) or the file is skipped (bulk mode).
+Parse one or more `.dem` or `.csraw2.tar` files, aggregate all metrics, and store the results. If a demo was already parsed (same SHA-256 hash), the cached results are shown (single mode) or the file is skipped (bulk mode).
 
 ```
-./go-cs-metrics parse [<demo.dem|.csdem.gz>...] [--dir <directory>] [flags]
+./go-cs-metrics parse [<demo.dem|.csraw2.tar>...] [--dir <directory>] [flags]
 ```
 
-Accepts both raw `.dem` files and pre-converted `.csdem.gz` files interchangeably. For batch work with `.csdem.gz`, the dedicated [`replay`](#replay) command is faster (skips the per-file duplicate check overhead and supports many workers without RAM pressure). For `.dem` files, `--workers 1` is strongly recommended to avoid OOM — see [Memory behaviour](#known-limitations--roadmap).
+Accepts both raw `.dem` files (parsed via `parserv2` and bridged to `RawMatch`) and pre-converted `.csraw2.tar` archives interchangeably. For batch work with `.csraw2.tar`, the dedicated [`replay`](#replay) command is faster (skips the per-file duplicate check overhead and supports many workers without RAM pressure). For `.dem` files, `--workers 1` is strongly recommended to avoid OOM — see [Memory behaviour](#known-limitations--roadmap).
 
 **Bulk mode** — triggered when more than one demo is provided (via multiple args or `--dir`). Full tables are suppressed; a compact status line is printed per demo instead, followed by a stored/skipped/failed summary. Parse and aggregate elapsed times are included in the status line.
 
-**Parallelism** — in bulk mode, demos are parsed and aggregated in parallel across multiple worker goroutines (default: `NumCPU`). Database writes are always serialised on the main goroutine, so there is no SQLite contention regardless of worker count. For `.dem` files use `--workers 1` to prevent OOM. For `.csdem.gz` files, 32+ workers are safe and recommended.
+**Parallelism** — in bulk mode, demos are parsed and aggregated in parallel across multiple worker goroutines (default: `NumCPU`). Database writes are always serialised on the main goroutine, so there is no SQLite contention regardless of worker count. For `.dem` files use `--workers 1` to prevent OOM. For `.csraw2.tar` files, many workers are safe and recommended.
 
 **Timing** — after each successfully processed demo, elapsed times for the parse and aggregate stages (and their total) are printed. In single mode this appears as a line before the tables; in bulk mode it is appended to the per-demo status line.
 
@@ -169,7 +169,7 @@ Accepts both raw `.dem` files and pre-converted `.csdem.gz` files interchangeabl
 | `--type` | `Competitive` | Match type label stored in the database (e.g. `FACEIT`, `Scrim`) |
 | `--tier` | `""` | Tier label for baseline comparisons (e.g. `faceit-5`, `premier-10k`); auto-detected from an `event.json` sidecar in the demo directory if present |
 | `--baseline` | `false` | Mark this demo as a baseline reference match |
-| `--dir` | `""` | Directory containing `.dem` and/or `.csdem.gz` files to parse in bulk |
+| `--dir` | `""` | Directory containing `.dem` and/or `.csraw2.tar` files to parse in bulk |
 | `--workers` | `0` | Number of parallel parse+aggregate workers in bulk mode (`0` = `NumCPU`); use `1` for `.dem` files |
 
 **Output tables:**
@@ -228,23 +228,23 @@ Done: 2 stored, 1 skipped, 0 failed (total 3)
 
 ### convert
 
-Convert `.dem` files to the `.csdem.gz` intermediate format. This runs one demoinfocs parse pass per demo and writes a gzip-compressed JSON file alongside (or separately from) the original. No database writes occur.
+Convert `.dem` files to the `.csraw2.tar` intermediate format. This runs one demoinfocs parse pass per demo (via `internal/parserv2`) and writes a tar archive of `header.json` + per-stream zstd-parquet files alongside (or separately from) the original. No database writes occur.
 
 ```
 ./go-cs-metrics convert --dir <event_dir> --tier <tier> [flags]
 ```
 
-`.csdem.gz` files are ~545–718× smaller than the raw `.dem` and contain all events needed by both `go-cs-metrics` (re-ingest via `replay`) and `cs-demo-viewer` (2D replay). Once converted, the original `.dem` files can be deleted to reclaim disk space.
+`.csraw2.tar` is the v2 intermediate format — see `docs/csraw-v2-spec.md` for the schema. It captures every gameplay-relevant field the parser sees, so re-aggregation never needs to revisit the `.dem`. Once converted, the original `.dem` files can be deleted to reclaim disk space.
 
 > **Memory:** Each `.dem` parse still allocates 4–29 GB peak. Always set `GOMEMLIMIT` and keep `--workers 1` during conversion.
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--dir` | *(required)* | Directory containing `.dem` files |
-| `--tier` | *(required)* | Tier label embedded in the output file (e.g. `pro`) |
-| `--out-dir` | same as `--dir` | Output directory for `.csdem.gz` files |
+| `--tier` | *(required)* | Tier label embedded in `header.tier` (e.g. `pro`) |
+| `--out-dir` | same as `--dir` | Output directory for `.csraw2.tar` files |
 | `--workers` | `1` | Parallel conversion workers; keep at 1 to avoid OOM |
-| `--force` | `false` | Overwrite existing `.csdem.gz` files |
+| `--force` | `false` | Overwrite existing `.csraw2.tar` files |
 
 **Example:**
 
@@ -252,7 +252,7 @@ Convert `.dem` files to the `.csdem.gz` intermediate format. This runs one demoi
 # Convert all demos in an event directory (sequential, GOMEMLIMIT required)
 GOMEMLIMIT=4294967296 ./go-cs-metrics convert --dir ~/demos/pro/iem_katowice_2025/ --tier pro
 
-# Write .csdem.gz to a separate output directory
+# Write .csraw2.tar files to a separate output directory
 GOMEMLIMIT=4294967296 ./go-cs-metrics convert \
   --dir ~/demos/pro/iem_katowice_2025/ \
   --tier pro \
@@ -271,31 +271,32 @@ Done: 47 converted, 0 skipped, 0 failed (total 47)
 
 ### replay
 
-Ingest `.csdem.gz` files into the database. No demoinfocs is involved — the pre-extracted events are decoded from JSON and fed directly to the aggregator. Supports many parallel workers without RAM pressure.
+Ingest `.csraw2.tar` files into the database. No demoinfocs is involved — the parquet streams are decoded, run through `csraw2bridge` to produce a `RawMatch`, and fed directly to the aggregator. Supports many parallel workers without RAM pressure.
 
 ```
 ./go-cs-metrics replay --dir <event_dir> [flags]
 ```
 
-This is the fast path for (re-)building the database from a set of `.csdem.gz` files. Benchmark: **1,103 demos in 79 seconds with 32 workers** (~130 ms parse + 1 ms aggregate per demo), compared to ~55 hours for the same demos via `parse --dir` on raw `.dem`.
+This is the fast path for (re-)building the database from a set of `.csraw2.tar` files. Per-demo cost is dominated by parquet decode — no demoinfocs work needed.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--dir` | *(required)* | Directory containing `.csdem.gz` files |
-| `--workers` | `NumCPU` | Parallel worker count; 32 is a good default |
+| `--dir` | *(required)* | Directory containing `.csraw2.tar` files |
+| `--tier` | *(empty)* | Override the tier label embedded in `header.tier` |
+| `--workers` | `1` | Parallel worker count; bump to NumCPU for batch rebuilds |
 | `--force` | `false` | Re-ingest demos already stored in the database |
 
 **Example:**
 
 ```sh
-# Fast re-ingest from .csdem.gz files into the DB
+# Fast re-ingest from .csraw2.tar files into the DB
 ./go-cs-metrics replay --dir ~/demos/converted-pro/iem_katowice_2025/ --workers 32
 ```
 
 ```
-Parsing 47 demos with 32 worker(s)...
-  [3/47]  g2-vs-vitality-m1-inferno.csdem.gz    stored: Inferno  2025-01-22  ...  (parse 118ms  agg 1ms  total 119ms)
-  [1/47]  astralis-vs-navi-m1-mirage.csdem.gz   stored: Mirage   2025-01-21  ...  (parse 142ms  agg 1ms  total 143ms)
+Replaying 47 files with 32 worker(s)...
+  [3/47]  g2-vs-vitality-m1-inferno.csraw2.tar    stored: Inferno  2025-01-22  ...  (152ms)
+  [1/47]  astralis-vs-navi-m1-mirage.csraw2.tar   stored: Mirage   2025-01-21  ...  (148ms)
   ...
 Done: 47 stored, 0 skipped, 0 failed (total 47)
 ```
@@ -351,11 +352,11 @@ Outputs the same tables as `parse` with one addition: a **per-side breakdown** (
 Show basic metadata and database status for one or more demo files without performing a full parse.
 
 ```
-./go-cs-metrics info <demo.dem|.csdem.gz> [<demo.dem|.csdem.gz>...]
+./go-cs-metrics info <demo.dem|.csraw2.tar> [<demo.dem|.csraw2.tar>...]
 ```
 
 - **`.dem` files** — only the first 64 KB is read to compute the quick hash; completes in milliseconds even for multi-gigabyte demos.
-- **`.csdem.gz` files** — the embedded SHA-256 hash and metadata (map, date, tier, player count) are read directly from the file header; no demo parsing needed.
+- **`.csraw2.tar` files** — `header.json` is read directly (no parquet decode); shows the embedded SHA-256, quick hash, map, date, tier, schema version, and player count.
 
 **Example output — `.dem` already stored:**
 ```
@@ -373,13 +374,14 @@ Status: IN DB
   Tick:  64
 ```
 
-**Example output — `.csdem.gz` already stored:**
+**Example output — `.csraw2.tar` already stored:**
 ```
-File:   g2-vs-mouz-m1-overpass.csdem.gz
-Size:   1.5 MB
+File:   g2-vs-mouz-m1-overpass.csraw2.tar
+Size:   1.7 MB
 Mtime:  2026-01-15 14:45:00
-Format: csdem.gz
+Format: csraw2.tar (schema 2.4.0)
 Hash:   abc123def456789a  (embedded SHA-256)
+Quick:  9f7e1234abcd5678  (first 64 KB)
 Map:    de_overpass
 Date:   2026-01-15
 Tier:   pro
@@ -1040,20 +1042,26 @@ Schema migrations run automatically at startup via `ALTER TABLE ... ADD COLUMN` 
 Two ingestion paths feed the same pipeline:
 
 ```
-.dem file                              .csdem.gz file
-    │                                       │
-    ▼                                       ▼
+.dem file                                  .csraw2.tar file
+    │                                          │
+    ▼                                          ▼
 ┌──────────────────────────────┐   ┌─────────────────────────────┐
-│  parser (internal/parser)    │   │  converter (internal/       │
-│  demoinfocs-golang v4        │   │  converter) → convert cmd   │
-│  SHA-256 hash for dedup      │   │                             │
-│  RAM: 4–29 GB peak/demo      │   │  model.LoadUnifiedMatchFile │
-│  workers: 1 (forced)         │   │  + ToRawMatch()             │
-└──────────────┬───────────────┘   │  RAM: negligible            │
-               │                   │  workers: 32+               │
-               │                   └────────────┬────────────────┘
+│  parserv2 (internal/         │   │  csraw2 (internal/csraw2)   │
+│  parserv2)                   │   │  Read → *csraw2.Match       │
+│  demoinfocs-golang v4        │   │                             │
+│  → *csraw2.Match             │   │  RAM: a few MB              │
+│  RAM: 4–29 GB peak/demo      │   │  workers: many              │
+│  workers: 1 (forced)         │   │                             │
+└──────────────┬───────────────┘   └────────────┬────────────────┘
                │                                │
                └──────────────┬─────────────────┘
+                              │  *csraw2.Match
+                              ▼
+               ┌──────────────────────────────┐
+               │  csraw2bridge                │  Match → *model.RawMatch
+               │  (internal/csraw2bridge)     │  (adapter for the existing
+               │                              │  aggregator)
+               └──────────────┬───────────────┘
                               │  *RawMatch
                               ▼
                ┌──────────────────────────────┐
@@ -1082,15 +1090,13 @@ Two ingestion paths feed the same pipeline:
                └──────────────────────────────────────┘
 ```
 
-**`.csdem.gz` performance (validated on 1,123 pro demos):**
+**`.csraw2.tar` performance characteristics:**
 
-| | `.dem` via `parse` | `.csdem.gz` via `replay` |
+| | `.dem` via `parse` | `.csraw2.tar` via `replay` |
 |---|---|---|
-| Disk size | 519 GB total | **821 MB total (647× smaller)** |
-| Workers | 1 (forced) | 32+ |
-| RAM peak | 4–29 GB/demo | negligible |
-| Speed (1,100 demos) | ~55 hours | **~80 seconds (~2,500×)** |
-| Per-demo | ~3 min (parse) + 1 s (agg) | ~130 ms (decode) + 1 ms (agg) |
+| Workers | 1 (forced) | many |
+| RAM peak | 4–29 GB/demo | a few MB (parquet decode) |
+| Per-demo cost | full demoinfocs walk | parquet decode + aggregator pass |
 
 **Package layout:**
 
@@ -1099,9 +1105,9 @@ Two ingestion paths feed the same pipeline:
 ├── main.go
 ├── cmd/
 │   ├── root.go      # cobra root, --db flag
-│   ├── parse.go     # parse command (accepts .dem and .csdem.gz)
-│   ├── convert.go   # convert command (.dem → .csdem.gz, one demoinfocs pass)
-│   ├── replay.go    # replay command (.csdem.gz → DB, no demoinfocs)
+│   ├── parse.go     # parse command (accepts .dem and .csraw2.tar)
+│   ├── convert.go   # convert command (.dem → .csraw2.tar via parserv2)
+│   ├── replay.go    # replay command (.csraw2.tar → DB, no demoinfocs)
 │   ├── info.go      # info command (file metadata + DB status; both formats)
 │   ├── list.go      # list command
 │   ├── show.go      # show command
@@ -1109,16 +1115,19 @@ Two ingestion paths feed the same pipeline:
 │   ├── rounds.go    # rounds command (per-round drill-down)
 │   ├── trend.go     # trend command (chronological per-match trend)
 │   ├── sql.go       # sql command (raw SQL query)
-│   └── analyze.go   # analyze command (AI-powered grounded analysis)
+│   ├── analyze.go   # analyze command (AI-powered grounded analysis)
+│   ├── csraw2-compare/ # standalone .dem-vs-csraw2 validation tool
+│   └── csraw2-probe/   # standalone size/timing probe for one .dem → .csraw2.tar
 ├── internal/
-│   ├── model/       # data model structs (RawMatch, PlayerMatchStats, UnifiedMatchFile, …)
-│   ├── converter/   # ConvertDemo: single demoinfocs pass → *UnifiedMatchFile
-│   ├── parser/      # .dem → RawMatch (demoinfocs-golang v4)
-│   ├── aggregator/  # multi-pass metric aggregation
-│   ├── storage/     # SQLite schema + queries
-│   ├── report/      # terminal table rendering
-│   ├── faceit/      # FACEIT Data API v4 client (non-functional, preserved for future work)
-│   └── steam/       # Steam share code decoder + Web API client (non-functional, preserved for future work)
+│   ├── model/         # RawMatch, PlayerMatchStats, etc.
+│   ├── csraw2/        # v2 intermediate format (types + tar/parquet reader/writer)
+│   ├── parserv2/      # .dem → csraw2.Match (Source 2 demoinfocs walker)
+│   ├── csraw2bridge/  # csraw2.Match → model.RawMatch adapter for the aggregator
+│   ├── parser/        # legacy .dem → RawMatch (used by csraw2-compare only)
+│   ├── aggregator/    # multi-pass metric aggregation
+│   ├── storage/       # SQLite schema + queries
+│   ├── roundquery/    # CEL-based round filter + viewer record builder over csraw2.Match
+│   └── report/        # terminal table rendering
 └── Makefile
 ```
 
@@ -1199,6 +1208,6 @@ go test ./internal/aggregator/... -run TestTradeKill -v
 - ~~**Round W/L tracking**~~ — done (`won_round` per round, aggregated as win rate; buy-profile and post-plant win rates in `analyze`).
 - ~~**Trade timing**~~ — done (median ms between trade kill and the traded kill, and between trade death and teammate's retaliatory kill; surfaced in `analyze` context).
 - ~~**AI-powered analysis**~~ — done (`analyze player` / `analyze match` via Anthropic API with grounded context; terminal markdown rendering via `glamour`).
-- ~~**`.csdem.gz` intermediate format**~~ — done (`convert` + `replay` commands; 647× disk savings, ~2,500× faster re-ingestion, 32-worker parallel support; `parse` and `info` accept both `.dem` and `.csdem.gz`).
+- ~~**`.csraw2.tar` intermediate format**~~ — done (`convert` + `replay` commands; tar + zstd-parquet streams; `parse`, `info`, and `query --dir` consume the v2 archive; v1 `.csdem.gz` removed in Slice 6).
 - **Percentile comparison**: given a tier corpus, automatically show where your stats land (p25 / p50 / p75).
 - **Local web UI**: lightweight browser-based dashboard for non-terminal users.

@@ -13,13 +13,13 @@ go-cs-metrics/
 ├── main.go                          # entry point — delegates to cmd.Execute()
 ├── cmd/
 │   ├── root.go                      # root cobra command, --db flag
-│   ├── parse.go                     # "parse <demo.dem|.csdem.gz>" — full pipeline; accepts both formats
-│   ├── convert.go                   # "convert --dir <dir> --tier <tier>" — .dem → .csdem.gz (one demoinfocs pass, no DB)
-│   ├── replay.go                    # "replay --dir <dir>" — .csdem.gz → DB (no demoinfocs, 32+ workers)
-│   ├── query.go                     # "query --dir <dir> <expr>" — find rounds matching a CEL expression from .csdem.gz (no DB); --html for interactive 2D viewer
+│   ├── parse.go                     # "parse <demo.dem|.csraw2.tar>" — full pipeline; accepts both formats
+│   ├── convert.go                   # "convert --dir <dir> --tier <tier>" — .dem → .csraw2.tar (one demoinfocs pass via parserv2, no DB)
+│   ├── replay.go                    # "replay --dir <dir>" — .csraw2.tar → DB (no demoinfocs, many workers)
+│   ├── query.go                     # "query --dir <dir> <expr>" — find rounds matching a CEL expression from .csraw2.tar (no DB); --html for interactive 2D viewer
 │   ├── query_html.go                # HTML viewer generation (gzip+base64 injection)
 │   ├── query_template.html          # embedded 2D viewer template (compiled in via go:embed)
-│   ├── info.go                      # "info <demo.dem|.csdem.gz>" — file metadata + DB status
+│   ├── info.go                      # "info <demo.dem|.csraw2.tar>" — file metadata + DB status
 │   ├── list.go                      # "list" — tabulate stored demos
 │   ├── show.go                      # "show <hash-prefix>" — replay stored match
 │   ├── player.go                    # "player <steamid64>..." — cross-match aggregate
@@ -29,12 +29,15 @@ go-cs-metrics/
 │   └── drop.go                      # "drop [--force]" — delete the metrics database
 └── internal/
     ├── model/
-    │   ├── model.go                 # all shared types; no external deps (RawMatch, PlayerMatchStats, …)
-    │   ├── unified.go               # UnifiedMatchFile + all Unified* event structs
-    │   └── unified_io.go            # Save(path) + LoadUnifiedMatchFile(path)
-    ├── converter/
-    │   └── converter.go             # ConvertDemo: single demoinfocs pass → *UnifiedMatchFile
-    ├── parser/parser.go             # .dem → RawMatch
+    │   └── model.go                 # all shared types (RawMatch, PlayerMatchStats, …); no external deps
+    ├── csraw2/                      # CSRaw v2 archive format
+    │   ├── csraw2.go                # constants (version, stream names, enums)
+    │   ├── types.go                 # header + event row types (parquet-tagged)
+    │   ├── reader.go                # Read / ReadHeader from a .csraw2.tar
+    │   └── writer.go                # Write a Match to .csraw2.tar
+    ├── parserv2/                    # .dem → csraw2.Match (Source 2 demoinfocs walker)
+    ├── csraw2bridge/                # csraw2.Match → model.RawMatch adapter for the aggregator
+    ├── parser/parser.go             # legacy .dem → RawMatch direct walker (used by csraw2-compare validation only)
     ├── aggregator/
     │   ├── aggregator.go            # RawMatch → PlayerMatchStats + all segment types
     │   └── aggregator_test.go       # unit tests for metric logic
@@ -44,6 +47,7 @@ go-cs-metrics/
     │   ├── queries.go               # insert / query helpers
     │   ├── export_queries.go        # export command queries (QualifyingDemos, MapWinOutcomes, RoundSideStats, RosterMatchTotals, PlayerDemoCounts)
     │   └── storage_test.go          # round-trip tests against :memory:
+    ├── roundquery/                  # CEL-based round filter + 2D viewer record builder over csraw2.Match
     └── report/
         └── report.go                # terminal table formatting
 ```
@@ -57,18 +61,21 @@ All business logic lives under `internal/`. The `cmd/` layer is thin: it only wi
 Two equivalent paths feed the same aggregator → storage → report chain:
 
 ```
-.dem file                              .csdem.gz file
+.dem file                              .csraw2.tar file
     │                                       │
     ▼                                       ▼
-[parser]   ParseDemo → *RawMatch    [model] LoadUnifiedMatchFile
-    │       • SHA-256 hash                  │  → *UnifiedMatchFile
-    │       • streams events                │  → .ToRawMatch() → *RawMatch
-    │       • RAM: 4–29 GB peak             │  • RAM: negligible
-    │       • workers: 1 (forced)           │  • workers: 32+
-    │       • speed: ~3 min/demo            │  • speed: ~130 ms/demo
+[parserv2] ParseDemoV2 → *csraw2.Match  [csraw2] Read → *csraw2.Match
+    │       • SHA-256 hash                  │  • parquet decode
+    │       • streams events to slices      │  • RAM: a few MB
+    │       • RAM: 4–29 GB peak             │  • workers: many
+    │       • workers: 1 (forced)           │  • speed: ~150 ms/demo
+    │       • speed: ~3 min/demo            │
     │                                       │
     └──────────────────┬────────────────────┘
-                       │  *RawMatch
+                       │  *csraw2.Match
+                       ▼
+[csraw2bridge] ToRawMatch(m) → *model.RawMatch
+                       │
                        ▼
 [aggregator]   Aggregate(raw) → ([]PlayerMatchStats, []PlayerRoundStats,
     │                            []PlayerWeaponStats, []PlayerDuelSegment, error)
@@ -90,50 +97,53 @@ Two equivalent paths feed the same aggregator → storage → report chain:
                PrintTrendTable / PrintAimTrendTable (trend command)
 ```
 
-The parser and aggregator are intentionally decoupled by the `RawMatch` intermediate representation. This means:
+The parser and aggregator are decoupled by `csraw2.Match` (intermediate, on-disk
+schema) and the `csraw2bridge` adapter that produces `*model.RawMatch` for the
+aggregator. This means:
 
 - The aggregator can be unit-tested with hand-crafted fixtures (no demo file required).
 - The parser can be swapped or extended without touching metric logic.
-- `.csdem.gz` files bypass the demoinfocs parser entirely — `ToRawMatch()` reconstructs the same `*RawMatch` struct from the pre-extracted event slices.
+- `.csraw2.tar` files bypass demoinfocs entirely — the reader produces the same `*csraw2.Match`, which the bridge converts to `*model.RawMatch`.
 - Future output targets (JSON, HTML, Postgres) only need to replace the storage/report stages.
 
 ---
 
-## `.csdem.gz` Intermediate Format
+## `.csraw2.tar` Intermediate Format
 
 ### Motivation
 
-Parsing `.dem` files with demoinfocs-golang is memory-intensive (~10 GB of cumulative allocation per demo) and constrained to a single worker to avoid OOM. For large datasets (hundreds to thousands of demos), this becomes a bottleneck:
+Parsing `.dem` files with demoinfocs-golang is memory-intensive (~10 GB of
+cumulative allocation per demo) and constrained to a single worker to avoid
+OOM. For large datasets (hundreds to thousands of demos), this becomes a
+bottleneck:
 
-| Scenario | `.dem` via `parse` | `.csdem.gz` via `replay`/`parse` |
+| Scenario | `.dem` via `parse` | `.csraw2.tar` via `replay`/`parse` |
 |---|---|---|
-| Workers | 1 (forced — OOM with >1) | 32+ (no demoinfocs pressure) |
-| RAM peak | 4–29 GB per demo | negligible |
+| Workers | 1 (forced — OOM with >1) | many (no demoinfocs pressure) |
+| RAM peak | 4–29 GB per demo | a few MB (parquet decode only) |
 | GOMEMLIMIT required | yes | no |
-| Speed (1,100 demos) | ~55 hours | **~80 seconds (~2,500× faster)** |
-| Re-ingest after schema change | re-parse .dem (slow) | `replay` from .csdem.gz (fast) |
+| Re-ingest after schema change | re-parse .dem (slow) | `replay` from .csraw2.tar (fast) |
 
 ### Format
 
-`.csdem.gz` is a gzip-compressed JSON file (`UnifiedMatchFile`) containing:
+`.csraw2.tar` is an uncompressed tar archive of:
 
-- **Metadata** — embedded SHA-256 hash, map name, match date, tier
-- **Event slices** — kills, damages, flashes, weapon fires, first-sight angles, rounds (same events as demoinfocs produces, pre-extracted and serialised)
+- `header.json` — match metadata, sampling config, player roster, rounds, weapon table
+- one zstd-compressed parquet file per event stream (kills, damages, weapon
+  fires, flashes, first sights, grenade throws/detonations, bomb actions,
+  item pickups/drops, equip changes, chat commands, player samples,
+  projectile samples)
 
-The format is intentionally a lossless intermediate: `ToRawMatch()` reconstructs the identical `*RawMatch` the parser would have produced, so the aggregator sees no difference between the two ingestion paths.
-
-### Disk savings
-
-Validated across 1,123 professional CS2 demos:
-
-| | `.dem` | `.csdem.gz` | Ratio |
-|---|---|---|---|
-| Total size | 519 GB | 821 MB | **647× smaller** |
-| Per-demo range | 200 MB – 1.1 GB | 0.4 MB – 1.5 MB | 545–718× |
+Forward-compatible: adding a new column is a minor bump and old readers keep working. The reader/writer are `archive/tar` + `parquet-go/parquet-go` — pure Go, no CGo.
 
 ### Accuracy
 
-Results are identical across all tables for 989 demos parsed both ways. Two demos (< 0.3%) show a 1-round discrepancy in `won_round` on the final round of the match only — a known last-round edge case in the converter.
+Validated on the 45-demo personal corpus: every aggregator output matches the
+`.dem`-direct baseline byte-for-byte. Two duel-engine-sensitive carve-outs
+keep `float32` precision (`weapon_fires.pos_*` + `damages.victim_pos_*` for
+distance bins; `weapon_fires.{yaw,pitch}_deg` +
+`first_sights.observer_{yaw,pitch}_deg` for the 2° pre-shot correction
+boundary). Everything else is `int16`-quantised.
 
 ### Recommended workflow
 
@@ -142,10 +152,10 @@ Results are identical across all tables for 989 demos parsed both ways. Two demo
 GOMEMLIMIT=4294967296 ./go-cs-metrics convert --dir ~/demos/pro/<event>/ --tier pro
 
 # Step 2 — fast re-ingest (no GOMEMLIMIT; --workers 32)
-./go-cs-metrics replay --dir ~/demos/converted-pro/<event>/
+./go-cs-metrics replay --dir ~/demos/pro/<event>/
 ```
 
-See `docs/csdem-spec.md` for the full format specification.
+See `docs/csraw-v2-spec.md` for the full format specification.
 
 ---
 
@@ -389,10 +399,10 @@ All tables use `CREATE TABLE IF NOT EXISTS`; new columns are added at startup vi
 Subcommands, all accessed via a persistent `--db` flag on the root command:
 
 ```
-csmetrics parse [<demo.dem|.csdem.gz>...] [--dir <dir>] [--player <steamid64>] [--type Label] [--tier Label] [--baseline] [--workers N]
+csmetrics parse [<demo.dem|.csraw2.tar>...] [--dir <dir>] [--player <steamid64>] [--type Label] [--tier Label] [--baseline] [--workers N]
 csmetrics convert --dir <event_dir> --tier <tier> [--out-dir <dir>] [--workers N] [--force]
 csmetrics replay --dir <event_dir> [--workers N] [--force]
-csmetrics info <demo.dem|.csdem.gz> [...]
+csmetrics info <demo.dem|.csraw2.tar> [...]
 csmetrics list
 csmetrics show <hash-prefix> [--player <steamid64>]
 csmetrics player <steamid64> [<steamid64>...] [--map <name>] [--since <date>] [--last <N>] [--top <N>] [--top-min <N>]

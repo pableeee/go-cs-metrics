@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pable/go-cs-metrics/internal/model"
 	"github.com/pable/go-cs-metrics/internal/roundquery"
 )
 
@@ -47,7 +46,7 @@ type queryClipData struct {
 
 type queryMapData struct {
 	Meta       queryMapMeta `json:"meta"`
-	Radar      string       `json:"radar"`       // "data:image/png;base64,..."
+	Radar      string       `json:"radar"` // "data:image/png;base64,..."
 	HasLower   bool         `json:"has_lower"`
 	RadarLower string       `json:"radar_lower"` // "" if no lower
 	LowerZMax  float64      `json:"lower_z_max"`
@@ -86,15 +85,15 @@ type queryClip struct {
 	Exploded bool   `json:"exploded"`
 	Entry    string `json:"entry"` // "T" | "CT" | ""
 	// Viewer data
-	Tickrate  float64              `json:"tickrate"`
-	Players   []queryPlayer        `json:"players"`
-	RoundMeta queryRoundMeta       `json:"round_meta"`
-	Frames    []model.UnifiedFrame `json:"frames"`
-	Kills     []queryKill          `json:"kills"`
-	Grenades  []queryGrenade       `json:"grenades"`
-	Trails    []queryTrail         `json:"trails"`
-	Shots     []queryShot          `json:"shots"`
-	Bombs     []queryBomb          `json:"bombs"`
+	Tickrate  float64        `json:"tickrate"`
+	Players   []queryPlayer  `json:"players"`
+	RoundMeta queryRoundMeta `json:"round_meta"`
+	Frames    []queryFrame   `json:"frames"`
+	Kills     []queryKill    `json:"kills"`
+	Grenades  []queryGrenade `json:"grenades"`
+	Trails    []queryTrail   `json:"trails"`
+	Shots     []queryShot    `json:"shots"`
+	Bombs     []queryBomb    `json:"bombs"`
 }
 
 type queryPlayer struct {
@@ -109,6 +108,39 @@ type queryRoundMeta struct {
 	TS      int    `json:"ts"`
 	FE      int    `json:"fe"`
 	EndTick int    `json:"end_tick"`
+}
+
+// queryFrame is one sampled tick worth of player states, serialised as
+// `{tick, round, p:[[idx,flags,hp,x,y,z,yaw,weapon,utility,money], ...]}` to
+// match cs-demo-viewer's expected JSON shape.
+type queryFrame struct {
+	Tick   int
+	Round  int
+	States []queryPlayerState
+}
+
+func (f queryFrame) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Tick   int                `json:"tick"`
+		Round  int                `json:"round"`
+		States []queryPlayerState `json:"p"`
+	}{Tick: f.Tick, Round: f.Round, States: f.States})
+}
+
+type queryPlayerState struct {
+	Idx     int
+	Flags   int
+	HP      int
+	X, Y, Z int
+	Yaw     int
+	Weapon  string
+	Utility int
+	Money   int
+}
+
+func (ps queryPlayerState) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]any{ps.Idx, ps.Flags, ps.HP, ps.X, ps.Y, ps.Z,
+		ps.Yaw, ps.Weapon, ps.Utility, ps.Money})
 }
 
 // Compact array types matching cs-demo-viewer's JSON format.
@@ -246,13 +278,8 @@ func writeQueryHTML(records []roundquery.RoundRecord, outPath, radarDir string) 
 func buildQueryClip(r roundquery.RoundRecord) queryClip {
 	vd := r.ViewerData
 
-	// Build SteamID → player index map.
-	steamToIdx := make(map[uint64]int, len(vd.Players))
-	for i, p := range vd.Players {
-		steamToIdx[p.SteamID] = i
-	}
-
-	// Convert players.
+	// Build player list in csraw2 slot order; slot is the index used by all
+	// other arrays.
 	players := make([]queryPlayer, len(vd.Players))
 	for i, p := range vd.Players {
 		players[i] = queryPlayer{
@@ -261,41 +288,50 @@ func buildQueryClip(r roundquery.RoundRecord) queryClip {
 		}
 	}
 
-	// Round metadata.
-	winner := ""
-	switch vd.RoundMeta.WinnerTeam {
-	case model.TeamT:
-		winner = "T"
-	case model.TeamCT:
-		winner = "CT"
-	}
 	roundMeta := queryRoundMeta{
 		N:       vd.RoundMeta.Number,
-		W:       winner,
+		W:       vd.RoundMeta.WinnerTeam,
 		CTS:     vd.RoundMeta.CTScore,
 		TS:      vd.RoundMeta.TScore,
 		FE:      vd.RoundMeta.FreezeEndTick,
 		EndTick: vd.RoundMeta.EndTick,
 	}
 
-	// Convert kills.
+	// Frames.
+	frames := make([]queryFrame, len(vd.Frames))
+	for i, f := range vd.Frames {
+		states := make([]queryPlayerState, len(f.States))
+		for j, s := range f.States {
+			states[j] = queryPlayerState{
+				Idx:     int(s.Slot),
+				Flags:   s.Flags,
+				HP:      s.HP,
+				X:       s.X,
+				Y:       s.Y,
+				Z:       s.Z,
+				Yaw:     s.Yaw,
+				Weapon:  s.Weapon,
+				Utility: s.Utility,
+				Money:   s.Money,
+			}
+		}
+		frames[i] = queryFrame{Tick: f.Tick, Round: vd.RoundMeta.Number, States: states}
+	}
+
+	// Kills.
 	kills := make([]queryKill, 0, len(vd.Kills))
 	for _, k := range vd.Kills {
-		atkIdx, aok := steamToIdx[k.KillerSteamID]
-		vicIdx, vok := steamToIdx[k.VictimSteamID]
-		if !aok || !vok {
+		if k.KillerSlot < 0 {
 			continue
 		}
 		asiIdx := -1
-		if k.AssisterSteamID != 0 {
-			if i, ok := steamToIdx[k.AssisterSteamID]; ok {
-				asiIdx = i
-			}
+		if k.AssisterSlot >= 0 {
+			asiIdx = int(k.AssisterSlot)
 		}
 		kills = append(kills, queryKill{
 			Tick:   k.Tick,
-			AtkIdx: atkIdx,
-			VicIdx: vicIdx,
+			AtkIdx: int(k.KillerSlot),
+			VicIdx: int(k.VictimSlot),
 			Weapon: k.Weapon,
 			HS:     k.IsHeadshot,
 			AtkX:   k.KillerX,
@@ -307,7 +343,7 @@ func buildQueryClip(r roundquery.RoundRecord) queryClip {
 		})
 	}
 
-	// Convert grenades.
+	// Grenades.
 	grenades := make([]queryGrenade, len(vd.Grenades))
 	for i, g := range vd.Grenades {
 		grenades[i] = queryGrenade{
@@ -320,7 +356,7 @@ func buildQueryClip(r roundquery.RoundRecord) queryClip {
 		}
 	}
 
-	// Convert trails.
+	// Trails.
 	trails := make([]queryTrail, len(vd.Trails))
 	for i, t := range vd.Trails {
 		trails[i] = queryTrail{
@@ -332,13 +368,13 @@ func buildQueryClip(r roundquery.RoundRecord) queryClip {
 		}
 	}
 
-	// Convert shots.
+	// Shots.
 	shots := make([]queryShot, len(vd.Shots))
 	for i, s := range vd.Shots {
-		shots[i] = queryShot{Tick: s.Tick, Idx: s.Idx}
+		shots[i] = queryShot{Tick: s.Tick, Idx: int(s.Slot)}
 	}
 
-	// Convert bombs.
+	// Bombs.
 	bombs := make([]queryBomb, len(vd.Bombs))
 	for i, b := range vd.Bombs {
 		bombs[i] = queryBomb{
@@ -373,7 +409,7 @@ func buildQueryClip(r roundquery.RoundRecord) queryClip {
 		Tickrate:     vd.Tickrate,
 		Players:      players,
 		RoundMeta:    roundMeta,
-		Frames:       vd.Frames,
+		Frames:       frames,
 		Kills:        kills,
 		Grenades:     grenades,
 		Trails:       trails,

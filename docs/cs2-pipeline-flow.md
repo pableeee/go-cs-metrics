@@ -45,14 +45,16 @@ go-cs-metrics parse --dir ~/demos/pro/<event-slug>/ --tier pro   ← direct path
     │   ── OR (recommended for long-term storage) ──
     │
 go-cs-metrics convert --dir ~/demos/pro/<event-slug>/ --tier pro
-    │  single demoinfocs pass → .csdem.gz alongside each .dem (~150–500× smaller)
-    │  contains all data for both go-cs-metrics and cs-demo-viewer
+    │  single demoinfocs pass (parserv2) → .csraw2.tar alongside each .dem
+    │  tar archive: header.json + per-stream parquet (kills, damages, weapon_fires,
+    │  flashes, first_sights, grenades, bombs, item_pickups/drops, equip_changes,
+    │  chat_commands, player_samples, projectile_samples). See docs/csraw-v2-spec.md.
     ▼
 [optional] rm ~/demos/pro/<event-slug>/*.dem   ← reclaim disk space
     │
     ▼
 go-cs-metrics replay --dir ~/demos/pro/<event-slug>/
-    │  reads .csdem.gz → 11-pass aggregator → metrics.db
+    │  reads .csraw2.tar → csraw2bridge → 11-pass aggregator → metrics.db
     │  fast, low RAM; supports --workers > 1
     ▼
 go-cs-metrics export --roster <team>-roster.json --since 90 --quorum 3 --out <team>.json
@@ -227,12 +229,11 @@ GOMEMLIMIT=4294967296 ./go-cs-metrics parse --dir ~/demos/pro/iem_cologne_2025/ 
 **Binary:** `go-cs-metrics`
 **Command:** `go-cs-metrics convert --dir ~/demos/pro/<event-slug>/ --tier pro`
 
-Performs a single demoinfocs parse pass and writes a `.csdem.gz` file alongside
-each `.dem`. The intermediate format contains all data needed by both
-`go-cs-metrics replay` and `cs-demo-viewer` — original `.dem` files can be deleted
-after conversion to reclaim disk space.
-
-**Expected size:** ~150–500× smaller than the raw `.dem` (e.g. 300 MB → ~1 MB).
+Performs a single demoinfocs parse pass (via `internal/parserv2`) and writes
+a `.csraw2.tar` archive alongside each `.dem`. The archive captures every
+gameplay-relevant field the parser sees, so re-aggregation never needs to
+revisit the `.dem`. Original `.dem` files can be deleted after conversion
+to reclaim disk space.
 
 ### Inputs
 
@@ -245,32 +246,27 @@ after conversion to reclaim disk space.
 
 | Path | Description |
 |------|-------------|
-| `*.csdem.gz` | Unified intermediate file alongside each `.dem` |
+| `*.csraw2.tar` | v2 intermediate archive alongside each `.dem` |
 
-### File format (`.csdem.gz`)
+### File format (`.csraw2.tar`)
 
-Gzip-compressed JSON. Top-level structure:
-
-```json
-{ "version": 1, "tier": "pro", "match": { ... } }
-```
-
-The `match` object contains flat event arrays (kills, damages, flashes, first_sights,
-weapon_fires, grenade_events, frames, bombs, grenades, trails, shots) with round
-numbers embedded. The `grenade_events` array (added v1) carries throw-to-land
-metrics-side records (thrower, type, throw/land Vec3); the viewer-side `grenades`
-and `trails` arrays remain unchanged. Older `.csdem.gz` files predating this field
-will simply have an empty `grenade_events` array on replay.
-Full schema: `docs/csdem-spec.md`.
+Uncompressed tar archive of `header.json` + one parquet file per event stream.
+Per-stream parquet is zstd-compressed internally; the tar is for filesystem
+ergonomics, not extra compression. Streams: `kills`, `damages`,
+`weapon_fires`, `flashes`, `first_sights`, `grenade_throws`,
+`grenade_detonations`, `bomb_actions`, `item_pickups`, `item_drops`,
+`equip_changes`, `chat_commands`, `player_samples`, `projectile_samples`.
+Full schema: `docs/csraw-v2-spec.md`.
 
 ### Key flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--dir` | required | Directory containing `.dem` files (non-recursive) |
-| `--tier` | required | Tier label baked into the file (e.g. `pro`) |
+| `--out-dir` | same as `--dir` | Destination directory for `.csraw2.tar` files |
+| `--tier` | required | Tier label baked into `header.tier` (e.g. `pro`) |
 | `--workers` | 1 | Parallel workers (same GOMEMLIMIT/RAM caveats as `parse`) |
-| `--force` | false | Overwrite existing `.csdem.gz` files |
+| `--force` | false | Overwrite existing `.csraw2.tar` files |
 
 ### Memory
 
@@ -287,19 +283,21 @@ GOMEMLIMIT=4294967296 ./go-cs-metrics convert --dir ~/demos/pro/iem_cologne_2025
 **Binary:** `go-cs-metrics`
 **Command:** `go-cs-metrics replay --dir ~/demos/pro/<event-slug>/`
 
-Reads `.csdem.gz` files produced by `convert` and runs the 11-pass aggregator,
-writing results to `metrics.db`. Much faster and lower memory than `parse` because
-no demoinfocs parse is needed — only JSON deserialization and aggregation.
+Reads `.csraw2.tar` files produced by `convert`, runs them through the
+`csraw2bridge` adapter to produce a `model.RawMatch`, and feeds that through
+the 11-pass aggregator into `metrics.db`. Much faster and lower memory than
+`parse` because no demoinfocs work is needed — only parquet decode and
+aggregation.
 
 Use `replay` for:
-- **Initial ingest** after `convert` has produced `.csdem.gz` files
+- **Initial ingest** after `convert` has produced `.csraw2.tar` files
 - **Full DB rebuild** after metric changes: `drop --force` then `replay` all events
 
 ### Inputs
 
 | Source | Description |
 |--------|-------------|
-| `*.csdem.gz` files | Unified intermediate files in the given directory |
+| `*.csraw2.tar` files | v2 intermediate archives in the given directory |
 | `event.json` sidecar | EventID and tier override (same as `parse`) |
 
 ### Outputs
@@ -312,7 +310,8 @@ Same as `parse` — writes to `metrics.db` tables: `demos`, `player_match_stats`
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--dir` | required | Directory containing `.csdem.gz` files (non-recursive) |
+| `--dir` | required | Directory containing `.csraw2.tar` files (non-recursive) |
+| `--tier` | from header | Override the tier label embedded in `header.tier` |
 | `--workers` | 1 | Parallel load+aggregate workers (safe to increase — low RAM) |
 | `--force` | false | Re-aggregate even if demo hash already in DB |
 
@@ -502,7 +501,7 @@ When both team JSONs contain `vrs_global_rank` fields:
 | `~/.csmetrics/metrics.db` | go-cs-metrics | Parsed demo metrics |
 | `~/.csmetrics/vrs.db` | go-cs-metrics vrs-sync | VRS global standing snapshots |
 | `~/demos/pro/<event-slug>/` | demoget → go-cs-metrics | Extracted `.dem` files |
-| `~/demos/pro/<event-slug>/*.csdem.gz` | go-cs-metrics convert | Unified intermediate files (replaces `.dem` for long-term storage) |
+| `~/demos/pro/<event-slug>/*.csraw2.tar` | go-cs-metrics convert | v2 intermediate archives (replaces `.dem` for long-term storage) |
 
 ---
 
@@ -534,7 +533,7 @@ Skip `touch-dates` → every demo gets `match_date = extraction_date`, breaking
 `--since` filtering in `export`. Run `touch-dates` after every sync.
 
 ### `--dir` Non-Recursive
-`parse --dir` and `convert --dir` only find `.dem`/`.csdem.gz` files directly in
+`parse --dir` and `convert --dir` only find `.dem`/`.csraw2.tar` files directly in
 the given directory. Always pass the event subdirectory
 (`~/demos/pro/iem_cologne_2025/`), not the parent.
 

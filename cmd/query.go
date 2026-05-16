@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pable/go-cs-metrics/internal/model"
+	"github.com/pable/go-cs-metrics/internal/csraw2"
 	"github.com/pable/go-cs-metrics/internal/roundquery"
 )
 
@@ -25,7 +25,7 @@ var (
 var queryCmd = &cobra.Command{
 	Use:   "query --dir <dir> <expression>",
 	Short: "Find rounds matching a CEL expression",
-	Long: `Scan .csdem.gz files and return every round that satisfies a CEL expression.
+	Long: `Scan .csraw2.tar files and return every round that satisfies a CEL expression.
 
 Walks --dir recursively. The expression is evaluated against a flat set of
 per-round variables — no SQL or schema knowledge required.
@@ -91,12 +91,23 @@ func init() {
 	home, _ := os.UserHomeDir()
 	defaultRadarDir := filepath.Join(home, "git", "cs", "cs-demo-viewer", "internal", "maps", "overviews")
 
-	queryCmd.Flags().StringVar(&queryDir, "dir", "", "root directory to scan for .csdem.gz files (required)")
+	queryCmd.Flags().StringVar(&queryDir, "dir", "", "root directory to scan for .csraw2.tar files (required)")
 	queryCmd.Flags().BoolVar(&queryCSV, "csv", false, "output CSV instead of text table")
 	queryCmd.Flags().StringVar(&queryHTML, "html", "", "write a 2D visual replay HTML file for all matched rounds")
 	queryCmd.Flags().IntVar(&queryLimit, "limit", 200, "maximum number of round clips to include in the HTML output")
 	queryCmd.Flags().StringVar(&queryRadarDir, "radar-dir", defaultRadarDir, "directory containing map radar PNGs (used with --html)")
 	_ = queryCmd.MarkFlagRequired("dir")
+}
+
+// loadCSRaw2 opens the archive at path and decodes it into a csraw2.Match.
+// Used by `query --dir` to walk a tree of v2 intermediate files.
+func loadCSRaw2(path string) (*csraw2.Match, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return csraw2.Read(f)
 }
 
 func runQuery(cmd *cobra.Command, args []string) error {
@@ -118,7 +129,7 @@ func runQuery(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		if !d.IsDir() && strings.HasSuffix(d.Name(), ".csdem.gz") {
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".csraw2.tar") {
 			paths = append(paths, path)
 		}
 		return nil
@@ -127,7 +138,7 @@ func runQuery(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("walk %s: %w", queryDir, err)
 	}
 	if len(paths) == 0 {
-		return fmt.Errorf("no .csdem.gz files found under %s", queryDir)
+		return fmt.Errorf("no .csraw2.tar files found under %s", queryDir)
 	}
 
 	fmt.Fprintf(os.Stderr, "Scanning %d files...\n", len(paths))
@@ -136,15 +147,15 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	var scanErrors int
 
 	for _, path := range paths {
-		uf, err := model.LoadUnifiedMatchFile(path)
+		m, err := loadCSRaw2(path)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  skip %s: %v\n", filepath.Base(path), err)
 			scanErrors++
 			continue
 		}
 
-		matchFile := strings.TrimSuffix(filepath.Base(path), ".csdem.gz")
-		records := roundquery.BuildRecords(uf.Match, matchFile, uf.Match.MatchDate, collectData)
+		matchFile := strings.TrimSuffix(filepath.Base(path), ".csraw2.tar")
+		records := roundquery.BuildRecords(m, matchFile, m.Header.MatchDate, collectData)
 
 		for _, r := range records {
 			ok, err := roundquery.Matches(prg, r)
