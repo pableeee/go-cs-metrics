@@ -114,9 +114,10 @@ func wilsonCI(hits, n int) (lo, hi float64) {
 	return math.Max(0, center-half), math.Min(1, center+half)
 }
 
-// Aggregate runs the full 10-pass pipeline on a parsed RawMatch and returns
-// four result slices: per-player match stats, per-round stats, per-weapon
-// stats, and per-duel-segment (FHHS) stats. The passes are:
+// Aggregate runs the full multi-pass pipeline on a parsed RawMatch and returns
+// six result slices: per-player match stats, per-round stats, per-weapon
+// stats, per-duel-segment (FHHS) stats, per-death events, and per-flash
+// events. The passes are:
 //  1. Trade annotation (backward + forward scan within 5 s window)
 //  2. Opening kills (first kill after FreezeEndTick)
 //  3. Per-round per-player stats (with buy-type classification)
@@ -128,6 +129,9 @@ func wilsonCI(hits, n int) (lo, hi float64) {
 //  9. Role classification (AWPer/Entry/Support/Rifler)
 // 10. TTK and TTD (median ms from first hit to kill/death)
 // 11. Counter-strafe % (shots fired at horizontal velocity ≤ 34 u/s)
+// 12. Death events (per-kill rows with position, weapon, tactical context)
+// 13. Flash events (per-PlayerFlashed rows with blind angle)
+// 14. Save & Assist annotation (HLTV-style 1 s save window + assisted-kill flag)
 func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRoundStats, []model.PlayerWeaponStats, []model.PlayerDuelSegment, []model.PlayerDeathEvent, []model.FlashEvent, error) {
 	if raw == nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("nil RawMatch")
@@ -206,6 +210,79 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			if k.isTradeDeath && k.tradeDeathDelayTicks > 0 {
 				ms := float64(k.tradeDeathDelayTicks) / raw.TicksPerSecond * 1000
 				tradeDeathDelays[k.VictimSteamID] = append(tradeDeathDelays[k.VictimSteamID], ms)
+			}
+		}
+	}
+
+	// ---- Pass 14: Save & Assist Annotation (HLTV-compatible). ----
+	//
+	// For each kill K=(killer A, victim V, tick T):
+	//   • Save check: find the latest damage V dealt to any teammate of A
+	//     within saveWindowTicks before T. If one exists, credit A with
+	//     "saved teammate" and that teammate with "saved by teammate".
+	//     At most one save credit per kill (the most recently-damaged teammate).
+	//   • Assisted-kill check: if any teammate of A (other than A) dealt
+	//     damage to V earlier in the same round, credit A with one assisted-kill.
+	//     Counted once per kill regardless of how many teammates contributed.
+	//
+	// Damage events have no VictimTeam field, but CS2 friendly fire is off in
+	// pro play — so damage events are effectively enemy-on-enemy, which lets
+	// us skip the team check on the damage's victim/attacker for the save and
+	// assisted-kill cases.
+	saveWindowTicks := int(1.0 * raw.TicksPerSecond)
+	damagesByRound := make(map[int][]model.RawDamage)
+	for _, d := range raw.Damages {
+		damagesByRound[d.RoundNumber] = append(damagesByRound[d.RoundNumber], d)
+	}
+	savedByTeammate := make(map[uint64]int)
+	savedTeammate := make(map[uint64]int)
+	assistedKills := make(map[uint64]int)
+	for rn, kills := range killsByRound {
+		damages := damagesByRound[rn]
+		for _, k := range kills {
+			A := k.KillerSteamID
+			V := k.VictimSteamID
+			if A == 0 || V == 0 || A == V {
+				continue // world damage, suicide, self-kill — no credit.
+			}
+			// Save: find latest damage from V to a teammate of A within 1s.
+			var bestSavedID uint64
+			bestSavedTick := -1
+			for _, d := range damages {
+				if d.AttackerSteamID != V {
+					continue // damage must be inflicted by the victim of K
+				}
+				if d.VictimSteamID == A || d.VictimSteamID == 0 {
+					continue // we want teammates of A, not A itself or world
+				}
+				if d.Tick >= k.Tick {
+					continue // damage must precede the kill
+				}
+				if k.Tick-d.Tick > saveWindowTicks {
+					continue // outside the 1s window
+				}
+				if d.Tick > bestSavedTick {
+					bestSavedTick = d.Tick
+					bestSavedID = d.VictimSteamID
+				}
+			}
+			if bestSavedID != 0 {
+				savedTeammate[A]++
+				savedByTeammate[bestSavedID]++
+			}
+			// Assisted-kill: any teammate of A (≠ A) damaged V earlier in the round.
+			for _, d := range damages {
+				if d.VictimSteamID != V {
+					continue
+				}
+				if d.AttackerSteamID == A || d.AttackerSteamID == 0 {
+					continue
+				}
+				if d.Tick >= k.Tick {
+					continue
+				}
+				assistedKills[A]++
+				break // count once per kill
 			}
 		}
 	}
@@ -597,6 +674,9 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			sort.Float64s(delays)
 			ms.MedianTradeDeathDelayMs = median(delays)
 		}
+		ms.SavedByTeammate = savedByTeammate[playerID]
+		ms.SavedTeammate = savedTeammate[playerID]
+		ms.AssistedKills = assistedKills[playerID]
 		matchStats = append(matchStats, ms)
 	}
 

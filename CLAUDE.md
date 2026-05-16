@@ -28,7 +28,7 @@ The processing pipeline has five stages:
 1. **Ingestion** — Accept a `.dem` (or pre-converted `.csraw2.tar`), compute the SHA-256 hash, and dedup against the DB.
 2. **Parsing** — `internal/parserv2` walks the `.dem` and produces a `*csraw2.Match` (events + per-tick player samples). The reader in `internal/csraw2` produces the same value from a `.csraw2.tar` archive without demoinfocs.
 3. **Bridging** — `internal/csraw2bridge.ToRawMatch(m)` adapts `csraw2.Match` to the legacy `*model.RawMatch` the aggregator expects. (The bridge will disappear once the aggregator is rewritten against csraw2 directly.)
-4. **Aggregation** — 11-pass algorithm producing `[]PlayerMatchStats`, `[]PlayerRoundStats`, `[]PlayerWeaponStats`, `[]PlayerDuelSegment`.
+4. **Aggregation** — 14-pass algorithm producing `[]PlayerMatchStats`, `[]PlayerRoundStats`, `[]PlayerWeaponStats`, `[]PlayerDuelSegment`, `[]PlayerDeathEvent`, `[]FlashEvent`.
 5. **Presentation** — CLI output via `tablewriter`; storage is SQLite.
 
 Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.csmetrics/metrics.db`. Intermediate-format spec: `docs/csraw-v2-spec.md`.
@@ -110,7 +110,7 @@ Core types (all in `internal/model/model.go`):
 - **`PlayerDuelSegment`** — FHHS counts per (weapon_bucket, distance_bin) per demo
 - **`PlayerAggregate`** — cross-demo sums/averages used by the `player` command
 
-## Aggregator: 11 Passes
+## Aggregator: 14 Passes
 
 1. Trade annotation (backward + forward scan within 5 s window); captures trade kill/death delay in ticks for timing metrics
 2. Opening kills (first kill after `FreezeEndTick`)
@@ -123,6 +123,9 @@ Core types (all in `internal/model/model.go`):
 9. Role classification (AWPer/Entry/Support/Rifler)
 10. TTK/TTD/one-tap kills (first shot fired → kill, 3 s rolling window)
 11. Counter-strafe % (shots fired at horizontal speed ≤ 34 u/s, via `e.Shooter.Velocity()` captured at WeaponFire time)
+12. Death events (per-kill rows with position, weapon, distance, victim yaw, tactical context — `player_death_events` table)
+13. Flash events (per-PlayerFlashed rows with blind angle, duration — `flash_events` table)
+14. Save & Assist annotation (HLTV-compatible 1 s save window + assisted-kill flag; populates `saved_by_teammate`, `saved_teammate`, `assisted_kills` on `player_match_stats`)
 
 ## Memory Behaviour of the Parser
 

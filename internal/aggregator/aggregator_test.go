@@ -564,3 +564,164 @@ func TestADR_Basic(t *testing.T) {
 		}
 	}
 }
+
+// ---- Pass 14 tests: Save & Assist Annotation ----
+
+// TestPass14_Save_WithinWindow: V damages T1 at tick 100; A kills V at tick 110
+// (10 ticks ≈ 156 ms @ 64 Hz, well within the 1 s save window).
+// Expect: A gets +1 SavedTeammate, T1 gets +1 SavedByTeammate.
+func TestPass14_Save_WithinWindow(t *testing.T) {
+	const A, T1, V = playerA, playerB, playerC
+	kill := model.RawKill{
+		Tick: 110, RoundNumber: 1,
+		KillerSteamID: A, VictimSteamID: V,
+		KillerTeam: model.TeamCT, VictimTeam: model.TeamT,
+	}
+	dmg := model.RawDamage{
+		Tick: 100, RoundNumber: 1,
+		AttackerSteamID: V, VictimSteamID: T1,
+		AttackerTeam: model.TeamT, HealthDamage: 30,
+	}
+	round := makeRound(1, 50, []uint64{A, T1, V}, map[uint64]bool{A: true, T1: true})
+	raw := &model.RawMatch{
+		DemoHash: "h", TicksPerSecond: tickRate,
+		Rounds:      []model.RawRound{round},
+		Kills:       []model.RawKill{kill},
+		Damages:     []model.RawDamage{dmg},
+		PlayerNames: map[uint64]string{A: "A", T1: "T1", V: "V"},
+		PlayerTeams: map[uint64]model.Team{A: model.TeamCT, T1: model.TeamCT, V: model.TeamT},
+	}
+
+	matchStats, _, _, _, _, _, err := Aggregate(raw)
+	if err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+	got := map[uint64]model.PlayerMatchStats{}
+	for _, ms := range matchStats {
+		got[ms.SteamID] = ms
+	}
+	if got[A].SavedTeammate != 1 {
+		t.Errorf("A.SavedTeammate = %d, want 1", got[A].SavedTeammate)
+	}
+	if got[T1].SavedByTeammate != 1 {
+		t.Errorf("T1.SavedByTeammate = %d, want 1", got[T1].SavedByTeammate)
+	}
+	// No assisted kill: T1 dealt no damage to V.
+	if got[A].AssistedKills != 0 {
+		t.Errorf("A.AssistedKills = %d, want 0", got[A].AssistedKills)
+	}
+}
+
+// TestPass14_Save_OutsideWindow: V damages T1 at tick 100; A kills V at tick 300
+// (200 ticks ≈ 3.1 s @ 64 Hz, well outside the 1 s save window).
+// Expect: no save credited to anyone.
+func TestPass14_Save_OutsideWindow(t *testing.T) {
+	const A, T1, V = playerA, playerB, playerC
+	kill := model.RawKill{
+		Tick: 300, RoundNumber: 1,
+		KillerSteamID: A, VictimSteamID: V,
+		KillerTeam: model.TeamCT, VictimTeam: model.TeamT,
+	}
+	dmg := model.RawDamage{
+		Tick: 100, RoundNumber: 1,
+		AttackerSteamID: V, VictimSteamID: T1,
+		AttackerTeam: model.TeamT, HealthDamage: 30,
+	}
+	round := makeRound(1, 50, []uint64{A, T1, V}, map[uint64]bool{A: true, T1: true})
+	raw := &model.RawMatch{
+		DemoHash: "h", TicksPerSecond: tickRate,
+		Rounds:      []model.RawRound{round},
+		Kills:       []model.RawKill{kill},
+		Damages:     []model.RawDamage{dmg},
+		PlayerNames: map[uint64]string{A: "A", T1: "T1", V: "V"},
+		PlayerTeams: map[uint64]model.Team{A: model.TeamCT, T1: model.TeamCT, V: model.TeamT},
+	}
+
+	matchStats, _, _, _, _, _, err := Aggregate(raw)
+	if err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+	for _, ms := range matchStats {
+		if ms.SavedByTeammate != 0 || ms.SavedTeammate != 0 {
+			t.Errorf("expected no save credit (window exceeded), got saved_by=%d saved=%d for %d",
+				ms.SavedByTeammate, ms.SavedTeammate, ms.SteamID)
+		}
+	}
+}
+
+// TestPass14_AssistedKill: T1 deals damage to V at tick 50, A kills V at tick 200.
+// Expect: A gets +1 AssistedKills. No save (V never damaged anyone).
+func TestPass14_AssistedKill(t *testing.T) {
+	const A, T1, V = playerA, playerB, playerC
+	kill := model.RawKill{
+		Tick: 200, RoundNumber: 1,
+		KillerSteamID: A, VictimSteamID: V,
+		KillerTeam: model.TeamCT, VictimTeam: model.TeamT,
+	}
+	dmg := model.RawDamage{
+		Tick: 50, RoundNumber: 1,
+		AttackerSteamID: T1, VictimSteamID: V,
+		AttackerTeam: model.TeamCT, HealthDamage: 40,
+	}
+	round := makeRound(1, 30, []uint64{A, T1, V}, map[uint64]bool{A: true, T1: true})
+	raw := &model.RawMatch{
+		DemoHash: "h", TicksPerSecond: tickRate,
+		Rounds:      []model.RawRound{round},
+		Kills:       []model.RawKill{kill},
+		Damages:     []model.RawDamage{dmg},
+		PlayerNames: map[uint64]string{A: "A", T1: "T1", V: "V"},
+		PlayerTeams: map[uint64]model.Team{A: model.TeamCT, T1: model.TeamCT, V: model.TeamT},
+	}
+
+	matchStats, _, _, _, _, _, err := Aggregate(raw)
+	if err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+	got := map[uint64]model.PlayerMatchStats{}
+	for _, ms := range matchStats {
+		got[ms.SteamID] = ms
+	}
+	if got[A].AssistedKills != 1 {
+		t.Errorf("A.AssistedKills = %d, want 1", got[A].AssistedKills)
+	}
+	if got[A].SavedTeammate != 0 {
+		t.Errorf("A.SavedTeammate = %d, want 0", got[A].SavedTeammate)
+	}
+}
+
+// TestPass14_SelfDamage_NotAssistedKill: only A deals damage to V (no teammate
+// contribution). A kills V → no assisted kill credit (the only earlier damage
+// was from A himself).
+func TestPass14_SelfDamage_NotAssistedKill(t *testing.T) {
+	const A, V = playerA, playerC
+	kill := model.RawKill{
+		Tick: 200, RoundNumber: 1,
+		KillerSteamID: A, VictimSteamID: V,
+		KillerTeam: model.TeamCT, VictimTeam: model.TeamT,
+	}
+	// A damages V — same shooter as the kill.
+	dmg := model.RawDamage{
+		Tick: 50, RoundNumber: 1,
+		AttackerSteamID: A, VictimSteamID: V,
+		AttackerTeam: model.TeamCT, HealthDamage: 40,
+	}
+	round := makeRound(1, 30, []uint64{A, V}, map[uint64]bool{A: true})
+	raw := &model.RawMatch{
+		DemoHash: "h", TicksPerSecond: tickRate,
+		Rounds:      []model.RawRound{round},
+		Kills:       []model.RawKill{kill},
+		Damages:     []model.RawDamage{dmg},
+		PlayerNames: map[uint64]string{A: "A", V: "V"},
+		PlayerTeams: map[uint64]model.Team{A: model.TeamCT, V: model.TeamT},
+	}
+
+	matchStats, _, _, _, _, _, err := Aggregate(raw)
+	if err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+	for _, ms := range matchStats {
+		if ms.SteamID == A && ms.AssistedKills != 0 {
+			t.Errorf("A.AssistedKills = %d, want 0 (only own damage)", ms.AssistedKills)
+		}
+	}
+}

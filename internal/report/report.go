@@ -1284,33 +1284,39 @@ func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats) {
 	// ---- §2.2 Entrying ----
 	printSection(w, "Entrying",
 		"OPEN_D_TRADED%=share of opening deaths that were traded by a teammate within 5s\n"+
-			"SUPPORT%=rounds with assist/survive/traded-death but no kill")
+			"SUPPORT%=rounds with assist/survive/traded-death but no kill\n"+
+			"SAVED_BY/RD=times per round a teammate killed your last attacker within 1s of damage")
 	t3 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	t3.Header("PLAYER", "OPEN_D_TRADED%", "SUPPORT%")
+	t3.Header("PLAYER", "OPEN_D_TRADED%", "SUPPORT%", "SAVED_BY/RD")
 	for _, r := range roles {
 		t3.Append(
 			r.Name,
 			fmt.Sprintf("%.1f%%", r.OpeningDeathTradedPct),
 			fmt.Sprintf("%.1f%%", r.SupportRoundsPct),
+			fmt.Sprintf("%.2f", r.SavedByTeammatePerRound),
 		)
 	}
 	t3.Render()
 
 	// ---- §2.3 Trading ----
 	printSection(w, "Trading",
-		"DMG/KILL=total damage divided by total kills; <100 ⇒ kill-stealing tendency")
+		"DMG/KILL=total damage divided by total kills; <100 ⇒ kill-stealing tendency\n"+
+			"SAVED/RD=times per round you killed an opponent attacking a teammate within 1s\n"+
+			"ASSISTED_K%=share of kills on opponents already damaged by a teammate this round")
 	t4 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	t4.Header("PLAYER", "DMG/KILL")
+	t4.Header("PLAYER", "DMG/KILL", "SAVED/RD", "ASSISTED_K%")
 	for _, r := range roles {
 		t4.Append(
 			r.Name,
 			fmt.Sprintf("%.0f", r.DamagePerKill),
+			fmt.Sprintf("%.2f", r.SavedTeammatePerRound),
+			fmt.Sprintf("%.1f%%", r.AssistedKillsPct),
 		)
 	}
 	t4.Render()

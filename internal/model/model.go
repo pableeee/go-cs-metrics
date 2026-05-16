@@ -251,6 +251,11 @@ type PlayerMatchStats struct {
 	RoundsWon               int     // rounds where player's team won
 	MedianTradeKillDelayMs  float64 // median ms from teammate's death to player's trade kill
 	MedianTradeDeathDelayMs float64 // median ms from player's death to teammate's trade kill
+
+	// Save & assist annotation (Pass 14, 1-second window — HLTV-compatible)
+	SavedByTeammate int // teammate killed this player's last attacker within 1s of last damage taken
+	SavedTeammate   int // this player killed an opponent attacking a teammate within 1s of last damage
+	AssistedKills   int // kills on opponents teammates had already damaged earlier in the round
 }
 
 // KDRatio returns the kill-to-death ratio. If deaths is 0, kills is returned.
@@ -411,6 +416,11 @@ type PlayerAggregate struct {
 	RoundsWon                  int
 	AvgTradeKillDelayMs        float64
 	AvgTradeDeathDelayMs       float64
+
+	// Save & assist annotation (Pass 14) — summed across matches.
+	SavedByTeammate int
+	SavedTeammate   int
+	AssistedKills   int
 }
 
 // KDRatio returns the aggregate kill-to-death ratio across all matches.
@@ -661,11 +671,14 @@ type PlayerRoleStats struct {
 	PistolRoundRating float64 // Rating 2.0 over pistol rounds only
 
 	// §2.2 Entrying
-	OpeningDeathTradedPct float64
-	SupportRoundsPct      float64
+	OpeningDeathTradedPct  float64
+	SupportRoundsPct       float64
+	SavedByTeammatePerRound float64 // Pass 14
 
 	// §2.3 Trading
-	DamagePerKill float64
+	DamagePerKill         float64
+	SavedTeammatePerRound float64 // Pass 14
+	AssistedKillsPct      float64 // Pass 14 — % of kills that were on already-damaged opponents
 
 	// §2.4 Opening
 	OpeningKPR         float64

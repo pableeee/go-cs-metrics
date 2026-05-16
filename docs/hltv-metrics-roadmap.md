@@ -119,7 +119,7 @@ queries:
 
 ---
 
-## Slice 2 — Save / Trade-assist pass
+## Slice 2 — Save / Trade-assist pass — **SHIPPED**
 
 Three §2 metrics share one new aggregator pass that walks damages alongside
 kills with tight time windows:
@@ -129,6 +129,17 @@ kills with tight time windows:
   within 1 s of the attack.
 - **Assisted kill %** (§2.3) — your kill was on an opponent a teammate had
   already damaged earlier in the round (any window).
+
+**Status:** shipped. New columns on `player_match_stats`:
+`saved_by_teammate`, `saved_teammate`, `assisted_kills`. Surfaced in the
+Entrying / Trading tables of `player --roles` (`SAVED_BY/RD`, `SAVED/RD`,
+`ASSISTED_K%`).
+
+**Coverage caveat:** existing rows default to 0; backfill via
+`replay --dir <event>/ --force` against the `.csraw2.tar` archives. Smoke-test
+on the `blast_bounty_2026_s1` event (20 demos, January 2026):
+non-zero credits flow end-to-end with plausible per-match magnitudes
+(top fraggers showing 5–7 saves and 11–18 assisted kills per map).
 
 ### Files to touch
 - `internal/aggregator/aggregator.go` — add **Pass 14: Save & Assist

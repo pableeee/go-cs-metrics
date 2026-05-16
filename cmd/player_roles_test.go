@@ -101,23 +101,26 @@ func TestBuildRoleStats_DivByZeroGuards(t *testing.T) {
 func TestBuildRoleStats_HappyPath(t *testing.T) {
 	const demoHash = "d1"
 	stats := []model.PlayerMatchStats{{
-		DemoHash:      demoHash,
-		SteamID:       42,
-		Name:          "alice",
-		Team:          model.TeamCT,
-		Kills:         8,
-		Assists:       1,
-		Deaths:        6,
-		HeadshotKills: 4,
-		TotalDamage:   350,
-		UtilityDamage: 60,
-		RoundsPlayed:  10,
-		KASTRounds:    6,
-		OpeningKills:  2,
-		OpeningDeaths: 2,
-		TradeKills:    0,
-		TradeDeaths:   1,
-		RoundsWon:     5,
+		DemoHash:        demoHash,
+		SteamID:         42,
+		Name:            "alice",
+		Team:            model.TeamCT,
+		Kills:           8,
+		Assists:         1,
+		Deaths:          6,
+		HeadshotKills:   4,
+		TotalDamage:     350,
+		UtilityDamage:   60,
+		RoundsPlayed:    10,
+		KASTRounds:      6,
+		OpeningKills:    2,
+		OpeningDeaths:   2,
+		TradeKills:      0,
+		TradeDeaths:     1,
+		RoundsWon:       5,
+		SavedByTeammate: 2,
+		SavedTeammate:   3,
+		AssistedKills:   4, // 4 of 8 kills had teammate damage already on the victim
 	}}
 
 	round := func(n int, team model.Team, kills, damage int, survived, gotKill, gotAssist, kast, won, openK, openD, tradeD bool) model.PlayerRoundStats {
@@ -252,10 +255,24 @@ func TestBuildRoleStats_HappyPath(t *testing.T) {
 		t.Errorf("SupportRoundsPct = %v, want 20.0", rs.SupportRoundsPct)
 	}
 
+	// ---- §2.2 Entrying — Pass 14 ----
+	// SavedByTeammate=2 / 10 rounds = 0.2.
+	if !almostEq(rs.SavedByTeammatePerRound, 0.2) {
+		t.Errorf("SavedByTeammatePerRound = %v, want 0.2", rs.SavedByTeammatePerRound)
+	}
+
 	// ---- §2.3 Trading ----
 	// Damage / kill = 350 / 8 = 43.75.
 	if !almostEq(rs.DamagePerKill, 43.75) {
 		t.Errorf("DamagePerKill = %v, want 43.75", rs.DamagePerKill)
+	}
+	// SavedTeammate=3 / 10 = 0.3.
+	if !almostEq(rs.SavedTeammatePerRound, 0.3) {
+		t.Errorf("SavedTeammatePerRound = %v, want 0.3", rs.SavedTeammatePerRound)
+	}
+	// AssistedKills=4 / 8 kills = 50%.
+	if !almostEq(rs.AssistedKillsPct, 50.0) {
+		t.Errorf("AssistedKillsPct = %v, want 50.0", rs.AssistedKillsPct)
 	}
 
 	// ---- §2.4 Opening ----

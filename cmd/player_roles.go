@@ -169,10 +169,11 @@ func buildRoleStats(
 
 	// ---- §1 headline (combined) ----
 	var (
-		kills, assists, deaths                 int
-		totalDamage, utilityDamage, kastRounds int
-		roundsPlayed, roundsWon                int
-		openingKills, openingDeaths            int
+		kills, assists, deaths                          int
+		totalDamage, utilityDamage, kastRounds          int
+		roundsPlayed, roundsWon                         int
+		openingKills, openingDeaths                     int
+		savedByTeammate, savedTeammate, assistedKills   int
 	)
 	for _, s := range stats {
 		kills += s.Kills
@@ -185,6 +186,9 @@ func buildRoleStats(
 		roundsWon += s.RoundsWon
 		openingKills += s.OpeningKills
 		openingDeaths += s.OpeningDeaths
+		savedByTeammate += s.SavedByTeammate
+		savedTeammate += s.SavedTeammate
+		assistedKills += s.AssistedKills
 	}
 	rs.RoundsPlayed = roundsPlayed
 	rs.RoundsWon = roundsWon
@@ -313,6 +317,11 @@ func buildRoleStats(
 	// ---- §2.3 Trading ----
 	if kills > 0 {
 		rs.DamagePerKill = float64(totalDamage) / float64(kills)
+		rs.AssistedKillsPct = 100.0 * float64(assistedKills) / float64(kills)
+	}
+	if roundsPlayed > 0 {
+		rs.SavedByTeammatePerRound = float64(savedByTeammate) / float64(roundsPlayed)
+		rs.SavedTeammatePerRound = float64(savedTeammate) / float64(roundsPlayed)
 	}
 
 	// ---- §2.5 Clutching ----

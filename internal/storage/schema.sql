@@ -54,6 +54,9 @@ CREATE TABLE IF NOT EXISTS player_match_stats (
     median_ttd_ms         REAL    NOT NULL DEFAULT 0,
     one_tap_kills         INTEGER NOT NULL DEFAULT 0,
     counter_strafe_pct    REAL    NOT NULL DEFAULT 0,
+    saved_by_teammate     INTEGER NOT NULL DEFAULT 0,
+    saved_teammate        INTEGER NOT NULL DEFAULT 0,
+    assisted_kills        INTEGER NOT NULL DEFAULT 0,
     UNIQUE(demo_hash, steam_id)
 );
 
