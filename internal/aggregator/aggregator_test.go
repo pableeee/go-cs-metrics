@@ -725,3 +725,101 @@ func TestPass14_SelfDamage_NotAssistedKill(t *testing.T) {
 		}
 	}
 }
+
+// ---- Pass 15 tests: HLTV-style flash assists ----
+
+// makeFlashScenario builds a 3-player scenario for Pass 15: F throws a flash
+// that blinds V at flashTick (duration 2s), A kills V at killTick after dealing
+// `dmgInBlind` damage to V at dmgTick. F is A's teammate by default.
+// Returns the populated RawMatch.
+func makeFlashScenario(flashTick, killTick, dmgTick, dmgInBlind int, fThrowerIsA bool) *model.RawMatch {
+	const F, A, V = playerA, playerB, playerC
+	throwerID := F
+	throwerTeam := model.TeamCT
+	if fThrowerIsA {
+		throwerID = A
+	}
+	flash := model.RawFlash{
+		Tick: flashTick, RoundNumber: 1,
+		AttackerSteamID: throwerID, VictimSteamID: V,
+		AttackerTeam: throwerTeam, VictimTeam: model.TeamT,
+		FlashDuration: 2_000_000_000, // 2s in time.Duration ns
+	}
+	dmg := model.RawDamage{
+		Tick: dmgTick, RoundNumber: 1,
+		AttackerSteamID: A, VictimSteamID: V,
+		AttackerTeam: model.TeamCT, HealthDamage: dmgInBlind,
+	}
+	kill := model.RawKill{
+		Tick: killTick, RoundNumber: 1,
+		KillerSteamID: A, VictimSteamID: V,
+		KillerTeam: model.TeamCT, VictimTeam: model.TeamT,
+	}
+	round := makeRound(1, 50, []uint64{F, A, V}, map[uint64]bool{F: true, A: true})
+	return &model.RawMatch{
+		DemoHash: "h", TicksPerSecond: tickRate,
+		Rounds:      []model.RawRound{round},
+		Kills:       []model.RawKill{kill},
+		Damages:     []model.RawDamage{dmg},
+		Flashes:     []model.RawFlash{flash},
+		PlayerNames: map[uint64]string{F: "F", A: "A", V: "V"},
+		PlayerTeams: map[uint64]model.Team{F: model.TeamCT, A: model.TeamCT, V: model.TeamT},
+	}
+}
+
+func assistsByID(t *testing.T, raw *model.RawMatch) map[uint64]int {
+	t.Helper()
+	matchStats, _, _, _, _, _, err := Aggregate(raw)
+	if err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+	out := make(map[uint64]int)
+	for _, ms := range matchStats {
+		out[ms.SteamID] = ms.HltvFlashAssists
+	}
+	return out
+}
+
+// TestPass15_HappyPath: F flashes V at tick 100 (duration 2s = 128 ticks @ 64Hz).
+// A damages V for 40 in the blind, then kills V at tick 200.
+// Expect: F gets 1 HltvFlashAssist.
+func TestPass15_HappyPath(t *testing.T) {
+	raw := makeFlashScenario(100, 200, 150, 40, false)
+	got := assistsByID(t, raw)
+	if got[playerA] != 1 {
+		t.Errorf("F.HltvFlashAssists = %d, want 1", got[playerA])
+	}
+	if got[playerB] != 0 {
+		t.Errorf("A.HltvFlashAssists = %d, want 0 (killer doesn't get the assist)", got[playerB])
+	}
+}
+
+// TestPass15_BelowDamageThreshold: F flashes, A deals only 10 dmg in window.
+// Expect: no credit (below 25).
+func TestPass15_BelowDamageThreshold(t *testing.T) {
+	raw := makeFlashScenario(100, 200, 150, 10, false)
+	got := assistsByID(t, raw)
+	if got[playerA] != 0 {
+		t.Errorf("F.HltvFlashAssists = %d, want 0 (only 10 dmg)", got[playerA])
+	}
+}
+
+// TestPass15_KillOutsideBlindWindow: F flashes at 100, blind lasts until ~228.
+// Kill happens at 500 (well outside the window) with full 40 dmg dealt at 400.
+// Expect: no credit.
+func TestPass15_KillOutsideBlindWindow(t *testing.T) {
+	raw := makeFlashScenario(100, 500, 400, 40, false)
+	got := assistsByID(t, raw)
+	if got[playerA] != 0 {
+		t.Errorf("F.HltvFlashAssists = %d, want 0 (kill outside blind window)", got[playerA])
+	}
+}
+
+// TestPass15_SelfFlash: A flashes V (his own flash), kills V → no assist.
+func TestPass15_SelfFlash(t *testing.T) {
+	raw := makeFlashScenario(100, 200, 150, 40, true)
+	got := assistsByID(t, raw)
+	if got[playerB] != 0 {
+		t.Errorf("A.HltvFlashAssists = %d, want 0 (self-flash)", got[playerB])
+	}
+}

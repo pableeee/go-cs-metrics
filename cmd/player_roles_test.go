@@ -118,9 +118,10 @@ func TestBuildRoleStats_HappyPath(t *testing.T) {
 		TradeKills:      0,
 		TradeDeaths:     1,
 		RoundsWon:       5,
-		SavedByTeammate: 2,
-		SavedTeammate:   3,
-		AssistedKills:   4, // 4 of 8 kills had teammate damage already on the victim
+		SavedByTeammate:  2,
+		SavedTeammate:    3,
+		AssistedKills:    4, // 4 of 8 kills had teammate damage already on the victim
+		HltvFlashAssists: 2, // 2 enemies died blinded by alice's flashes with ≥25 dmg from killer
 	}}
 
 	round := func(n int, team model.Team, kills, damage int, survived, gotKill, gotAssist, kast, won, openK, openD, tradeD bool) model.PlayerRoundStats {
@@ -358,6 +359,10 @@ func TestBuildRoleStats_HappyPath(t *testing.T) {
 	}
 	if !rs.HasUtilityData || !rs.HasFlashThrowData || !rs.HasFlashTimeData {
 		t.Errorf("coverage flags should all be true when event-table inputs are non-empty")
+	}
+	// HltvFlashAssists=2 / 10 rounds = 0.2.
+	if !almostEq(rs.HltvFlashAssistsPerRound, 0.2) {
+		t.Errorf("HltvFlashAssistsPerRound = %v, want 0.2", rs.HltvFlashAssistsPerRound)
 	}
 }
 

@@ -1404,12 +1404,13 @@ func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats) {
 	printSection(w, "Utility",
 		"UTIL_DMG/RD=HE+molotov damage per round  UTIL_K/100R=HE+molotov+incendiary kills per 100 rounds\n"+
 			"FLASH/RD=flashbangs thrown per round  OPP_FLASH_S/RD=opponent blind seconds produced per round\n"+
+			"FLASH_A/RD=HLTV-style flash assists per round (killer dealt ≥25 dmg to victim during blind window)\n"+
 			"Note: UTIL_K, FLASH/RD, OPP_FLASH_S/RD come from event tables (sparse for older demos; run replay --force to backfill)")
 	t8 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	t8.Header("PLAYER", "UTIL_DMG/RD", "UTIL_K/100R", "FLASH/RD", "OPP_FLASH_S/RD")
+	t8.Header("PLAYER", "UTIL_DMG/RD", "UTIL_K/100R", "FLASH/RD", "OPP_FLASH_S/RD", "FLASH_A/RD")
 	for _, r := range roles {
 		utilK := "—"
 		if r.HasUtilityData {
@@ -1429,6 +1430,7 @@ func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats) {
 			utilK,
 			flashRd,
 			oppFlash,
+			fmt.Sprintf("%.2f", r.HltvFlashAssistsPerRound),
 		)
 	}
 	t8.Render()

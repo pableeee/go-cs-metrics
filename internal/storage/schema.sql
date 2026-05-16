@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS player_match_stats (
     saved_by_teammate     INTEGER NOT NULL DEFAULT 0,
     saved_teammate        INTEGER NOT NULL DEFAULT 0,
     assisted_kills        INTEGER NOT NULL DEFAULT 0,
+    hltv_flash_assists    INTEGER NOT NULL DEFAULT 0,
     UNIQUE(demo_hash, steam_id)
 );
 

@@ -64,6 +64,8 @@ func Open(path string) (*DB, error) {
 		`ALTER TABLE player_match_stats ADD COLUMN saved_by_teammate INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_match_stats ADD COLUMN saved_teammate INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_match_stats ADD COLUMN assisted_kills INTEGER NOT NULL DEFAULT 0`,
+		// Slice 3 (Pass 15): HLTV-style flash assists (25 dmg threshold in blind window).
+		`ALTER TABLE player_match_stats ADD COLUMN hltv_flash_assists INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range altMigrations {
 		if _, err := conn.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {

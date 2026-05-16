@@ -256,6 +256,12 @@ type PlayerMatchStats struct {
 	SavedByTeammate int // teammate killed this player's last attacker within 1s of last damage taken
 	SavedTeammate   int // this player killed an opponent attacking a teammate within 1s of last damage
 	AssistedKills   int // kills on opponents teammates had already damaged earlier in the round
+
+	// Pass 15: HLTV-style flash assist. Distinct from FlashAssists (above), which
+	// is the in-game kill-feed rule (~40 dmg). HLTV credits a flash assist when
+	// a blinded enemy is killed and the killer dealt ≥25 dmg to that enemy
+	// during the blind window. Tracked per flash thrower.
+	HltvFlashAssists int
 }
 
 // KDRatio returns the kill-to-death ratio. If deaths is 0, kills is returned.
@@ -421,6 +427,9 @@ type PlayerAggregate struct {
 	SavedByTeammate int
 	SavedTeammate   int
 	AssistedKills   int
+
+	// HLTV-style flash assists (Pass 15) — summed across matches.
+	HltvFlashAssists int
 }
 
 // KDRatio returns the aggregate kill-to-death ratio across all matches.
@@ -702,10 +711,11 @@ type PlayerRoleStats struct {
 	SniperOpeningKillsPerRound float64
 
 	// §2.7 Utility
-	UtilityDamagePerRound  float64 // from player_match_stats (full coverage)
-	UtilityKillsPer100R    float64 // (event-table)
-	FlashesThrownPerRound  float64 // (event-table)
-	OppFlashSecPerRound    float64 // (event-table)
+	UtilityDamagePerRound       float64 // from player_match_stats (full coverage)
+	UtilityKillsPer100R         float64 // (event-table)
+	FlashesThrownPerRound       float64 // (event-table)
+	OppFlashSecPerRound         float64 // (event-table)
+	HltvFlashAssistsPerRound    float64 // Pass 15 — 25-dmg blind-window rule
 
 	// Coverage flags — true if at least one source-table row was found.
 	// Lets the renderer mark blank sections instead of showing 0.00 lies.

@@ -40,8 +40,8 @@ go-cs-metrics/
     ├── csraw2bridge/                # csraw2.Match → model.RawMatch adapter for the aggregator
     ├── parser/parser.go             # legacy .dem → RawMatch direct walker (used by csraw2-compare validation only)
     ├── aggregator/
-    │   ├── aggregator.go            # RawMatch → PlayerMatchStats + all segment types (14-pass pipeline)
-    │   └── aggregator_test.go       # unit tests for metric logic (incl. Pass 14 save/assist)
+    │   ├── aggregator.go            # RawMatch → PlayerMatchStats + all segment types (15-pass pipeline)
+    │   └── aggregator_test.go       # unit tests for metric logic (incl. Pass 14 save/assist, Pass 15 HLTV flash assists)
     ├── storage/
     │   ├── schema.sql               # embedded SQL (go:embed)
     │   ├── storage.go               # DB open / schema apply
@@ -81,7 +81,7 @@ Two equivalent paths feed the same aggregator → storage → report chain:
                        ▼
 [aggregator]   Aggregate(raw) → ([]PlayerMatchStats, []PlayerRoundStats,
     │                            []PlayerWeaponStats, []PlayerDuelSegment, error)
-    │           • 14-pass algorithm over raw event slices
+    │           • 15-pass algorithm over raw event slices
     │           • no I/O, no external dependencies
     │
     ▼

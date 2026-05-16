@@ -193,13 +193,24 @@ data already present in `csraw2.Match` (kills + damages).
 
 ---
 
-## Slice 3 — HLTV-style flash assists
+## Slice 3 — HLTV-style flash assists — **SHIPPED** (as Pass 15)
 
 §2.7 sub-metric "Flash assists per round" uses HLTV's own rule (≥25 damage on
 a blinded enemy within the blind window), distinct from the in-game kill-feed
 rule (≥40 damage). We already capture both legs (`FlashEvent.DurationSec` per
 victim, `RawDamage` per damage incident, `RawKill` per kill) but never join
 them under HLTV's rule.
+
+**Status:** shipped as **Pass 15** (the roadmap originally said "Pass 16" but
+we numbered sequentially after Pass 14). New column on `player_match_stats`:
+`hltv_flash_assists`. Surfaced in the Utility table of `player --roles` as
+`FLASH_A/RD`. The original in-game `FlashAssists` field is preserved for
+side-by-side comparison.
+
+**Coverage caveat:** existing rows default to 0; backfill via
+`replay --dir <event>/ --force`. Smoke-test on `blast_bounty_2026_s1`:
+HLTV vs in-game flash assists land 1.0–1.5× as expected (HLTV's 25 dmg
+threshold is looser than in-game's ~40, so HLTV counts more).
 
 ### Files to touch
 - `internal/aggregator/aggregator.go` — add **Pass 16: HLTV Flash Assists**.

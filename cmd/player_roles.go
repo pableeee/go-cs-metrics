@@ -174,6 +174,7 @@ func buildRoleStats(
 		roundsPlayed, roundsWon                         int
 		openingKills, openingDeaths                     int
 		savedByTeammate, savedTeammate, assistedKills   int
+		hltvFlashAssists                                int
 	)
 	for _, s := range stats {
 		kills += s.Kills
@@ -189,6 +190,7 @@ func buildRoleStats(
 		savedByTeammate += s.SavedByTeammate
 		savedTeammate += s.SavedTeammate
 		assistedKills += s.AssistedKills
+		hltvFlashAssists += s.HltvFlashAssists
 	}
 	rs.RoundsPlayed = roundsPlayed
 	rs.RoundsWon = roundsWon
@@ -444,6 +446,7 @@ func buildRoleStats(
 	}
 	if roundsPlayed > 0 {
 		rs.OppFlashSecPerRound = oppFlashSec / float64(roundsPlayed)
+		rs.HltvFlashAssistsPerRound = float64(hltvFlashAssists) / float64(roundsPlayed)
 	}
 
 	return rs

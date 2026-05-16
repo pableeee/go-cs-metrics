@@ -132,6 +132,7 @@ func wilsonCI(hits, n int) (lo, hi float64) {
 // 12. Death events (per-kill rows with position, weapon, tactical context)
 // 13. Flash events (per-PlayerFlashed rows with blind angle)
 // 14. Save & Assist annotation (HLTV-style 1 s save window + assisted-kill flag)
+// 15. HLTV-style flash assists (25 dmg threshold during blind window)
 func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRoundStats, []model.PlayerWeaponStats, []model.PlayerDuelSegment, []model.PlayerDeathEvent, []model.FlashEvent, error) {
 	if raw == nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("nil RawMatch")
@@ -283,6 +284,90 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 				}
 				assistedKills[A]++
 				break // count once per kill
+			}
+		}
+	}
+
+	// ---- Pass 15: HLTV-style flash assists (25-dmg threshold in blind window). ----
+	//
+	// For each kill K=(killer A, victim V, tick T):
+	//   • Find the most recent RawFlash that blinded V and is still active at T
+	//     (Tick ≤ T ≤ Tick + duration_ticks), thrown by a teammate of A
+	//     (not A himself — self-flash assists don't count).
+	//   • Sum A's damage to V during that flash's blind window.
+	//   • If total ≥ 25 dmg, credit the flash thrower with one HltvFlashAssist.
+	//
+	// This is distinct from the in-game FlashAssists field on PlayerMatchStats,
+	// which uses the demoinfocs ~40 dmg kill-feed rule and is sourced upstream.
+	// We keep both side-by-side so users can compare.
+	const hltvFlashAssistDmgThreshold = 25
+
+	type fkey struct {
+		round  int
+		victim uint64
+	}
+	flashesByRoundVictim := make(map[fkey][]model.RawFlash)
+	for _, f := range raw.Flashes {
+		k := fkey{f.RoundNumber, f.VictimSteamID}
+		flashesByRoundVictim[k] = append(flashesByRoundVictim[k], f)
+	}
+
+	type dkey struct {
+		round              int
+		attacker, victim   uint64
+	}
+	damagesByAtkVic := make(map[dkey][]model.RawDamage)
+	for _, d := range raw.Damages {
+		k := dkey{d.RoundNumber, d.AttackerSteamID, d.VictimSteamID}
+		damagesByAtkVic[k] = append(damagesByAtkVic[k], d)
+	}
+
+	hltvFlashAssists := make(map[uint64]int)
+	for _, kills := range killsByRound {
+		for _, k := range kills {
+			A := k.KillerSteamID
+			V := k.VictimSteamID
+			if A == 0 || V == 0 || A == V {
+				continue
+			}
+			// Find the flash on V with the latest start tick that's still
+			// active at the kill tick and was thrown by A's teammate.
+			flashes := flashesByRoundVictim[fkey{k.RoundNumber, V}]
+			var (
+				bestFlash    *model.RawFlash
+				bestStartTick = -1
+				bestEndTick   int
+			)
+			for i := range flashes {
+				f := &flashes[i]
+				if f.AttackerSteamID == 0 || f.AttackerSteamID == A {
+					continue // null thrower, or self-flash → no assist
+				}
+				if f.AttackerTeam != k.KillerTeam {
+					continue // team-flash from the wrong side
+				}
+				endTick := f.Tick + int(f.FlashDuration.Seconds()*raw.TicksPerSecond)
+				if f.Tick > k.Tick || endTick < k.Tick {
+					continue // flash window doesn't cover the kill
+				}
+				if f.Tick > bestStartTick {
+					bestStartTick = f.Tick
+					bestEndTick = endTick
+					bestFlash = f
+				}
+			}
+			if bestFlash == nil {
+				continue
+			}
+			// Sum A's damage to V during the blind window.
+			var dmgInWindow int
+			for _, d := range damagesByAtkVic[dkey{k.RoundNumber, A, V}] {
+				if d.Tick >= bestFlash.Tick && d.Tick <= bestEndTick {
+					dmgInWindow += d.HealthDamage
+				}
+			}
+			if dmgInWindow >= hltvFlashAssistDmgThreshold {
+				hltvFlashAssists[bestFlash.AttackerSteamID]++
 			}
 		}
 	}
@@ -677,6 +762,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		ms.SavedByTeammate = savedByTeammate[playerID]
 		ms.SavedTeammate = savedTeammate[playerID]
 		ms.AssistedKills = assistedKills[playerID]
+		ms.HltvFlashAssists = hltvFlashAssists[playerID]
 		matchStats = append(matchStats, ms)
 	}
 
