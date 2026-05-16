@@ -23,6 +23,7 @@ go-cs-metrics/
 │   ├── list.go                      # "list" — tabulate stored demos
 │   ├── show.go                      # "show <hash-prefix>" — replay stored match
 │   ├── player.go                    # "player <steamid64>..." — cross-match aggregate
+│   ├── player_roles.go              # "player --roles" helpers: HLTV-style 7-role decomposition
 │   ├── rounds.go                    # "rounds <hash> <steamid>" — per-round drill-down
 │   ├── trend.go                     # "trend <steamid64>" — chronological per-match trend
 │   ├── sql.go                       # "sql <query>" — ad-hoc SQL query
@@ -46,6 +47,7 @@ go-cs-metrics/
     │   ├── storage.go               # DB open / schema apply
     │   ├── queries.go               # insert / query helpers
     │   ├── export_queries.go        # export command queries (QualifyingDemos, MapWinOutcomes, RoundSideStats, RosterMatchTotals, PlayerDemoCounts)
+    │   ├── role_queries.go          # `player --roles` queries (per-round, per-weapon, sniper/utility/flash event aggregates)
     │   └── storage_test.go          # round-trip tests against :memory:
     ├── roundquery/                  # CEL-based round filter + 2D viewer record builder over csraw2.Match
     └── report/

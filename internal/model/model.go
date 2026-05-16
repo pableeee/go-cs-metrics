@@ -450,14 +450,22 @@ func (a *PlayerAggregate) KASTPct() float64 {
 //	Impact ≈ 2.13*KPR + 0.42*APR − 0.41
 //	Rating ≈ 0.0073*KAST% + 0.3591*KPR − 0.5329*DPR + 0.2372*Impact + 0.0032*ADR + 0.1587
 func (a *PlayerAggregate) Rating2() float64 {
-	if a.RoundsPlayed == 0 {
+	return rating2Proxy(a.Kills, a.Assists, a.Deaths, a.KASTRounds, a.TotalDamage, a.RoundsPlayed)
+}
+
+// rating2Proxy is the shared Rating 2.0 community-formula implementation, used
+// by PlayerAggregate / PlayerMapSideAggregate / PlayerSideStats. Returns 0 when
+// roundsPlayed is 0 (caller invariant: never call with zero rounds when a
+// non-zero rating is expected).
+func rating2Proxy(kills, assists, deaths, kastRounds, totalDamage, roundsPlayed int) float64 {
+	if roundsPlayed == 0 {
 		return 0
 	}
-	kpr := float64(a.Kills) / float64(a.RoundsPlayed)
-	apr := float64(a.Assists) / float64(a.RoundsPlayed)
-	dpr := float64(a.Deaths) / float64(a.RoundsPlayed)
-	kast := 100.0 * float64(a.KASTRounds) / float64(a.RoundsPlayed)
-	adr := float64(a.TotalDamage) / float64(a.RoundsPlayed)
+	kpr := float64(kills) / float64(roundsPlayed)
+	apr := float64(assists) / float64(roundsPlayed)
+	dpr := float64(deaths) / float64(roundsPlayed)
+	kast := 100.0 * float64(kastRounds) / float64(roundsPlayed)
+	adr := float64(totalDamage) / float64(roundsPlayed)
 	impact := 2.13*kpr + 0.42*apr - 0.41
 	return 0.0073*kast + 0.3591*kpr - 0.5329*dpr + 0.2372*impact + 0.0032*adr + 0.1587
 }
@@ -517,6 +525,12 @@ func (a *PlayerMapSideAggregate) KASTPct() float64 {
 	return float64(a.KASTRounds) / float64(a.RoundsPlayed) * 100
 }
 
+// Rating2 returns the community Rating 2.0 proxy for this map/side combination.
+// Identical formula to PlayerAggregate.Rating2 — see that method for coefficients.
+func (a *PlayerMapSideAggregate) Rating2() float64 {
+	return rating2Proxy(a.Kills, a.Assists, a.Deaths, a.KASTRounds, a.TotalDamage, a.RoundsPlayed)
+}
+
 // PlayerSideStats holds per-side (CT/T) basic stats for one player within a single match,
 // derived by aggregating player_round_stats.
 type PlayerSideStats struct {
@@ -553,6 +567,11 @@ func (s *PlayerSideStats) KASTPct() float64 {
 		return 0
 	}
 	return float64(s.KASTRounds) / float64(s.RoundsPlayed) * 100
+}
+
+// Rating2 returns the community Rating 2.0 proxy for this side.
+func (s *PlayerSideStats) Rating2() float64 {
+	return rating2Proxy(s.Kills, s.Assists, s.Deaths, s.KASTRounds, s.TotalDamage, s.RoundsPlayed)
 }
 
 // PlayerDeathEvent is one row per kill assembled for analytics: who died,
@@ -606,4 +625,79 @@ type MatchSummary struct {
 	Tier       string // e.g. "pro", "semi-pro", "faceit-5"; empty for personal matches
 	IsBaseline bool   // true for reference corpus demos
 	EventID    string // event identifier from demoget (e.g. "iem_cologne_2025"); empty if unknown
+}
+
+// PlayerRoleStats holds the HLTV-style role decomposition for one player over
+// a filtered set of matches. Produced by cmd/player when --roles is set. All
+// rates are per round unless noted. Percentages are 0-100.
+//
+// Coverage caveat: fields marked "(event-table)" depend on player_death_events
+// / grenade_events / flash_events, which are only populated for demos
+// aggregated after passes 12/13 shipped. Older demos contribute zero rows;
+// re-run `replay --dir <event>/ --force` to backfill.
+type PlayerRoleStats struct {
+	SteamID uint64
+	Name    string
+
+	// Sample size
+	Matches      int
+	RoundsPlayed int
+	RoundsWon    int
+
+	// Headline (§1 top rail)
+	Rating2Combined float64
+	Rating2CT       float64
+	Rating2T        float64
+	KASTPct         float64
+	KPR             float64
+	DPR             float64
+	ADR             float64
+	MultiKillPct    float64 // rounds with ≥2 kills
+
+	// §2.1 Firepower
+	RoundsWithKillPct float64
+	KillsPerRoundWin  float64
+	DamagePerRoundWin float64
+	PistolRoundRating float64 // Rating 2.0 over pistol rounds only
+
+	// §2.2 Entrying
+	OpeningDeathTradedPct float64
+	SupportRoundsPct      float64
+
+	// §2.3 Trading
+	DamagePerKill float64
+
+	// §2.4 Opening
+	OpeningKPR         float64
+	OpeningDPR         float64
+	OpeningAttemptsPct float64
+	OpeningSuccessPct  float64
+	WinAfterOpenPct    float64
+
+	// §2.5 Clutching
+	ClutchPointsPerRound float64 // weighted: 1v1=1, 1v2=2, 1v3=4, 1v4=8, 1v5=16
+	OneVOneAttempts      int
+	OneVOneWins          int
+	OneVOneWinPct        float64
+	SavesPerLossPct      float64 // % of round losses where the player survived
+
+	// §2.6 Sniping (event-table)
+	SniperKillsPerRound        float64
+	SniperKillsPct             float64
+	RoundsWithSniperKillPct    float64
+	SniperMultiKillRoundPct    float64
+	SniperOpeningKillsPerRound float64
+
+	// §2.7 Utility
+	UtilityDamagePerRound  float64 // from player_match_stats (full coverage)
+	UtilityKillsPer100R    float64 // (event-table)
+	FlashesThrownPerRound  float64 // (event-table)
+	OppFlashSecPerRound    float64 // (event-table)
+
+	// Coverage flags — true if at least one source-table row was found.
+	// Lets the renderer mark blank sections instead of showing 0.00 lies.
+	HasSniperData    bool
+	HasUtilityData   bool
+	HasFlashThrowData bool
+	HasFlashTimeData bool
 }

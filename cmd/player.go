@@ -20,6 +20,7 @@ var (
 	playerLast   int
 	playerTop    int
 	playerTopMin int
+	playerRoles  bool
 )
 
 // playerCmd is the cobra command for cross-match aggregate analysis of one or more players.
@@ -36,6 +37,7 @@ func init() {
 	playerCmd.Flags().IntVar(&playerLast, "last", 0, "only use the N most recent matches")
 	playerCmd.Flags().IntVar(&playerTop, "top", 0, "also include the top N players by Rating 2.0 proxy from the database")
 	playerCmd.Flags().IntVar(&playerTopMin, "top-min", 3, "minimum matches a player must have to appear in the top-N ranking")
+	playerCmd.Flags().BoolVar(&playerRoles, "roles", false, "print HLTV-style role decomposition (Firepower/Entry/Trade/Open/Clutch/Snipe/Util)")
 }
 
 // runPlayer loads all match data for each given SteamID64, builds cross-match
@@ -92,6 +94,7 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 	var allMapSide []model.PlayerMapSideAggregate
 	var fhhsList   []fhhsEntry
 	var allClutch  []model.PlayerClutchMatchStats
+	var allRoles   []model.PlayerRoleStats
 
 	for _, arg := range allIDs {
 		id, err := strconv.ParseUint(arg, 10, 64)
@@ -185,6 +188,15 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 				FirstHitHSRate: overallFHHS,
 			}},
 		})
+
+		// ---- Role decomposition (--roles) ----
+		if playerRoles {
+			rs, err := loadRoleStatsForPlayer(db, id, agg.Name, stats, aggClutch, keep)
+			if err != nil {
+				return fmt.Errorf("role stats for %d: %w", id, err)
+			}
+			allRoles = append(allRoles, rs)
+		}
 	}
 
 	if len(allAggs) == 0 {
@@ -199,6 +211,9 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 	report.PrintPlayerMapMechanicsTable(os.Stdout, allMapSide)
 	report.PrintPlayerAggregateAimTable(os.Stdout, allAggs)
 	report.PrintPlayerAggregateClutchTable(os.Stdout, allAggs, allClutch)
+	if playerRoles {
+		report.PrintPlayerRoleStats(os.Stdout, allRoles)
+	}
 
 	// Combine all players' FHHS segments and render a single table.
 	var allFHHSSegs []model.PlayerDuelSegment

@@ -1221,3 +1221,209 @@ func PrintWeaponTable(w io.Writer, stats []model.PlayerWeaponStats, players []mo
 	}
 	table.Render()
 }
+
+// PrintPlayerRoleStats renders the HLTV-style role decomposition: a top-rail
+// summary followed by one table per role (Firepower / Entrying / Trading /
+// Opening / Clutching / Sniping / Utility). Players are rows, metrics are
+// columns. Metrics sourced from event tables (Sniping rounds-with-kill,
+// Utility kills, flashes thrown, opponent-flash seconds) print "—" when
+// the corresponding source has no rows for the player (see PlayerRoleStats
+// coverage flags).
+func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats) {
+	if len(roles) == 0 {
+		return
+	}
+
+	// ---- Headline (§1 top rail) ----
+	printSection(w, "Role Overview",
+		"RATING=Rating 2.0 (combined / CT / T)  KAST%=K/A/S/T rounds  KPR/DPR=kills/deaths per round\n"+
+			"ADR=avg damage per round  MK%=rounds with 2+ kills  ROUNDS=total rounds in filter")
+	t1 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	t1.Header("PLAYER", "MAPS", "ROUNDS", "RATING", "RATING_CT", "RATING_T", "KAST%", "KPR", "DPR", "ADR", "MK%")
+	for _, r := range roles {
+		t1.Append(
+			r.Name,
+			strconv.Itoa(r.Matches),
+			strconv.Itoa(r.RoundsPlayed),
+			fmt.Sprintf("%.2f", r.Rating2Combined),
+			fmt.Sprintf("%.2f", r.Rating2CT),
+			fmt.Sprintf("%.2f", r.Rating2T),
+			fmt.Sprintf("%.0f%%", r.KASTPct),
+			fmt.Sprintf("%.2f", r.KPR),
+			fmt.Sprintf("%.2f", r.DPR),
+			fmt.Sprintf("%.1f", r.ADR),
+			fmt.Sprintf("%.1f%%", r.MultiKillPct),
+		)
+	}
+	t1.Render()
+
+	// ---- §2.1 Firepower ----
+	printSection(w, "Firepower",
+		"RD_WITH_K%=rounds with at least one kill  K/RWIN=kills in won rounds / rounds won\n"+
+			"DMG/RWIN=damage in won rounds / rounds won  PISTOL_R=Rating 2.0 over pistol rounds only (R1/R13)")
+	t2 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	t2.Header("PLAYER", "RD_WITH_K%", "MK%", "K/RWIN", "DMG/RWIN", "PISTOL_R")
+	for _, r := range roles {
+		t2.Append(
+			r.Name,
+			fmt.Sprintf("%.1f%%", r.RoundsWithKillPct),
+			fmt.Sprintf("%.1f%%", r.MultiKillPct),
+			fmt.Sprintf("%.2f", r.KillsPerRoundWin),
+			fmt.Sprintf("%.1f", r.DamagePerRoundWin),
+			fmt.Sprintf("%.2f", r.PistolRoundRating),
+		)
+	}
+	t2.Render()
+
+	// ---- §2.2 Entrying ----
+	printSection(w, "Entrying",
+		"OPEN_D_TRADED%=share of opening deaths that were traded by a teammate within 5s\n"+
+			"SUPPORT%=rounds with assist/survive/traded-death but no kill")
+	t3 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	t3.Header("PLAYER", "OPEN_D_TRADED%", "SUPPORT%")
+	for _, r := range roles {
+		t3.Append(
+			r.Name,
+			fmt.Sprintf("%.1f%%", r.OpeningDeathTradedPct),
+			fmt.Sprintf("%.1f%%", r.SupportRoundsPct),
+		)
+	}
+	t3.Render()
+
+	// ---- §2.3 Trading ----
+	printSection(w, "Trading",
+		"DMG/KILL=total damage divided by total kills; <100 ⇒ kill-stealing tendency")
+	t4 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	t4.Header("PLAYER", "DMG/KILL")
+	for _, r := range roles {
+		t4.Append(
+			r.Name,
+			fmt.Sprintf("%.0f", r.DamagePerKill),
+		)
+	}
+	t4.Render()
+
+	// ---- §2.4 Opening ----
+	printSection(w, "Opening",
+		"OPEN_K/RD=opening kills per round  OPEN_D/RD=opening deaths per round\n"+
+			"ATTEMPTS%=% of rounds in the opening duel  SUCCESS%=opening duels won\n"+
+			"WIN_AFTER_OPEN%=round wins when this player got the opener (5v4 follow-through)")
+	t5 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	t5.Header("PLAYER", "OPEN_K/RD", "OPEN_D/RD", "ATTEMPTS%", "SUCCESS%", "WIN_AFTER_OPEN%")
+	for _, r := range roles {
+		t5.Append(
+			r.Name,
+			fmt.Sprintf("%.2f", r.OpeningKPR),
+			fmt.Sprintf("%.2f", r.OpeningDPR),
+			fmt.Sprintf("%.1f%%", r.OpeningAttemptsPct),
+			fmt.Sprintf("%.1f%%", r.OpeningSuccessPct),
+			fmt.Sprintf("%.1f%%", r.WinAfterOpenPct),
+		)
+	}
+	t5.Render()
+
+	// ---- §2.5 Clutching ----
+	printSection(w, "Clutching",
+		"CLUTCH_PTS/RD=weighted clutch wins per round (1v1=1, 1v2=2, 1v3=4, 1v4=8, 1v5=16)\n"+
+			"1v1=attempts/wins  1v1_WIN%=cohort avg is ~60% (2v1 trades inflate the baseline)\n"+
+			"SAVES/LOSS%=% of round losses where the player survived")
+	t6 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	t6.Header("PLAYER", "CLUTCH_PTS/RD", "1v1", "1v1_WIN%", "SAVES/LOSS%")
+	for _, r := range roles {
+		oneVOne := fmt.Sprintf("%d/%d", r.OneVOneWins, r.OneVOneAttempts)
+		winPct := "—"
+		if r.OneVOneAttempts > 0 {
+			winPct = fmt.Sprintf("%.1f%%", r.OneVOneWinPct)
+		}
+		t6.Append(
+			r.Name,
+			fmt.Sprintf("%.3f", r.ClutchPointsPerRound),
+			oneVOne,
+			winPct,
+			fmt.Sprintf("%.1f%%", r.SavesPerLossPct),
+		)
+	}
+	t6.Render()
+
+	// ---- §2.6 Sniping ----
+	printSection(w, "Sniping",
+		"AWP+SSG only. SNIPER_K/RD=sniper kills per round  SNIPER_K%=share of all kills\n"+
+			"RD_W/SNIPE%=% of rounds with at least one sniper kill  SNIPE_MK%=% of rounds with 2+\n"+
+			"SNIPER_OPEN/RD=sniper opening kills per round\n"+
+			"Note: per-round metrics come from player_death_events (sparse for older demos; run replay --force to backfill)")
+	t7 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	t7.Header("PLAYER", "SNIPER_K/RD", "SNIPER_K%", "RD_W/SNIPE%", "SNIPE_MK%", "SNIPER_OPEN/RD")
+	for _, r := range roles {
+		rdSnipe := "—"
+		snipeMK := "—"
+		snipeOpen := "—"
+		if r.HasSniperData {
+			rdSnipe = fmt.Sprintf("%.1f%%", r.RoundsWithSniperKillPct)
+			snipeMK = fmt.Sprintf("%.1f%%", r.SniperMultiKillRoundPct)
+			snipeOpen = fmt.Sprintf("%.3f", r.SniperOpeningKillsPerRound)
+		}
+		t7.Append(
+			r.Name,
+			fmt.Sprintf("%.2f", r.SniperKillsPerRound),
+			fmt.Sprintf("%.1f%%", r.SniperKillsPct),
+			rdSnipe,
+			snipeMK,
+			snipeOpen,
+		)
+	}
+	t7.Render()
+
+	// ---- §2.7 Utility ----
+	printSection(w, "Utility",
+		"UTIL_DMG/RD=HE+molotov damage per round  UTIL_K/100R=HE+molotov+incendiary kills per 100 rounds\n"+
+			"FLASH/RD=flashbangs thrown per round  OPP_FLASH_S/RD=opponent blind seconds produced per round\n"+
+			"Note: UTIL_K, FLASH/RD, OPP_FLASH_S/RD come from event tables (sparse for older demos; run replay --force to backfill)")
+	t8 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	t8.Header("PLAYER", "UTIL_DMG/RD", "UTIL_K/100R", "FLASH/RD", "OPP_FLASH_S/RD")
+	for _, r := range roles {
+		utilK := "—"
+		if r.HasUtilityData {
+			utilK = fmt.Sprintf("%.2f", r.UtilityKillsPer100R)
+		}
+		flashRd := "—"
+		if r.HasFlashThrowData {
+			flashRd = fmt.Sprintf("%.2f", r.FlashesThrownPerRound)
+		}
+		oppFlash := "—"
+		if r.HasFlashTimeData {
+			oppFlash = fmt.Sprintf("%.2f", r.OppFlashSecPerRound)
+		}
+		t8.Append(
+			r.Name,
+			fmt.Sprintf("%.2f", r.UtilityDamagePerRound),
+			utilK,
+			flashRd,
+			oppFlash,
+		)
+	}
+	t8.Render()
+}

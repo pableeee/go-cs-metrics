@@ -424,6 +424,7 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 | `--last <N>` | `0` | Only use the N most recent matches (applied after map/since filters) |
 | `--top <N>` | `0` | Automatically append the top N players from the database by Rating 2.0 proxy; useful for comparing yourself against the strongest players in your demo set |
 | `--top-min <N>` | `3` | Minimum number of qualifying demos a player must have to be considered for `--top` ranking |
+| `--roles` | `false` | Print HLTV-style role decomposition (Firepower / Entrying / Trading / Opening / Clutching / Sniping / Utility) after the default tables. See [docs/hltv-metrics-reference.md](docs/hltv-metrics-reference.md) for what each metric measures. |
 
 **Output tables** (all requested players appear as rows in the same combined tables):
 
@@ -434,6 +435,7 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 5. **Aim timing** — role, average TTK, average TTD, one-tap%, average counter-strafe%
 6. **Clutch** — 1v1–1v5 attempt/win counts per player
 7. **FHHS table** — first-hit headshot rate by weapon bucket × distance bin, Wilson 95% CI, sample quality flags, priority bins marked with `*` (one table per player)
+8. **Role decomposition** *(when `--roles` is set)* — 8 additional tables: Role Overview (combined / CT / T Rating 2.0, KAST, KPR/DPR, ADR, multi-kill %) plus one section per role. Sniper round-with-kill / Utility kills / Flashes thrown / Opponent-flash seconds come from event tables (`player_death_events`, `grenade_events`, `flash_events`) which are only populated for demos aggregated after passes 12/13 shipped — older demos render `—` for those rows. Re-run `replay --dir <event>/ --force` to backfill.
 
 **Examples:**
 
@@ -447,6 +449,9 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 
 # Same but restricted to nuke and at least 5 qualifying demos per player
 ./go-cs-metrics player 76561198XXXXXXXXX --map nuke --top 5 --top-min 5
+
+# Print the HLTV-style role decomposition (Firepower/Entry/Trade/Open/Clutch/Snipe/Util)
+./go-cs-metrics player 76561198XXXXXXXXX --roles
 ```
 
 When `--top N` is used, the highest-rated players not already in the request are resolved from the database (same `--map`/`--since` filters applied; `--last` does not affect ranking), and a note is printed before the tables:
