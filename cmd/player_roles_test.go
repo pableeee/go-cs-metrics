@@ -118,10 +118,12 @@ func TestBuildRoleStats_HappyPath(t *testing.T) {
 		TradeKills:      0,
 		TradeDeaths:     1,
 		RoundsWon:       5,
-		SavedByTeammate:  2,
-		SavedTeammate:    3,
-		AssistedKills:    4, // 4 of 8 kills had teammate damage already on the victim
-		HltvFlashAssists: 2, // 2 enemies died blinded by alice's flashes with ≥25 dmg from killer
+		SavedByTeammate:       2,
+		SavedTeammate:         3,
+		AssistedKills:         4, // 4 of 8 kills had teammate damage already on the victim
+		HltvFlashAssists:      2, // 2 enemies died blinded by alice's flashes with ≥25 dmg from killer
+		AliveSecondsTotal:     500.0, // 50 s avg over 10 rounds
+		LastAliveServerRounds: 3,     // sole survivor at some point in 3 of 10 rounds
 	}}
 
 	round := func(n int, team model.Team, kills, damage int, survived, gotKill, gotAssist, kast, won, openK, openD, tradeD bool) model.PlayerRoundStats {
@@ -312,6 +314,14 @@ func TestBuildRoleStats_HappyPath(t *testing.T) {
 	// (r4 false, r5 false, r8/9/10 false). So 0/5 = 0%.
 	if !almostEq(rs.SavesPerLossPct, 0.0) {
 		t.Errorf("SavesPerLossPct = %v, want 0.0", rs.SavesPerLossPct)
+	}
+	// 500 s alive / 10 rounds = 50 s per round.
+	if !almostEq(rs.TimeAlivePerRoundSec, 50.0) {
+		t.Errorf("TimeAlivePerRoundSec = %v, want 50.0", rs.TimeAlivePerRoundSec)
+	}
+	// 3 last-alive-server rounds / 10 = 30%.
+	if !almostEq(rs.LastAliveServerPct, 30.0) {
+		t.Errorf("LastAliveServerPct = %v, want 30.0", rs.LastAliveServerPct)
 	}
 
 	// ---- §2.6 Sniping ----

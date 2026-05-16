@@ -175,6 +175,8 @@ func buildRoleStats(
 		openingKills, openingDeaths                     int
 		savedByTeammate, savedTeammate, assistedKills   int
 		hltvFlashAssists                                int
+		aliveSecondsTotal                               float64
+		lastAliveServerRounds                           int
 	)
 	for _, s := range stats {
 		kills += s.Kills
@@ -191,6 +193,8 @@ func buildRoleStats(
 		savedTeammate += s.SavedTeammate
 		assistedKills += s.AssistedKills
 		hltvFlashAssists += s.HltvFlashAssists
+		aliveSecondsTotal += s.AliveSecondsTotal
+		lastAliveServerRounds += s.LastAliveServerRounds
 	}
 	rs.RoundsPlayed = roundsPlayed
 	rs.RoundsWon = roundsWon
@@ -358,6 +362,10 @@ func buildRoleStats(
 	}
 	if losses > 0 {
 		rs.SavesPerLossPct = 100.0 * float64(saves) / float64(losses)
+	}
+	if roundsPlayed > 0 {
+		rs.TimeAlivePerRoundSec = aliveSecondsTotal / float64(roundsPlayed)
+		rs.LastAliveServerPct = 100.0 * float64(lastAliveServerRounds) / float64(roundsPlayed)
 	}
 
 	// ---- §2.6 Sniping ----

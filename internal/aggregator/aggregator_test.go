@@ -823,3 +823,145 @@ func TestPass15_SelfFlash(t *testing.T) {
 		t.Errorf("A.HltvFlashAssists = %d, want 0 (self-flash)", got[playerB])
 	}
 }
+
+// ---- Pass 16 tests: liveness ----
+
+// livenessByID extracts (alive seconds, last-alive-server count) per player.
+func livenessByID(t *testing.T, raw *model.RawMatch) map[uint64]model.PlayerMatchStats {
+	t.Helper()
+	matchStats, _, _, _, _, _, err := Aggregate(raw)
+	if err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+	out := make(map[uint64]model.PlayerMatchStats)
+	for _, ms := range matchStats {
+		out[ms.SteamID] = ms
+	}
+	return out
+}
+
+// TestPass16_TimeAlive_DiesMidRound: round freeze ends at 100, EndTick=1700
+// (1600 ticks = 25s of action at 64Hz). Player A dies at tick 700 (600 ticks
+// after freeze = 9.375 s). Player B survives → 1600/64 = 25 s.
+func TestPass16_TimeAlive_DiesMidRound(t *testing.T) {
+	const A, B = playerA, playerB
+	kill := model.RawKill{
+		Tick: 700, RoundNumber: 1,
+		KillerSteamID: B, VictimSteamID: A,
+		KillerTeam: model.TeamCT, VictimTeam: model.TeamT,
+	}
+	// makeRound builds StartTick=0, FreezeEndTick=100, EndTick=10100.
+	// Override EndTick to 1700 for an action duration of 1600 ticks.
+	round := makeRound(1, 100, []uint64{A, B}, map[uint64]bool{B: true})
+	round.EndTick = 1700
+
+	raw := &model.RawMatch{
+		DemoHash: "h", TicksPerSecond: tickRate,
+		Rounds:      []model.RawRound{round},
+		Kills:       []model.RawKill{kill},
+		PlayerNames: map[uint64]string{A: "A", B: "B"},
+		PlayerTeams: map[uint64]model.Team{A: model.TeamT, B: model.TeamCT},
+	}
+	got := livenessByID(t, raw)
+
+	wantA := float64(700-100) / tickRate // 9.375
+	wantB := float64(1700-100) / tickRate // 25.0
+	if !almostEqual(got[A].AliveSecondsTotal, wantA) {
+		t.Errorf("A.AliveSecondsTotal = %v, want %v", got[A].AliveSecondsTotal, wantA)
+	}
+	if !almostEqual(got[B].AliveSecondsTotal, wantB) {
+		t.Errorf("B.AliveSecondsTotal = %v, want %v", got[B].AliveSecondsTotal, wantB)
+	}
+}
+
+// TestPass16_LastAliveOnServer: 4 players (2v2). Sequence:
+//   tick 200: B kills A → 1v2 alive (B, C, D); B still has a teammate
+//   tick 300: B kills C → 1v1 alive (B, D); only 2 alive total, no sole survivor yet
+//   tick 400: D kills B → 0v1 alive (only D); D is the SOLE survivor.
+// Expect: D gets +1 LastAliveServerRounds. Nobody else credited.
+func TestPass16_LastAliveOnServer(t *testing.T) {
+	const A, B, C, D = playerA, playerB, playerC, playerD
+	kills := []model.RawKill{
+		{Tick: 200, RoundNumber: 1, KillerSteamID: B, VictimSteamID: A,
+			KillerTeam: model.TeamCT, VictimTeam: model.TeamT},
+		{Tick: 300, RoundNumber: 1, KillerSteamID: B, VictimSteamID: C,
+			KillerTeam: model.TeamCT, VictimTeam: model.TeamT},
+		{Tick: 400, RoundNumber: 1, KillerSteamID: D, VictimSteamID: B,
+			KillerTeam: model.TeamT, VictimTeam: model.TeamCT},
+	}
+	round := makeRound(1, 100, []uint64{A, B, C, D}, map[uint64]bool{D: true})
+	round.EndTick = 500
+	raw := &model.RawMatch{
+		DemoHash: "h", TicksPerSecond: tickRate,
+		Rounds:      []model.RawRound{round},
+		Kills:       kills,
+		PlayerNames: map[uint64]string{A: "A", B: "B", C: "C", D: "D"},
+		PlayerTeams: map[uint64]model.Team{
+			A: model.TeamT, B: model.TeamCT, C: model.TeamT, D: model.TeamT,
+		},
+	}
+	got := livenessByID(t, raw)
+
+	if got[D].LastAliveServerRounds != 1 {
+		t.Errorf("D.LastAliveServerRounds = %d, want 1", got[D].LastAliveServerRounds)
+	}
+	for _, id := range []uint64{A, B, C} {
+		if got[id].LastAliveServerRounds != 0 {
+			t.Errorf("%d.LastAliveServerRounds = %d, want 0", id, got[id].LastAliveServerRounds)
+		}
+	}
+}
+
+// TestPass16_LosingTeamGetsCredit: scenario where the player who's eventually
+// the sole survivor is from the LOSING team — they were briefly alone before
+// getting killed. Sequence (2v2):
+//   tick 100: D (T) kills A (CT) — 1v2 (D, B alive on T; C alive on CT)
+//     Wait no — A and C are CT; B and D are T.
+//     Let me redo: CT = {A, B}, T = {C, D}.
+//   tick 100: C kills A → alive {B, C, D}. 1 CT, 2 T. No sole survivor.
+//   tick 200: D kills B → alive {C, D}. 0 CT, 2 T. No sole survivor — both T alive.
+//   No further kills. T wins by elimination. Nobody was ever sole survivor.
+// Actually, sole survivor requires alive count = 1. Let me make a scenario
+// where the credit goes to a non-clutcher loser:
+//   tick 100: C kills A → {B, C, D} alive
+//   tick 200: D kills B → {C, D} alive (no sole survivor yet, count=2)
+//   tick 300: C kills D (teamkill or accident) → {C} alive → sole survivor!
+//   tick 400: round ends, C survives as a 1-man team.
+// Even though C is alone, this works for credit.
+func TestPass16_LastAliveOnServer_Teamkill(t *testing.T) {
+	const A, B, C, D = playerA, playerB, playerC, playerD
+	kills := []model.RawKill{
+		{Tick: 100, RoundNumber: 1, KillerSteamID: C, VictimSteamID: A,
+			KillerTeam: model.TeamT, VictimTeam: model.TeamCT},
+		{Tick: 200, RoundNumber: 1, KillerSteamID: D, VictimSteamID: B,
+			KillerTeam: model.TeamT, VictimTeam: model.TeamCT},
+		// Teamkill (rare but exists in CS2 friendly-fire-on configs):
+		{Tick: 300, RoundNumber: 1, KillerSteamID: C, VictimSteamID: D,
+			KillerTeam: model.TeamT, VictimTeam: model.TeamT},
+	}
+	round := makeRound(1, 50, []uint64{A, B, C, D}, map[uint64]bool{C: true})
+	round.EndTick = 500
+	raw := &model.RawMatch{
+		DemoHash: "h", TicksPerSecond: tickRate,
+		Rounds:      []model.RawRound{round},
+		Kills:       kills,
+		PlayerNames: map[uint64]string{A: "A", B: "B", C: "C", D: "D"},
+		PlayerTeams: map[uint64]model.Team{
+			A: model.TeamCT, B: model.TeamCT, C: model.TeamT, D: model.TeamT,
+		},
+	}
+	got := livenessByID(t, raw)
+
+	if got[C].LastAliveServerRounds != 1 {
+		t.Errorf("C.LastAliveServerRounds = %d, want 1 (sole survivor after teamkill)",
+			got[C].LastAliveServerRounds)
+	}
+}
+
+// almostEqual replicates the tolerance helper used in cmd/ tests.
+func almostEqual(a, b float64) bool {
+	if a > b {
+		return a-b < 1e-6
+	}
+	return b-a < 1e-6
+}

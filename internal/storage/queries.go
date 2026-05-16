@@ -111,8 +111,9 @@ func (db *DB) InsertPlayerMatchStats(stats []model.PlayerMatchStats) error {
 			role, median_ttk_ms, median_ttd_ms, one_tap_kills, counter_strafe_pct,
 			rounds_won, median_trade_kill_delay_ms, median_trade_death_delay_ms,
 			saved_by_teammate, saved_teammate, assisted_kills,
-			hltv_flash_assists
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+			hltv_flash_assists,
+			alive_seconds_total, last_alive_server_rounds
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -137,6 +138,7 @@ func (db *DB) InsertPlayerMatchStats(stats []model.PlayerMatchStats) error {
 			s.RoundsWon, s.MedianTradeKillDelayMs, s.MedianTradeDeathDelayMs,
 			s.SavedByTeammate, s.SavedTeammate, s.AssistedKills,
 			s.HltvFlashAssists,
+			s.AliveSecondsTotal, s.LastAliveServerRounds,
 		)
 		if err != nil {
 			return fmt.Errorf("insert player_match_stats for %d: %w", s.SteamID, err)
@@ -245,7 +247,8 @@ func (db *DB) GetPlayerMatchStats(demoHash string) ([]model.PlayerMatchStats, er
 		       effective_flashes,
 		       role, median_ttk_ms, median_ttd_ms, one_tap_kills, counter_strafe_pct,
 		       saved_by_teammate, saved_teammate, assisted_kills,
-		       hltv_flash_assists
+		       hltv_flash_assists,
+		       alive_seconds_total, last_alive_server_rounds
 		FROM player_match_stats WHERE demo_hash = ?
 		ORDER BY kills DESC`, demoHash)
 	if err != nil {
@@ -274,6 +277,7 @@ func (db *DB) GetPlayerMatchStats(demoHash string) ([]model.PlayerMatchStats, er
 			&s.Role, &s.MedianTTKMs, &s.MedianTTDMs, &s.OneTapKills, &s.CounterStrafePercent,
 			&s.SavedByTeammate, &s.SavedTeammate, &s.AssistedKills,
 			&s.HltvFlashAssists,
+			&s.AliveSecondsTotal, &s.LastAliveServerRounds,
 		); err != nil {
 			return nil, err
 		}
@@ -461,7 +465,8 @@ func (db *DB) GetAllPlayerMatchStats(steamID uint64) ([]model.PlayerMatchStats, 
 		       p.role, p.median_ttk_ms, p.median_ttd_ms, p.one_tap_kills, p.counter_strafe_pct,
 		       p.rounds_won, p.median_trade_kill_delay_ms, p.median_trade_death_delay_ms,
 		       p.saved_by_teammate, p.saved_teammate, p.assisted_kills,
-		       p.hltv_flash_assists
+		       p.hltv_flash_assists,
+		       p.alive_seconds_total, p.last_alive_server_rounds
 		FROM player_match_stats p
 		JOIN demos d ON d.hash = p.demo_hash
 		WHERE p.steam_id = ?
@@ -493,6 +498,7 @@ func (db *DB) GetAllPlayerMatchStats(steamID uint64) ([]model.PlayerMatchStats, 
 			&s.RoundsWon, &s.MedianTradeKillDelayMs, &s.MedianTradeDeathDelayMs,
 			&s.SavedByTeammate, &s.SavedTeammate, &s.AssistedKills,
 			&s.HltvFlashAssists,
+			&s.AliveSecondsTotal, &s.LastAliveServerRounds,
 		); err != nil {
 			return nil, err
 		}

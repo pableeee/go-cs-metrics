@@ -262,6 +262,15 @@ type PlayerMatchStats struct {
 	// a blinded enemy is killed and the killer dealt ≥25 dmg to that enemy
 	// during the blind window. Tracked per flash thrower.
 	HltvFlashAssists int
+
+	// Pass 16: Liveness — time alive and sole-survivor moments.
+	// AliveSecondsTotal sums (death_tick − round_start_tick) / tickrate across all
+	// rounds in the match; capped at round end for rounds the player survived.
+	// LastAliveServerRounds counts rounds where at any point the player was the
+	// sole alive player across both teams (different from is_in_clutch, which
+	// only requires being last on one's own team).
+	AliveSecondsTotal     float64
+	LastAliveServerRounds int
 }
 
 // KDRatio returns the kill-to-death ratio. If deaths is 0, kills is returned.
@@ -430,6 +439,10 @@ type PlayerAggregate struct {
 
 	// HLTV-style flash assists (Pass 15) — summed across matches.
 	HltvFlashAssists int
+
+	// Liveness (Pass 16) — summed across matches.
+	AliveSecondsTotal     float64
+	LastAliveServerRounds int
 }
 
 // KDRatio returns the aggregate kill-to-death ratio across all matches.
@@ -702,6 +715,8 @@ type PlayerRoleStats struct {
 	OneVOneWins          int
 	OneVOneWinPct        float64
 	SavesPerLossPct      float64 // % of round losses where the player survived
+	TimeAlivePerRoundSec float64 // Pass 16 — average action-time seconds alive per round
+	LastAliveServerPct   float64 // Pass 16 — % of rounds where player was sole survivor on server
 
 	// §2.6 Sniping (event-table)
 	SniperKillsPerRound        float64

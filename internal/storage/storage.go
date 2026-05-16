@@ -66,6 +66,9 @@ func Open(path string) (*DB, error) {
 		`ALTER TABLE player_match_stats ADD COLUMN assisted_kills INTEGER NOT NULL DEFAULT 0`,
 		// Slice 3 (Pass 15): HLTV-style flash assists (25 dmg threshold in blind window).
 		`ALTER TABLE player_match_stats ADD COLUMN hltv_flash_assists INTEGER NOT NULL DEFAULT 0`,
+		// Slice 4 (Pass 16): liveness — time alive and sole-survivor moments.
+		`ALTER TABLE player_match_stats ADD COLUMN alive_seconds_total REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_match_stats ADD COLUMN last_alive_server_rounds INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range altMigrations {
 		if _, err := conn.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {

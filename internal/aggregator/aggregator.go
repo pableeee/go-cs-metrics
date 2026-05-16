@@ -133,6 +133,7 @@ func wilsonCI(hits, n int) (lo, hi float64) {
 // 13. Flash events (per-PlayerFlashed rows with blind angle)
 // 14. Save & Assist annotation (HLTV-style 1 s save window + assisted-kill flag)
 // 15. HLTV-style flash assists (25 dmg threshold during blind window)
+// 16. Liveness (per-player time alive + sole-survivor moments)
 func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRoundStats, []model.PlayerWeaponStats, []model.PlayerDuelSegment, []model.PlayerDeathEvent, []model.FlashEvent, error) {
 	if raw == nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("nil RawMatch")
@@ -368,6 +369,64 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			}
 			if dmgInWindow >= hltvFlashAssistDmgThreshold {
 				hltvFlashAssists[bestFlash.AttackerSteamID]++
+			}
+		}
+	}
+
+	// ---- Pass 16: Liveness — time alive and sole-survivor moments. ----
+	//
+	// For each round R:
+	//   • Time alive per player = (death_tick or R.EndTick) − R.FreezeEndTick,
+	//     converted to seconds via raw.TicksPerSecond. Anchoring at
+	//     FreezeEndTick (action start) — not StartTick — matches HLTV's
+	//     "time alive" semantics where the typical cohort lands at 50–90 s
+	//     of in-action time. Players who survived get credited for the full
+	//     action duration. Players not in PlayerEndState are skipped (likely
+	//     disconnected).
+	//   • Last alive on server: sweep kills in tick order, removing victims
+	//     from the alive set. The first kill that drops the alive count to 1
+	//     credits that lone player with one "last alive on server" round.
+	//     Capped at one credit per round.
+	aliveSeconds := make(map[uint64]float64)
+	lastAliveServer := make(map[uint64]int)
+	for _, round := range raw.Rounds {
+		if len(round.PlayerEndState) == 0 {
+			continue
+		}
+		kills := killsByRound[round.Number]
+		// Per-player first-death tick this round.
+		deathTick := make(map[uint64]int, len(kills))
+		for _, k := range kills {
+			if _, seen := deathTick[k.VictimSteamID]; !seen {
+				deathTick[k.VictimSteamID] = k.Tick
+			}
+		}
+		// Time alive (action time, anchored at FreezeEndTick).
+		for playerID := range round.PlayerEndState {
+			endTick := round.EndTick
+			if dt, died := deathTick[playerID]; died {
+				endTick = dt
+			}
+			ticksAlive := max(endTick-round.FreezeEndTick, 0)
+			aliveSeconds[playerID] += float64(ticksAlive) / raw.TicksPerSecond
+		}
+		// Last-alive-on-server: walk kills in tick order (Pass 1 already sorted them).
+		alive := make(map[uint64]bool, len(round.PlayerEndState))
+		for playerID := range round.PlayerEndState {
+			alive[playerID] = true
+		}
+		credited := false
+		for _, k := range kills {
+			if !alive[k.VictimSteamID] {
+				continue
+			}
+			delete(alive, k.VictimSteamID)
+			if !credited && len(alive) == 1 {
+				for survivorID := range alive {
+					lastAliveServer[survivorID]++
+				}
+				credited = true
+				break
 			}
 		}
 	}
@@ -763,6 +822,8 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		ms.SavedTeammate = savedTeammate[playerID]
 		ms.AssistedKills = assistedKills[playerID]
 		ms.HltvFlashAssists = hltvFlashAssists[playerID]
+		ms.AliveSecondsTotal = aliveSeconds[playerID]
+		ms.LastAliveServerRounds = lastAliveServer[playerID]
 		matchStats = append(matchStats, ms)
 	}
 

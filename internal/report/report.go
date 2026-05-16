@@ -69,6 +69,21 @@ func colorRoundFlag(flag string) string {
 	}
 }
 
+// formatMinSec renders a duration in seconds as "1m 10s" (HLTV style).
+// Negative or zero returns "0s". Fractions are rounded down to whole seconds.
+func formatMinSec(seconds float64) string {
+	if seconds <= 0 {
+		return "0s"
+	}
+	total := int(seconds)
+	m := total / 60
+	s := total % 60
+	if m == 0 {
+		return fmt.Sprintf("%ds", s)
+	}
+	return fmt.Sprintf("%dm %ds", m, s)
+}
+
 // toAny converts a []string to []any for use with tablewriter.Append.
 func toAny(ss []string) []any {
 	out := make([]any, len(ss))
@@ -1347,12 +1362,14 @@ func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats) {
 	printSection(w, "Clutching",
 		"CLUTCH_PTS/RD=weighted clutch wins per round (1v1=1, 1v2=2, 1v3=4, 1v4=8, 1v5=16)\n"+
 			"1v1=attempts/wins  1v1_WIN%=cohort avg is ~60% (2v1 trades inflate the baseline)\n"+
-			"SAVES/LOSS%=% of round losses where the player survived")
+			"SAVES/LOSS%=% of round losses where the player survived\n"+
+			"TIME_ALIVE/RD=average seconds of action time alive per round (HLTV cohort 50–90 s)\n"+
+			"LAST_ALIVE_SVR%=% of rounds where the player was at any point the sole survivor on the server")
 	t6 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	t6.Header("PLAYER", "CLUTCH_PTS/RD", "1v1", "1v1_WIN%", "SAVES/LOSS%")
+	t6.Header("PLAYER", "CLUTCH_PTS/RD", "1v1", "1v1_WIN%", "SAVES/LOSS%", "TIME_ALIVE/RD", "LAST_ALIVE_SVR%")
 	for _, r := range roles {
 		oneVOne := fmt.Sprintf("%d/%d", r.OneVOneWins, r.OneVOneAttempts)
 		winPct := "—"
@@ -1365,6 +1382,8 @@ func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats) {
 			oneVOne,
 			winPct,
 			fmt.Sprintf("%.1f%%", r.SavesPerLossPct),
+			formatMinSec(r.TimeAlivePerRoundSec),
+			fmt.Sprintf("%.1f%%", r.LastAliveServerPct),
 		)
 	}
 	t6.Render()

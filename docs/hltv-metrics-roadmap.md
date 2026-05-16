@@ -242,14 +242,31 @@ for each kill K (killer=A, victim=V, tick=T_k):
 
 ---
 
-## Slice 4 — Time alive & last-alive-on-server
+## Slice 4 — Time alive & last-alive-on-server — **SHIPPED** (as Pass 16)
 
 Two §2.5 (Clutching) metrics need a new "per-round liveness" pass:
-- **Time alive per round** — `Σ (death_tick − round_start_tick) / tickrate`
-  across all rounds. Cap at round end if survived.
+- **Time alive per round** — `Σ (death_tick − round_freeze_end_tick) / tickrate`
+  across all rounds. Cap at round end if survived. Anchored at
+  `FreezeEndTick` (action start) — not `StartTick` — to match HLTV's
+  "time alive" semantics.
 - **Last alive on server %** — % of rounds where the player was at any point
   the sole survivor across both teams (different from `is_in_clutch`, which is
   last-on-team).
+
+**Status:** shipped as **Pass 16** (the roadmap originally said "Pass 17"
+speculatively; shipped sequentially after Pass 15). New columns on
+`player_match_stats`: `alive_seconds_total` (REAL, sum of seconds alive
+across the match) and `last_alive_server_rounds` (INTEGER, count). Surfaced
+in the Clutching table of `player --roles` as `TIME_ALIVE/RD` (formatted
+HLTV-style `1m 10s`) and `LAST_ALIVE_SVR%`.
+
+**Coverage caveat:** existing rows default to 0; backfill via
+`replay --dir <event>/ --force`. Smoke-tested on `blast_bounty_2026_s1`:
+top survivors (ZywOo, Bymas) land at 75–101 s/round avg, slightly above
+HLTV's stated 50–90 s cohort. This is partly expected — pro CT-side
+survival rates are high, and post-plant time for surviving T players
+inflates the average — but worth a deeper calibration check if we ever
+build a cohort percentile layer (Slice 5).
 
 ### Files to touch
 - `internal/aggregator/aggregator.go` — add **Pass 17: Liveness**. Reuses

@@ -1070,7 +1070,7 @@ Two ingestion paths feed the same pipeline:
                               │  *RawMatch
                               ▼
                ┌──────────────────────────────┐
-               │  aggregator (internal/       │  15-pass aggregation:
+               │  aggregator (internal/       │  16-pass aggregation:
                │  aggregator)                 │  trade annotation + timing,
                │                              │  opening kills, round W/L,
                │                              │  KAST, crosshair, duel engine,
@@ -1078,7 +1078,8 @@ Two ingestion paths feed the same pipeline:
                │                              │  role, TTK/TTD, counter-strafe,
                │                              │  death events, flash events,
                │                              │  save & assist annotation,
-               │                              │  HLTV-style flash assists
+               │                              │  HLTV-style flash assists,
+               │                              │  liveness (time-alive + sole-survivor)
                └──────────────┬───────────────┘
                               │  PlayerMatchStats
                               │  PlayerRoundStats
