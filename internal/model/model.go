@@ -738,4 +738,9 @@ type PlayerRoleStats struct {
 	HasUtilityData   bool
 	HasFlashThrowData bool
 	HasFlashTimeData bool
+
+	// Cohort percentile for Rating 2.0 in [0,100]. -1 when the cohort was too
+	// small to be meaningful (see CohortMinPlayers in cmd/player). Higher is
+	// better; 50 ≈ median player in the cohort.
+	Rating2CohortPercentile float64
 }

@@ -2,10 +2,59 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/pable/go-cs-metrics/internal/model"
 	"github.com/pable/go-cs-metrics/internal/storage"
 )
+
+// CohortMinPlayers is the minimum cohort size to compute percentile labels.
+// Below this, PlayerRoleStats.Rating2CohortPercentile stays at -1 and the
+// renderer hides the rank column. Picked to ensure each percentile bucket
+// has enough mass to be statistically meaningful.
+const CohortMinPlayers = 30
+
+// CohortPlayerMinRounds is the per-player rounds-played threshold for being
+// included in the cohort. Filters out cameo appearances and ringers that
+// distort the distribution.
+const CohortPlayerMinRounds = 200
+
+// buildCohortRatings returns a sorted slice of Rating 2.0 values, one per
+// player in the cohort. Use percentileOf to find a focal player's percentile.
+func buildCohortRatings(cohort []storage.CohortAggregate) []float64 {
+	ratings := make([]float64, 0, len(cohort))
+	for _, c := range cohort {
+		if c.RoundsPlayed <= 0 {
+			continue
+		}
+		ratings = append(ratings, rating2(
+			c.Kills, c.Assists, c.Deaths,
+			c.KASTRounds, c.TotalDamage, c.RoundsPlayed,
+		))
+	}
+	sort.Float64s(ratings)
+	return ratings
+}
+
+// percentileOf returns the percentile (0–100) of value v within a sorted
+// slice. Linear-interpolated for ties. Returns -1 when the cohort is empty.
+func percentileOf(sorted []float64, v float64) float64 {
+	n := len(sorted)
+	if n == 0 {
+		return -1
+	}
+	// sort.Search returns the first index where sorted[i] >= v.
+	idx := sort.SearchFloat64s(sorted, v)
+	// Count how many entries are strictly less; idx is the leftmost match.
+	lower := idx
+	upper := idx
+	for upper < n && sorted[upper] == v {
+		upper++
+	}
+	// Midpoint of [lower, upper) gives a stable percentile even with ties.
+	rank := (float64(lower) + float64(upper)) / 2.0
+	return 100.0 * rank / float64(n)
+}
 
 // loadRoleStatsForPlayer is the cmd-side helper that loads every input
 // buildRoleStats needs from the DB, filters by the caller's set of surviving
@@ -14,6 +63,10 @@ import (
 // `keep` must contain exactly the demo hashes the caller has already filtered
 // `stats` down to (it's the same set used elsewhere in cmd/player to filter
 // duel segments and clutch counts). `name` is the display name to attach.
+// `side` is "both", "ct", or "t" — when not "both", per-round-derived metrics
+// are computed only from rounds on that side. Match-level fields (sniper kills,
+// HLTV flash assists, etc.) stay combined since they are not side-tagged in
+// the schema; this is documented in the renderer.
 func loadRoleStatsForPlayer(
 	db *storage.DB,
 	id uint64,
@@ -21,12 +74,14 @@ func loadRoleStatsForPlayer(
 	stats []model.PlayerMatchStats,
 	clutch model.PlayerClutchMatchStats,
 	keep map[string]struct{},
+	side string,
 ) (model.PlayerRoleStats, error) {
 	roundStats, err := db.GetAllPlayerRoundStats(id)
 	if err != nil {
 		return model.PlayerRoleStats{}, fmt.Errorf("get round stats: %w", err)
 	}
 	roundStats = filterRoundStatsByDemo(roundStats, keep)
+	roundStats = filterRoundStatsBySide(roundStats, side)
 
 	weaponStats, err := db.GetAllPlayerWeaponStats(id)
 	if err != nil {
@@ -72,6 +127,27 @@ func filterRoundStatsByDemo(rs []model.PlayerRoundStats, keep map[string]struct{
 	out := rs[:0]
 	for _, r := range rs {
 		if _, ok := keep[r.DemoHash]; ok {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// filterRoundStatsBySide drops rounds whose team doesn't match the requested
+// side ("ct" or "t"). "both" (or any other value) passes through unchanged.
+func filterRoundStatsBySide(rs []model.PlayerRoundStats, side string) []model.PlayerRoundStats {
+	var want model.Team
+	switch side {
+	case "ct":
+		want = model.TeamCT
+	case "t":
+		want = model.TeamT
+	default:
+		return rs
+	}
+	out := rs[:0]
+	for _, r := range rs {
+		if r.Team == want {
 			out = append(out, r)
 		}
 	}

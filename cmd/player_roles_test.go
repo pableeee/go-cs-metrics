@@ -388,3 +388,65 @@ func TestBuildRoleStats_CoverageFlags(t *testing.T) {
 		t.Errorf("coverage flags should all be false on empty inputs, got %+v", rs)
 	}
 }
+
+// ---- Slice 5 helpers ----
+
+func TestPercentileOf(t *testing.T) {
+	cases := []struct {
+		name   string
+		sorted []float64
+		v      float64
+		want   float64
+	}{
+		{"empty", nil, 1.0, -1},
+		{"single below", []float64{1.5}, 1.0, 0},   // before only entry
+		{"single match", []float64{1.5}, 1.5, 50},  // tie midpoint
+		{"single above", []float64{1.5}, 2.0, 100}, // after only entry
+		{"five elements top", []float64{1.0, 1.1, 1.2, 1.3, 1.4}, 1.4, 90},   // last → midpoint of [4,5]
+		{"five elements bot", []float64{1.0, 1.1, 1.2, 1.3, 1.4}, 1.0, 10},   // first
+		{"value above all", []float64{1.0, 1.5, 2.0}, 3.0, 100},
+		{"value below all", []float64{1.0, 1.5, 2.0}, 0.5, 0},
+		{"value between with ties", []float64{1.0, 1.5, 1.5, 1.5, 2.0}, 1.5, 50}, // midpoint of [1,4]
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := percentileOf(tc.sorted, tc.v)
+			if !almostEq(got, tc.want) {
+				t.Errorf("percentileOf(%v, %v) = %v, want %v", tc.sorted, tc.v, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFilterRoundStatsBySide(t *testing.T) {
+	rs := []model.PlayerRoundStats{
+		{RoundNumber: 1, Team: model.TeamCT},
+		{RoundNumber: 2, Team: model.TeamT},
+		{RoundNumber: 3, Team: model.TeamCT},
+		{RoundNumber: 4, Team: model.TeamT},
+	}
+	// "both" passes through unchanged.
+	if got := filterRoundStatsBySide(rs, "both"); len(got) != 4 {
+		t.Errorf("side=both kept %d, want 4", len(got))
+	}
+	// "ct" keeps only TeamCT rows.
+	ct := filterRoundStatsBySide(append([]model.PlayerRoundStats{}, rs...), "ct")
+	if len(ct) != 2 {
+		t.Errorf("side=ct kept %d, want 2", len(ct))
+	}
+	for _, r := range ct {
+		if r.Team != model.TeamCT {
+			t.Errorf("non-CT row leaked through side=ct filter: %+v", r)
+		}
+	}
+	// "t" keeps only TeamT rows.
+	tSide := filterRoundStatsBySide(append([]model.PlayerRoundStats{}, rs...), "t")
+	if len(tSide) != 2 {
+		t.Errorf("side=t kept %d, want 2", len(tSide))
+	}
+	for _, r := range tSide {
+		if r.Team != model.TeamT {
+			t.Errorf("non-T row leaked through side=t filter: %+v", r)
+		}
+	}
+}

@@ -21,6 +21,8 @@ var (
 	playerTop    int
 	playerTopMin int
 	playerRoles  bool
+	playerPer    string
+	playerSide   string
 )
 
 // playerCmd is the cobra command for cross-match aggregate analysis of one or more players.
@@ -38,12 +40,23 @@ func init() {
 	playerCmd.Flags().IntVar(&playerTop, "top", 0, "also include the top N players by Rating 2.0 proxy from the database")
 	playerCmd.Flags().IntVar(&playerTopMin, "top-min", 3, "minimum matches a player must have to appear in the top-N ranking")
 	playerCmd.Flags().BoolVar(&playerRoles, "roles", false, "print HLTV-style role decomposition (Firepower/Entry/Trade/Open/Clutch/Snipe/Util)")
+	playerCmd.Flags().StringVar(&playerPer, "per", "round", "rate denominator for --roles output: 'round' (default) or '24' (per 24 rounds, ≈ one half)")
+	playerCmd.Flags().StringVar(&playerSide, "side", "both", "compute --roles metrics from rounds on this side: 'both' (default), 'ct', or 't'")
 }
 
 // runPlayer loads all match data for each given SteamID64, builds cross-match
 // aggregates, and prints overview, duel, AWP, map/side, and FHHS tables.
 // With --top N, the top N players by Rating 2.0 proxy are appended automatically.
 func runPlayer(cmd *cobra.Command, args []string) error {
+	// Validate role-view flags early so users see clear errors before the DB opens.
+	if playerPer != "round" && playerPer != "24" {
+		return fmt.Errorf("--per must be 'round' or '24', got %q", playerPer)
+	}
+	side := strings.ToLower(playerSide)
+	if side != "both" && side != "ct" && side != "t" {
+		return fmt.Errorf("--side must be 'both', 'ct', or 't', got %q", playerSide)
+	}
+
 	db, err := storage.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("open storage: %w", err)
@@ -95,6 +108,19 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 	var fhhsList   []fhhsEntry
 	var allClutch  []model.PlayerClutchMatchStats
 	var allRoles   []model.PlayerRoleStats
+
+	// Cohort ratings for percentile labels. Built lazily and only when --roles
+	// is requested. Empty when the cohort is too small (see CohortMinPlayers).
+	var cohortRatings []float64
+	if playerRoles {
+		cohort, err := db.GetCohortAggregates(playerSince, CohortPlayerMinRounds)
+		if err != nil {
+			return fmt.Errorf("get cohort aggregates: %w", err)
+		}
+		if len(cohort) >= CohortMinPlayers {
+			cohortRatings = buildCohortRatings(cohort)
+		}
+	}
 
 	for _, arg := range allIDs {
 		id, err := strconv.ParseUint(arg, 10, 64)
@@ -191,9 +217,14 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 
 		// ---- Role decomposition (--roles) ----
 		if playerRoles {
-			rs, err := loadRoleStatsForPlayer(db, id, agg.Name, stats, aggClutch, keep)
+			rs, err := loadRoleStatsForPlayer(db, id, agg.Name, stats, aggClutch, keep, side)
 			if err != nil {
 				return fmt.Errorf("role stats for %d: %w", id, err)
+			}
+			if len(cohortRatings) > 0 {
+				rs.Rating2CohortPercentile = percentileOf(cohortRatings, rs.Rating2Combined)
+			} else {
+				rs.Rating2CohortPercentile = -1
 			}
 			allRoles = append(allRoles, rs)
 		}
@@ -212,7 +243,10 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 	report.PrintPlayerAggregateAimTable(os.Stdout, allAggs)
 	report.PrintPlayerAggregateClutchTable(os.Stdout, allAggs, allClutch)
 	if playerRoles {
-		report.PrintPlayerRoleStats(os.Stdout, allRoles)
+		report.PrintPlayerRoleStats(os.Stdout, allRoles, report.RoleViewOptions{
+			Per:  playerPer,
+			Side: side,
+		})
 	}
 
 	// Combine all players' FHHS segments and render a single table.

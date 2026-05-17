@@ -303,10 +303,42 @@ for each round R:
 
 ---
 
-## Slice 5 — Surface & UX polish
+## Slice 5 — Surface & UX polish — **SHIPPED** (4 of 5 items)
 
 The metrics are in the DB; the UI is the work. This is bigger than a single
 diff but it's all CLI surface — no schema/aggregator risk.
+
+**Status:** shipped: `--per {round,24}`, `--side {both,ct,t}`, sample-size
+disclosure on every section header, and cohort percentile ranking
+(displayed as `RANK` column in Role Overview).
+
+`--per 24` multiplies every per-round rate by 24 and flips header labels
+("K/RD" → "K/24"). Percentages and per-round-win rates are left as-is
+(they don't benefit from the rescale). `--side ct` and `--side t` filter
+PlayerRoundStats to that team before recomputing every per-round metric;
+match-level totals (sniper kills, HLTV flash assists) stay combined since
+the schema doesn't tag them by side — flagged in the renderer docstring.
+Section titles gain a "(CT side)" / "(T side)" suffix so the active filter
+is obvious without re-reading the flags.
+
+Sample-size disclosure: single-player views append " — N maps · M rounds"
+to every section title; multi-player views skip this since the Role
+Overview already lists MAPS/ROUNDS per row.
+
+Cohort percentile (`RANK` column): on each `--roles` invocation the
+command builds a Rating 2.0 distribution from all players with ≥200
+rounds played in the filter window. If the cohort has ≥30 players, the
+focal player's percentile renders as "top X%", "pXX", or "bot X%".
+Below the threshold the column is hidden entirely. Smoke-tested:
+s1mple lands at "top 2%" against the all-time DB cohort, which matches
+expectations.
+
+**Deferred (5th item):** the `--vs-top {5,10,20,30,50}` opponent-tier
+breakdown. Our `demos.tier` column is coarse (`pro`, `semi-pro`,
+`faceit-5`) and we don't have date-indexed opponent rankings to do
+HLTV's "vs Top-N at the time of the match" math properly. Will revisit
+when we have an HLTV-style ranking history table (could come from the
+new `internal/vrs` package as it grows).
 
 ### What to ship
 - `cmd/player` — replace the current flat table with a section-per-role

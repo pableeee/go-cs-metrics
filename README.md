@@ -425,6 +425,8 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 | `--top <N>` | `0` | Automatically append the top N players from the database by Rating 2.0 proxy; useful for comparing yourself against the strongest players in your demo set |
 | `--top-min <N>` | `3` | Minimum number of qualifying demos a player must have to be considered for `--top` ranking |
 | `--roles` | `false` | Print HLTV-style role decomposition (Firepower / Entrying / Trading / Opening / Clutching / Sniping / Utility) after the default tables. See [docs/hltv-metrics-reference.md](docs/hltv-metrics-reference.md) for what each metric measures. |
+| `--per <unit>` | `round` | Rate denominator for `--roles` output. `round` shows per-round rates (KPR, ADR, etc.); `24` multiplies them by 24 for HLTV-style "per 24 rounds" (≈ one half) display. Percentages and per-round-win rates are unchanged. |
+| `--side <side>` | `both` | Compute `--roles` metrics from rounds on this side only. `both` shows the full picture (with CT and T columns side-by-side in Role Overview); `ct` or `t` narrows to that side. Match-level totals (sniper kills, HLTV flash assists) stay combined since the schema doesn't tag them by side. |
 
 **Output tables** (all requested players appear as rows in the same combined tables):
 
@@ -452,7 +454,15 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 
 # Print the HLTV-style role decomposition (Firepower/Entry/Trade/Open/Clutch/Snipe/Util)
 ./go-cs-metrics player 76561198XXXXXXXXX --roles
+
+# CT-side only, per-24-rounds view (HLTV's "per half" framing)
+./go-cs-metrics player 76561198XXXXXXXXX --roles --side ct --per 24
 ```
+
+When `--roles` is set, the Role Overview also gains a `RANK` column showing the
+player's cohort percentile against all other DB players with ≥200 rounds in the
+same date window. Hidden when the cohort is too small (fewer than 30 qualifying
+players).
 
 When `--top N` is used, the highest-rated players not already in the request are resolved from the database (same `--map`/`--since` filters applied; `--last` does not affect ranking), and a note is printed before the tables:
 

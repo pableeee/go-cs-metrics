@@ -69,6 +69,25 @@ func colorRoundFlag(flag string) string {
 	}
 }
 
+// formatPercentile renders a cohort percentile as "top X%" / "bot X%" /
+// "p50" depending on where it sits. Returns "—" when the percentile is
+// negative (cohort too small / no data).
+func formatPercentile(p float64) string {
+	if p < 0 {
+		return "—"
+	}
+	switch {
+	case p >= 95:
+		return fmt.Sprintf("top %.0f%%", 100-p)
+	case p >= 80:
+		return fmt.Sprintf("p%.0f", p)
+	case p >= 20:
+		return fmt.Sprintf("p%.0f", p)
+	default:
+		return fmt.Sprintf("bot %.0f%%", p)
+	}
+}
+
 // formatMinSec renders a duration in seconds as "1m 10s" (HLTV style).
 // Negative or zero returns "0s". Fractions are rounded down to whole seconds.
 func formatMinSec(seconds float64) string {
@@ -1237,6 +1256,45 @@ func PrintWeaponTable(w io.Writer, stats []model.PlayerWeaponStats, players []mo
 	table.Render()
 }
 
+// RoleViewOptions configures the `--roles` rendering. Per controls the rate
+// denominator ("round" → values as printed per round; "24" → multiplied by 24
+// for HLTV-style per-half display). Side narrows the role decomposition to
+// CT-only / T-only rounds when "ct" or "t"; "both" shows the full data.
+type RoleViewOptions struct {
+	Per  string
+	Side string
+}
+
+// rate scales a per-round value by 24 when Per == "24" and otherwise returns
+// it unchanged. Used to flip every per-round metric in the role tables.
+func (o RoleViewOptions) rate(v float64) float64 {
+	if o.Per == "24" {
+		return v * 24.0
+	}
+	return v
+}
+
+// rateLabel renders the appropriate suffix for rate column headers.
+func (o RoleViewOptions) rateLabel() string {
+	if o.Per == "24" {
+		return "/24"
+	}
+	return "/RD"
+}
+
+// sideSuffix returns " (CT)" / " (T)" for side-restricted views, blank otherwise.
+// Lets section titles surface what's being computed without the user having
+// to look at the flags.
+func (o RoleViewOptions) sideSuffix() string {
+	switch o.Side {
+	case "ct":
+		return " (CT side)"
+	case "t":
+		return " (T side)"
+	}
+	return ""
+}
+
 // PrintPlayerRoleStats renders the HLTV-style role decomposition: a top-rail
 // summary followed by one table per role (Firepower / Entrying / Trading /
 // Opening / Clutching / Sniping / Utility). Players are rows, metrics are
@@ -1244,39 +1302,80 @@ func PrintWeaponTable(w io.Writer, stats []model.PlayerWeaponStats, players []mo
 // Utility kills, flashes thrown, opponent-flash seconds) print "—" when
 // the corresponding source has no rows for the player (see PlayerRoleStats
 // coverage flags).
-func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats) {
+//
+// When opts.Side is "ct" or "t", per-round-derived metrics reflect only that
+// side's rounds; match-level totals (sniper kills, HLTV flash assists, etc.)
+// remain combined because the schema doesn't tag them by side. The Role
+// Overview RATING_CT / RATING_T columns also collapse to a single RATING in
+// side-restricted views.
+func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats, opts RoleViewOptions) {
 	if len(roles) == 0 {
 		return
 	}
+	rateU := opts.rateLabel()
+	sideS := opts.sideSuffix()
+	sampleS := sampleSuffix(roles)
+	// Show the RANK column when at least one player has a valid percentile.
+	showRank := false
+	for _, r := range roles {
+		if r.Rating2CohortPercentile >= 0 {
+			showRank = true
+			break
+		}
+	}
 
 	// ---- Headline (§1 top rail) ----
-	printSection(w, "Role Overview",
-		"RATING=Rating 2.0 (combined / CT / T)  KAST%=K/A/S/T rounds  KPR/DPR=kills/deaths per round\n"+
-			"ADR=avg damage per round  MK%=rounds with 2+ kills  ROUNDS=total rounds in filter")
+	if opts.Side == "both" {
+		printSection(w, "Role Overview"+sideS+sampleS,
+			"RATING=Rating 2.0 (combined / CT / T)  KAST%=K/A/S/T rounds  KPR/DPR=kills/deaths per round\n"+
+				"ADR=avg damage per round  MK%=rounds with 2+ kills  ROUNDS=total rounds in filter")
+	} else {
+		printSection(w, "Role Overview"+sideS+sampleS,
+			"RATING=Rating 2.0 over the selected side only  KAST%=K/A/S/T rounds  K"+rateU+"/D"+rateU+"=kills/deaths\n"+
+				"DMG"+rateU+"=avg damage  MK%=rounds with 2+ kills  ROUNDS=total side-rounds in filter")
+	}
 	t1 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	t1.Header("PLAYER", "MAPS", "ROUNDS", "RATING", "RATING_CT", "RATING_T", "KAST%", "KPR", "DPR", "ADR", "MK%")
+	headers := []string{"PLAYER", "MAPS", "ROUNDS", "RATING"}
+	if opts.Side == "both" {
+		headers = append(headers, "RATING_CT", "RATING_T")
+	}
+	if showRank {
+		headers = append(headers, "RANK")
+	}
+	headers = append(headers, "KAST%", "K"+rateU, "D"+rateU, "DMG"+rateU, "MK%")
+	t1.Header(toAny(headers)...)
 	for _, r := range roles {
-		t1.Append(
+		row := []string{
 			r.Name,
 			strconv.Itoa(r.Matches),
 			strconv.Itoa(r.RoundsPlayed),
 			fmt.Sprintf("%.2f", r.Rating2Combined),
-			fmt.Sprintf("%.2f", r.Rating2CT),
-			fmt.Sprintf("%.2f", r.Rating2T),
+		}
+		if opts.Side == "both" {
+			row = append(row,
+				fmt.Sprintf("%.2f", r.Rating2CT),
+				fmt.Sprintf("%.2f", r.Rating2T),
+			)
+		}
+		if showRank {
+			row = append(row, formatPercentile(r.Rating2CohortPercentile))
+		}
+		row = append(row,
 			fmt.Sprintf("%.0f%%", r.KASTPct),
-			fmt.Sprintf("%.2f", r.KPR),
-			fmt.Sprintf("%.2f", r.DPR),
-			fmt.Sprintf("%.1f", r.ADR),
+			fmt.Sprintf("%.2f", opts.rate(r.KPR)),
+			fmt.Sprintf("%.2f", opts.rate(r.DPR)),
+			fmt.Sprintf("%.1f", opts.rate(r.ADR)),
 			fmt.Sprintf("%.1f%%", r.MultiKillPct),
 		)
+		t1.Append(toAny(row)...)
 	}
 	t1.Render()
 
 	// ---- §2.1 Firepower ----
-	printSection(w, "Firepower",
+	printSection(w, "Firepower"+sideS+sampleS,
 		"RD_WITH_K%=rounds with at least one kill  K/RWIN=kills in won rounds / rounds won\n"+
 			"DMG/RWIN=damage in won rounds / rounds won  PISTOL_R=Rating 2.0 over pistol rounds only (R1/R13)")
 	t2 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
@@ -1297,60 +1396,60 @@ func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats) {
 	t2.Render()
 
 	// ---- §2.2 Entrying ----
-	printSection(w, "Entrying",
+	printSection(w, "Entrying"+sideS+sampleS,
 		"OPEN_D_TRADED%=share of opening deaths that were traded by a teammate within 5s\n"+
 			"SUPPORT%=rounds with assist/survive/traded-death but no kill\n"+
-			"SAVED_BY/RD=times per round a teammate killed your last attacker within 1s of damage")
+			"SAVED_BY"+rateU+"=times "+rateUnitWord(opts)+" a teammate killed your last attacker within 1s of damage")
 	t3 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	t3.Header("PLAYER", "OPEN_D_TRADED%", "SUPPORT%", "SAVED_BY/RD")
+	t3.Header("PLAYER", "OPEN_D_TRADED%", "SUPPORT%", "SAVED_BY"+rateU)
 	for _, r := range roles {
 		t3.Append(
 			r.Name,
 			fmt.Sprintf("%.1f%%", r.OpeningDeathTradedPct),
 			fmt.Sprintf("%.1f%%", r.SupportRoundsPct),
-			fmt.Sprintf("%.2f", r.SavedByTeammatePerRound),
+			fmt.Sprintf("%.2f", opts.rate(r.SavedByTeammatePerRound)),
 		)
 	}
 	t3.Render()
 
 	// ---- §2.3 Trading ----
-	printSection(w, "Trading",
+	printSection(w, "Trading"+sideS+sampleS,
 		"DMG/KILL=total damage divided by total kills; <100 ⇒ kill-stealing tendency\n"+
-			"SAVED/RD=times per round you killed an opponent attacking a teammate within 1s\n"+
+			"SAVED"+rateU+"=times "+rateUnitWord(opts)+" you killed an opponent attacking a teammate within 1s\n"+
 			"ASSISTED_K%=share of kills on opponents already damaged by a teammate this round")
 	t4 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	t4.Header("PLAYER", "DMG/KILL", "SAVED/RD", "ASSISTED_K%")
+	t4.Header("PLAYER", "DMG/KILL", "SAVED"+rateU, "ASSISTED_K%")
 	for _, r := range roles {
 		t4.Append(
 			r.Name,
 			fmt.Sprintf("%.0f", r.DamagePerKill),
-			fmt.Sprintf("%.2f", r.SavedTeammatePerRound),
+			fmt.Sprintf("%.2f", opts.rate(r.SavedTeammatePerRound)),
 			fmt.Sprintf("%.1f%%", r.AssistedKillsPct),
 		)
 	}
 	t4.Render()
 
 	// ---- §2.4 Opening ----
-	printSection(w, "Opening",
-		"OPEN_K/RD=opening kills per round  OPEN_D/RD=opening deaths per round\n"+
+	printSection(w, "Opening"+sideS+sampleS,
+		"OPEN_K"+rateU+"=opening kills "+rateUnitWord(opts)+"  OPEN_D"+rateU+"=opening deaths "+rateUnitWord(opts)+"\n"+
 			"ATTEMPTS%=% of rounds in the opening duel  SUCCESS%=opening duels won\n"+
 			"WIN_AFTER_OPEN%=round wins when this player got the opener (5v4 follow-through)")
 	t5 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	t5.Header("PLAYER", "OPEN_K/RD", "OPEN_D/RD", "ATTEMPTS%", "SUCCESS%", "WIN_AFTER_OPEN%")
+	t5.Header("PLAYER", "OPEN_K"+rateU, "OPEN_D"+rateU, "ATTEMPTS%", "SUCCESS%", "WIN_AFTER_OPEN%")
 	for _, r := range roles {
 		t5.Append(
 			r.Name,
-			fmt.Sprintf("%.2f", r.OpeningKPR),
-			fmt.Sprintf("%.2f", r.OpeningDPR),
+			fmt.Sprintf("%.2f", opts.rate(r.OpeningKPR)),
+			fmt.Sprintf("%.2f", opts.rate(r.OpeningDPR)),
 			fmt.Sprintf("%.1f%%", r.OpeningAttemptsPct),
 			fmt.Sprintf("%.1f%%", r.OpeningSuccessPct),
 			fmt.Sprintf("%.1f%%", r.WinAfterOpenPct),
@@ -1359,17 +1458,17 @@ func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats) {
 	t5.Render()
 
 	// ---- §2.5 Clutching ----
-	printSection(w, "Clutching",
-		"CLUTCH_PTS/RD=weighted clutch wins per round (1v1=1, 1v2=2, 1v3=4, 1v4=8, 1v5=16)\n"+
+	printSection(w, "Clutching"+sideS+sampleS,
+		"CLUTCH_PTS"+rateU+"=weighted clutch wins "+rateUnitWord(opts)+" (1v1=1, 1v2=2, 1v3=4, 1v4=8, 1v5=16)\n"+
 			"1v1=attempts/wins  1v1_WIN%=cohort avg is ~60% (2v1 trades inflate the baseline)\n"+
 			"SAVES/LOSS%=% of round losses where the player survived\n"+
-			"TIME_ALIVE/RD=average seconds of action time alive per round (HLTV cohort 50–90 s)\n"+
+			"TIME_ALIVE"+rateU+"=avg action-time alive "+rateUnitWord(opts)+" (HLTV cohort 50–90 s/round)\n"+
 			"LAST_ALIVE_SVR%=% of rounds where the player was at any point the sole survivor on the server")
 	t6 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	t6.Header("PLAYER", "CLUTCH_PTS/RD", "1v1", "1v1_WIN%", "SAVES/LOSS%", "TIME_ALIVE/RD", "LAST_ALIVE_SVR%")
+	t6.Header("PLAYER", "CLUTCH_PTS"+rateU, "1v1", "1v1_WIN%", "SAVES/LOSS%", "TIME_ALIVE"+rateU, "LAST_ALIVE_SVR%")
 	for _, r := range roles {
 		oneVOne := fmt.Sprintf("%d/%d", r.OneVOneWins, r.OneVOneAttempts)
 		winPct := "—"
@@ -1378,27 +1477,27 @@ func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats) {
 		}
 		t6.Append(
 			r.Name,
-			fmt.Sprintf("%.3f", r.ClutchPointsPerRound),
+			fmt.Sprintf("%.3f", opts.rate(r.ClutchPointsPerRound)),
 			oneVOne,
 			winPct,
 			fmt.Sprintf("%.1f%%", r.SavesPerLossPct),
-			formatMinSec(r.TimeAlivePerRoundSec),
+			formatMinSec(opts.rate(r.TimeAlivePerRoundSec)),
 			fmt.Sprintf("%.1f%%", r.LastAliveServerPct),
 		)
 	}
 	t6.Render()
 
 	// ---- §2.6 Sniping ----
-	printSection(w, "Sniping",
-		"AWP+SSG only. SNIPER_K/RD=sniper kills per round  SNIPER_K%=share of all kills\n"+
+	printSection(w, "Sniping"+sideS+sampleS,
+		"AWP+SSG only. SNIPER_K"+rateU+"=sniper kills "+rateUnitWord(opts)+"  SNIPER_K%=share of all kills\n"+
 			"RD_W/SNIPE%=% of rounds with at least one sniper kill  SNIPE_MK%=% of rounds with 2+\n"+
-			"SNIPER_OPEN/RD=sniper opening kills per round\n"+
+			"SNIPER_OPEN"+rateU+"=sniper opening kills "+rateUnitWord(opts)+"\n"+
 			"Note: per-round metrics come from player_death_events (sparse for older demos; run replay --force to backfill)")
 	t7 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	t7.Header("PLAYER", "SNIPER_K/RD", "SNIPER_K%", "RD_W/SNIPE%", "SNIPE_MK%", "SNIPER_OPEN/RD")
+	t7.Header("PLAYER", "SNIPER_K"+rateU, "SNIPER_K%", "RD_W/SNIPE%", "SNIPE_MK%", "SNIPER_OPEN"+rateU)
 	for _, r := range roles {
 		rdSnipe := "—"
 		snipeMK := "—"
@@ -1406,11 +1505,11 @@ func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats) {
 		if r.HasSniperData {
 			rdSnipe = fmt.Sprintf("%.1f%%", r.RoundsWithSniperKillPct)
 			snipeMK = fmt.Sprintf("%.1f%%", r.SniperMultiKillRoundPct)
-			snipeOpen = fmt.Sprintf("%.3f", r.SniperOpeningKillsPerRound)
+			snipeOpen = fmt.Sprintf("%.3f", opts.rate(r.SniperOpeningKillsPerRound))
 		}
 		t7.Append(
 			r.Name,
-			fmt.Sprintf("%.2f", r.SniperKillsPerRound),
+			fmt.Sprintf("%.2f", opts.rate(r.SniperKillsPerRound)),
 			fmt.Sprintf("%.1f%%", r.SniperKillsPct),
 			rdSnipe,
 			snipeMK,
@@ -1420,37 +1519,57 @@ func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats) {
 	t7.Render()
 
 	// ---- §2.7 Utility ----
-	printSection(w, "Utility",
-		"UTIL_DMG/RD=HE+molotov damage per round  UTIL_K/100R=HE+molotov+incendiary kills per 100 rounds\n"+
-			"FLASH/RD=flashbangs thrown per round  OPP_FLASH_S/RD=opponent blind seconds produced per round\n"+
-			"FLASH_A/RD=HLTV-style flash assists per round (killer dealt ≥25 dmg to victim during blind window)\n"+
-			"Note: UTIL_K, FLASH/RD, OPP_FLASH_S/RD come from event tables (sparse for older demos; run replay --force to backfill)")
+	printSection(w, "Utility"+sideS+sampleS,
+		"UTIL_DMG"+rateU+"=HE+molotov damage "+rateUnitWord(opts)+"  UTIL_K/100R=HE+molotov+incendiary kills per 100 rounds\n"+
+			"FLASH"+rateU+"=flashbangs thrown "+rateUnitWord(opts)+"  OPP_FLASH_S"+rateU+"=opponent blind seconds produced "+rateUnitWord(opts)+"\n"+
+			"FLASH_A"+rateU+"=HLTV-style flash assists "+rateUnitWord(opts)+" (killer dealt ≥25 dmg to victim during blind window)\n"+
+			"Note: UTIL_K, FLASH, OPP_FLASH_S come from event tables (sparse for older demos; run replay --force to backfill)")
 	t8 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	t8.Header("PLAYER", "UTIL_DMG/RD", "UTIL_K/100R", "FLASH/RD", "OPP_FLASH_S/RD", "FLASH_A/RD")
+	t8.Header("PLAYER", "UTIL_DMG"+rateU, "UTIL_K/100R", "FLASH"+rateU, "OPP_FLASH_S"+rateU, "FLASH_A"+rateU)
 	for _, r := range roles {
 		utilK := "—"
 		if r.HasUtilityData {
-			utilK = fmt.Sprintf("%.2f", r.UtilityKillsPer100R)
+			utilK = fmt.Sprintf("%.2f", r.UtilityKillsPer100R) // already per 100 rounds — unaffected by --per
 		}
 		flashRd := "—"
 		if r.HasFlashThrowData {
-			flashRd = fmt.Sprintf("%.2f", r.FlashesThrownPerRound)
+			flashRd = fmt.Sprintf("%.2f", opts.rate(r.FlashesThrownPerRound))
 		}
 		oppFlash := "—"
 		if r.HasFlashTimeData {
-			oppFlash = fmt.Sprintf("%.2f", r.OppFlashSecPerRound)
+			oppFlash = fmt.Sprintf("%.2f", opts.rate(r.OppFlashSecPerRound))
 		}
 		t8.Append(
 			r.Name,
-			fmt.Sprintf("%.2f", r.UtilityDamagePerRound),
+			fmt.Sprintf("%.2f", opts.rate(r.UtilityDamagePerRound)),
 			utilK,
 			flashRd,
 			oppFlash,
-			fmt.Sprintf("%.2f", r.HltvFlashAssistsPerRound),
+			fmt.Sprintf("%.2f", opts.rate(r.HltvFlashAssistsPerRound)),
 		)
 	}
 	t8.Render()
+}
+
+// rateUnitWord renders the textual unit used in section descriptions. Pairs
+// with rateLabel() — "/RD" → "per round", "/24" → "per 24 rounds".
+func rateUnitWord(o RoleViewOptions) string {
+	if o.Per == "24" {
+		return "per 24 rounds"
+	}
+	return "per round"
+}
+
+// sampleSuffix renders " — N maps · M rounds" for single-player views so the
+// reader sees the sample size at a glance. Multi-player views skip this since
+// the Role Overview header already lists MAPS/ROUNDS per row.
+func sampleSuffix(roles []model.PlayerRoleStats) string {
+	if len(roles) != 1 {
+		return ""
+	}
+	r := roles[0]
+	return fmt.Sprintf(" — %d maps · %d rounds", r.Matches, r.RoundsPlayed)
 }

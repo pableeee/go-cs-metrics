@@ -197,6 +197,59 @@ func (db *DB) GetPlayerFlashesThrownByDemo(steamID uint64) (map[string]int, erro
 	return out, rows.Err()
 }
 
+// CohortAggregate is a per-player rollup across the cohort query window. It
+// contains only the fields needed to compute Rating 2.0 for percentile
+// rankings; see GetCohortAggregates.
+type CohortAggregate struct {
+	SteamID      uint64
+	Kills        int
+	Assists      int
+	Deaths       int
+	KASTRounds   int
+	TotalDamage  int
+	RoundsPlayed int
+}
+
+// GetCohortAggregates returns one row per player whose summed rounds_played
+// across the filter window meets minRounds. Used to compute cohort-relative
+// percentile rankings for the focal player's Rating 2.0.
+//
+// `since` is an inclusive lower bound on match_date (YYYY-MM-DD); empty
+// disables the filter. The query joins player_match_stats with demos so
+// match_date is available.
+func (db *DB) GetCohortAggregates(since string, minRounds int) ([]CohortAggregate, error) {
+	q := `
+		SELECT p.steam_id,
+		       SUM(p.kills), SUM(p.assists), SUM(p.deaths),
+		       SUM(p.kast_rounds), SUM(p.total_damage), SUM(p.rounds_played)
+		FROM player_match_stats p
+		JOIN demos d ON d.hash = p.demo_hash
+		WHERE (? = '' OR d.match_date >= ?)
+		GROUP BY p.steam_id
+		HAVING SUM(p.rounds_played) >= ?`
+	rows, err := db.conn.Query(q, since, since, minRounds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []CohortAggregate
+	for rows.Next() {
+		var c CohortAggregate
+		var steamIDStr string
+		if err := rows.Scan(
+			&steamIDStr,
+			&c.Kills, &c.Assists, &c.Deaths,
+			&c.KASTRounds, &c.TotalDamage, &c.RoundsPlayed,
+		); err != nil {
+			return nil, err
+		}
+		c.SteamID, _ = strconv.ParseUint(steamIDStr, 10, 64)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // GetPlayerOpponentFlashSecondsByDemo returns per-demo total seconds of
 // opponent blind time produced by the player's flashbangs (team flashes
 // excluded). Source: flash_events (is_team_flash=0).
