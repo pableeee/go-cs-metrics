@@ -153,11 +153,27 @@ comma-split player names (col 4, markdown links unwrapped).
 | `~/demos/pro/<event-slug>/*.dem` | Extracted CS2 demo files (mtime = extraction time, NOT match date) |
 | `~/.csmetrics/demoget.db` | Download state: match discovery, URL resolution, completion status |
 
+### Key flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--event` | (all) | Sync only this event ID |
+| `--workers` | 4 | Parallel demo downloads (use 1 if HLTV throttles/403s) |
+| `--limit` | 0 | Download at most N demos (0 = no limit) |
+| `--reresolve` | false | Force re-resolution of all matches with no demo yet (overrides the time-bounded auto-retry) |
+| `--dry-run` | false | Print planned work without downloading |
+
 ### Caveats
 
 - `demoget sync` sets `.dem` file mtimes to the extraction timestamp (today).
 - **Always run `demoget touch-dates` before `parse` to fix mtimes.**
 - Corrupt RARs at HLTV's end (`corrupt decode header`, `decoder expected more data`) will not recover on retry.
+- **Demos published after a sync:** HLTV often uploads a match's demo hours-to-days
+  after it's played. A match resolved with no demo yet is marked `no_demo` (not
+  `resolved`) and **auto-retried on later syncs for 14 days** (by `matches.first_seen`).
+  After that window it's assumed permanently demo-less; use `demoget sync --reresolve`
+  to force a re-check of all demo-less matches (e.g. for a finished older event whose
+  demos appeared late).
 - `--dir` mode only finds demos in the specific event subdirectory, not recursively.
 
 ---
