@@ -233,7 +233,19 @@ Performs a single demoinfocs parse pass (via `internal/parserv2`) and writes
 a `.csraw2.tar` archive alongside each `.dem`. The archive captures every
 gameplay-relevant field the parser sees, so re-aggregation never needs to
 revisit the `.dem`. Original `.dem` files can be deleted after conversion
-to reclaim disk space.
+to reclaim disk space — **but only once the `.csraw2.tar` actually exists**;
+never delete a `.dem` just because `convert` exited. To make that safe,
+`convert` exits **non-zero** when nothing was produced (`0 converted` with
+`>0 failed`), which signals a systematic failure (e.g. a parser/demo-format
+mismatch) rather than success. Partial batches still exit 0, so per-file
+cleanup must check for each archive individually.
+
+> **demoinfocs v5:** parsing uses the unreleased `demoinfocs-golang/v5`.
+> CS2's April 2026 demo-format change panics v4.5.1 (`unable to find existing
+> entity`); the fix is only on v5. Player velocity is derived from the
+> inter-frame position delta (v5 dropped `Player.Velocity()`), and the map
+> name is captured from the `CSVCMsg_ServerInfo` net message (v5 dropped the
+> public `Parser.Header()`).
 
 ### Inputs
 

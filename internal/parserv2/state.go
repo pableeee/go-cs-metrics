@@ -3,7 +3,8 @@ package parserv2
 import (
 	"strconv"
 
-	common "github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/common"
+	"github.com/golang/geo/r3"
+	common "github.com/markus-wa/demoinfocs-golang/v5/pkg/demoinfocs/common"
 
 	"github.com/pable/go-cs-metrics/internal/csraw2"
 )
@@ -27,6 +28,18 @@ type activeProjectile struct {
 // match being built.
 type state struct {
 	match *csraw2.Match
+
+	// Map name, captured from the CSVCMsg_ServerInfo net message during
+	// parsing. v5 removed the public Parser.Header() accessor, so we record
+	// it via a net-message handler instead.
+	mapName string
+
+	// Previous-frame position per player (keyed by SteamID64), updated at the
+	// end of every frame. v5 removed Player.Velocity()/PreviousFramePosition,
+	// and the pawn's m_vecVelocity property reads as zero for CS2 players, so
+	// velocity is derived from the inter-frame position delta exactly as
+	// demoinfocs v4 did for Source 2 demos: (pos - prevPos) * 64.
+	prevPos map[uint64]r3.Vector
 
 	// Player slot allocation. Slots are assigned in the order players are
 	// first seen and remain stable for the rest of the match. A player who
@@ -78,6 +91,7 @@ func newState() *state {
 		activeProjectiles: map[int]*activeProjectile{},
 		lastShotTick:      map[uint8]int{},
 		lastDamageTick:    map[uint8]int{},
+		prevPos:           map[uint64]r3.Vector{},
 	}
 }
 

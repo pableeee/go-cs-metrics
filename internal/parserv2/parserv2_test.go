@@ -3,7 +3,7 @@ package parserv2
 import (
 	"testing"
 
-	common "github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/common"
+	common "github.com/markus-wa/demoinfocs-golang/v5/pkg/demoinfocs/common"
 )
 
 func TestQuantPos(t *testing.T) {

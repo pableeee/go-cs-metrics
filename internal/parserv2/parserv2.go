@@ -20,9 +20,10 @@ import (
 	"time"
 
 	"github.com/golang/geo/r3"
-	demoinfocs "github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs"
-	common "github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/common"
-	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/events"
+	demoinfocs "github.com/markus-wa/demoinfocs-golang/v5/pkg/demoinfocs"
+	common "github.com/markus-wa/demoinfocs-golang/v5/pkg/demoinfocs/common"
+	"github.com/markus-wa/demoinfocs-golang/v5/pkg/demoinfocs/events"
+	"github.com/markus-wa/demoinfocs-golang/v5/pkg/demoinfocs/msg"
 
 	"github.com/pable/go-cs-metrics/internal/csraw2"
 )
@@ -127,9 +128,50 @@ func ParseDemoV2(path, tier, matchType string) (*csraw2.Match, error) {
 		s.projectileEvery = max(int(tickrate/ProjectileHz), 1)
 	}
 	s.match.Header.Tickrate = tickrate
-	s.match.Header.Map = p.Header().MapName
+	s.match.Header.Map = s.mapName
 
 	return s.match, nil
+}
+
+// source2FrameRate is the per-second frame cadence used to convert an
+// inter-frame position delta into a velocity. demoinfocs v4 hard-coded 64.0
+// for Source 2 demos; we replicate that exactly.
+const source2FrameRate = 64.0
+
+// playerVelocity returns the player's current velocity vector, derived from
+// the inter-frame position delta: (currentPos - prevFramePos) * 64.
+//
+// demoinfocs v5 removed Player.Velocity() and the PreviousFramePosition field
+// v4 used for this on Source 2 demos; the pawn's m_vecVelocity property reads
+// as zero for CS2 players. So we track each player's previous-frame position
+// ourselves (updated in onFrameDone) and reproduce v4's computation. Returns
+// a zero vector the first time a player is seen (no previous position yet).
+func (s *state) playerVelocity(p *common.Player) r3.Vector {
+	if p == nil || p.SteamID64 == 0 {
+		return r3.Vector{}
+	}
+	prev, ok := s.prevPos[p.SteamID64]
+	if !ok {
+		return r3.Vector{}
+	}
+	cur := p.Position()
+	return r3.Vector{
+		X: (cur.X - prev.X) * source2FrameRate,
+		Y: (cur.Y - prev.Y) * source2FrameRate,
+		Z: (cur.Z - prev.Z) * source2FrameRate,
+	}
+}
+
+// updatePrevPositions records every playing player's current position so the
+// next frame's playerVelocity computation has a baseline. Called at the end
+// of onFrameDone, after that frame's samples/events have been emitted.
+func (s *state) updatePrevPositions(players []*common.Player) {
+	for _, pl := range players {
+		if pl == nil || pl.SteamID64 == 0 {
+			continue
+		}
+		s.prevPos[pl.SteamID64] = pl.Position()
+	}
 }
 
 // hashAll computes a SHA-256 over the entire reader at its current
@@ -161,6 +203,13 @@ func quickHashOf(path string) (string, error) {
 // registerHandlers wires every demoinfocs event we care about to the
 // methods that translate them into csraw2 rows.
 func (s *state) registerHandlers(p demoinfocs.Parser) {
+	// Capture the map name from server info (v5 has no public Header()).
+	p.RegisterNetMessageHandler(func(m *msg.CSVCMsg_ServerInfo) {
+		if mn := m.GetMapName(); mn != "" {
+			s.mapName = mn
+		}
+	})
+
 	p.RegisterEventHandler(func(e events.RoundStart) { s.onRoundStart(p) })
 	p.RegisterEventHandler(func(e events.RoundFreezetimeEnd) { s.onFreezetimeEnd(p) })
 	p.RegisterEventHandler(func(e events.RoundEnd) { s.onRoundEnd(p, e) })
@@ -365,7 +414,7 @@ func (s *state) onWeaponFire(p demoinfocs.Parser, e events.WeaponFire) {
 	}
 	tick := p.GameState().IngameTick()
 	pos := e.Shooter.Position()
-	vel := e.Shooter.Velocity()
+	vel := s.playerVelocity(e.Shooter)
 
 	row := csraw2.WeaponFire{
 		Tick:        int32(tick),
@@ -449,7 +498,7 @@ func (s *state) onProjectileThrow(p demoinfocs.Parser, e events.GrenadeProjectil
 	}
 
 	tp := thrower.Position()
-	tv := thrower.Velocity()
+	tv := s.playerVelocity(thrower)
 	row := csraw2.GrenadeThrow{
 		Tick:          int32(p.GameState().IngameTick()),
 		Round:         int16(s.roundNumber),
@@ -638,6 +687,10 @@ func (s *state) onFrameDone(p demoinfocs.Parser) {
 
 	// First-sight scan (same logic as v1 parser, slot-encoded).
 	s.scanFirstSights(tick, players)
+
+	// Record positions for next frame's velocity computation. Must run last,
+	// after this frame's samples/events have consumed the previous baseline.
+	s.updatePrevPositions(players)
 }
 
 func (s *state) emitPlayerSamples(tick int, players []*common.Player) {
@@ -670,7 +723,7 @@ func (s *state) emitPlayerSamples(tick int, players []*common.Player) {
 			}
 		}
 		pos := obs.p.Position()
-		vel := obs.p.Velocity()
+		vel := s.playerVelocity(obs.p)
 		var clipAmmo uint8
 		var reserveAmmo uint16
 		var activeWeaponID uint8
@@ -725,9 +778,10 @@ func (s *state) emitProjectileSamples(p demoinfocs.Parser, tick int) {
 		// Probe the property directly and treat missing as zero velocity.
 		var velX, velY, velZ int16
 		if v, ok := gp.Entity.PropertyValue("m_vecVelocity"); ok {
-			velX = quantVel(v.VectorVal.X)
-			velY = quantVel(v.VectorVal.Y)
-			velZ = quantVel(v.VectorVal.Z)
+			vec := v.R3Vec()
+			velX = quantVel(vec.X)
+			velY = quantVel(vec.Y)
+			velZ = quantVel(vec.Z)
 		}
 		s.match.ProjectileSamples = append(s.match.ProjectileSamples, csraw2.ProjectileSample{
 			Tick:              int32(tick),

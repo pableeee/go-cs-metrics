@@ -1063,7 +1063,7 @@ Two ingestion paths feed the same pipeline:
 ┌──────────────────────────────┐   ┌─────────────────────────────┐
 │  parserv2 (internal/         │   │  csraw2 (internal/csraw2)   │
 │  parserv2)                   │   │  Read → *csraw2.Match       │
-│  demoinfocs-golang v4        │   │                             │
+│  demoinfocs-golang v5        │   │                             │
 │  → *csraw2.Match             │   │  RAM: a few MB              │
 │  RAM: 4–29 GB peak/demo      │   │  workers: many              │
 │  workers: 1 (forced)         │   │                             │

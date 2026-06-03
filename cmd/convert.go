@@ -228,6 +228,14 @@ func runConvert(cmd *cobra.Command, args []string) error {
 	restoreStderr()
 	fmt.Fprintf(os.Stdout, "\nDone: %d converted, %d skipped, %d failed (total %d)\n",
 		converted, skipped, failed, len(paths))
+
+	// Exit non-zero when nothing was produced but work was attempted. A total
+	// failure usually signals a systematic problem (e.g. a parser/demo-format
+	// incompatibility), and callers must not treat it as success — scripts that
+	// delete source .dem files on a zero-exit would otherwise lose data.
+	if converted == 0 && skipped == 0 && failed > 0 {
+		return fmt.Errorf("convert produced no archives: %d/%d demos failed", failed, len(paths))
+	}
 	return nil
 }
 

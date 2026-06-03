@@ -11,9 +11,10 @@ import (
 	"os"
 	"time"
 
-	demoinfocs "github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs"
-	common "github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/common"
-	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/events"
+	demoinfocs "github.com/markus-wa/demoinfocs-golang/v5/pkg/demoinfocs"
+	common "github.com/markus-wa/demoinfocs-golang/v5/pkg/demoinfocs/common"
+	"github.com/markus-wa/demoinfocs-golang/v5/pkg/demoinfocs/events"
+	"github.com/markus-wa/demoinfocs-golang/v5/pkg/demoinfocs/msg"
 
 	"github.com/pable/go-cs-metrics/internal/model"
 )
@@ -209,7 +210,19 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 		freezeEndTick        int
 		currentEquipVals     map[uint64]int
 		currentBombPlantTick int
+		mapName              string
 	)
+
+	// Capture the map name from server info (v5 removed the public Header()).
+	p.RegisterNetMessageHandler(func(m *msg.CSVCMsg_ServerInfo) {
+		if mn := m.GetMapName(); mn != "" {
+			mapName = mn
+		}
+	})
+
+	// Previous-frame position per player, for frame-delta velocity (see the
+	// WeaponFire handler). Updated at the end of each frame-walk iteration.
+	prevPos := map[uint64]model.Vec3{}
 
 	// seenThisRound tracks (observer, enemy) pairs already recorded in the current round
 	// so each pair only generates one RawFirstSight event per round.
@@ -453,8 +466,16 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 		}
 
 		sp := e.Shooter.Position()
-		vel := e.Shooter.Velocity()
-		hSpeed := math.Sqrt(vel.X*vel.X + vel.Y*vel.Y)
+		// v5 removed Player.Velocity() (pawn m_vecVelocity reads zero for CS2
+		// players), so derive horizontal speed from the inter-frame position
+		// delta * 64, matching demoinfocs v4's Source 2 computation. prevPos is
+		// updated at the end of each frame in the walk loop below.
+		var hSpeed float64
+		if prev, ok := prevPos[e.Shooter.SteamID64]; ok {
+			dx := (sp.X - prev.X) * 64.0
+			dy := (sp.Y - prev.Y) * 64.0
+			hSpeed = math.Sqrt(dx*dx + dy*dy)
+		}
 		raw.WeaponFires = append(raw.WeaponFires, model.RawWeaponFire{
 			Tick:            p.GameState().IngameTick(),
 			RoundNumber:     roundNumber,
@@ -506,7 +527,7 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 		// the final entry is the landing position. Fall back to the projectile's
 		// current position if the trajectory is empty.
 		var landPos model.Vec3
-		if traj := e.Projectile.Trajectory2; len(traj) > 0 {
+		if traj := e.Projectile.Trajectory; len(traj) > 0 {
 			lp := traj[len(traj)-1].Position
 			landPos = model.Vec3{X: lp.X, Y: lp.Y, Z: lp.Z}
 		} else {
@@ -573,6 +594,15 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 					}
 				}
 			}
+
+			// Record positions for next frame's velocity computation.
+			for _, pl := range players {
+				if pl == nil || pl.SteamID64 == 0 {
+					continue
+				}
+				pos := pl.Position()
+				prevPos[pl.SteamID64] = model.Vec3{X: pos.X, Y: pos.Y, Z: pos.Z}
+			}
 		}
 
 		if !ok {
@@ -580,9 +610,9 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 		}
 	}
 
-	// Extract header metadata.
-	header := p.Header()
-	raw.MapName = header.MapName
+	// Extract header metadata. v5 has no public Header() accessor; the map
+	// name was captured from CSVCMsg_ServerInfo during parsing.
+	raw.MapName = mapName
 	raw.MatchDate = demoFileDate(path)
 	raw.Tickrate = p.TickRate()
 	raw.TicksPerSecond = p.TickRate()
