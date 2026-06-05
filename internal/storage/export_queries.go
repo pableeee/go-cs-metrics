@@ -148,6 +148,52 @@ func (db *DB) QualifyingDemosWindow(steamIDs []string, from, before time.Time, q
 	return out, rows.Err()
 }
 
+// PopulationMeanRating returns the mean HLTV Rating 2.0 proxy across all players
+// with at least minRounds rounds_played in the window [from, before). It is the
+// empirical-Bayes prior that export shrinks small-sample roster ratings toward, so
+// teams with very few demos regress to the population mean instead of keeping a
+// noisy/inflated estimate. Returns (mean, nPlayers, err); nPlayers==0 means no
+// player met the threshold (caller should skip shrinkage).
+//
+// The rating expression below mirrors model.Rating2Proxy (the canonical Go
+// implementation); keep the two in sync if the community formula changes.
+func (db *DB) PopulationMeanRating(from, before time.Time, minRounds int) (float64, int, error) {
+	const q = `
+		WITH pp AS (
+			SELECT p.steam_id,
+			       SUM(p.kills)         AS k,
+			       SUM(p.deaths)        AS d,
+			       SUM(p.assists)       AS a,
+			       SUM(p.kast_rounds)   AS kast,
+			       SUM(p.total_damage)  AS dmg,
+			       SUM(p.rounds_played) AS rp
+			FROM player_match_stats p
+			JOIN demos dm ON dm.hash = p.demo_hash
+			WHERE dm.match_date >= ? AND dm.match_date < ?
+			GROUP BY p.steam_id
+			HAVING SUM(p.rounds_played) >= ?
+		)
+		SELECT
+			COUNT(*),
+			COALESCE(AVG(
+				  0.0073 * (100.0 * kast / rp)
+				+ 0.3591 * (1.0 * k / rp)
+				- 0.5329 * (1.0 * d / rp)
+				+ 0.2372 * (2.13 * (1.0 * k / rp) + 0.42 * (1.0 * a / rp) - 0.41)
+				+ 0.0032 * (1.0 * dmg / rp)
+				+ 0.1587
+			), 0)
+		FROM pp`
+
+	var n int
+	var mean float64
+	err := db.conn.QueryRow(q, from.Format("2006-01-02"), before.Format("2006-01-02"), minRounds).Scan(&n, &mean)
+	if err != nil {
+		return 0, 0, err
+	}
+	return mean, n, nil
+}
+
 // MapWinOutcomes returns one WinOutcome per demo hash, using the roster player
 // with the most rounds_played as the anchor to determine the match result.
 func (db *DB) MapWinOutcomes(steamIDs []string, demoHashes []string) ([]WinOutcome, error) {

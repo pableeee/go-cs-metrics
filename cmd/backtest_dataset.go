@@ -238,7 +238,9 @@ func buildBTTeamStats(db *storage.DB, rosterPath string, since, before time.Time
 	if err != nil {
 		return nil, fmt.Errorf("roster match totals: %w", err)
 	}
-	ratings, _ := buildWeightedRatings(byDemo, weights)
+	// backtest-dataset keeps the raw (un-shrunk) ratings; shrinkage is an export-only
+	// option (pass priorMean<0, shrinkRounds=0 to disable).
+	ratings, _ := buildWeightedRatings(byDemo, weights, -1, 0)
 
 	// Populate per-map entry kill rates.
 	entryByMap, err := db.MapEntryStats(rf.Players, allHashes)

@@ -651,6 +651,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			}
 
 			// Per-kill accounting.
+			wasKilled := false
 			for _, k := range kills {
 				if k.killerID == playerID {
 					rs.Kills++
@@ -664,6 +665,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 					}
 				}
 				if k.victimID == playerID {
+					wasKilled = true
 					// victim of a kill that was traded gets WasTraded (earns KAST)
 					if k.isTradeDeath {
 						rs.WasTraded = true
@@ -675,9 +677,14 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 				}
 			}
 
-			// Surviving.
+			// Surviving: a player survived the round iff they were not a victim of
+			// any kill that round. HP sampling CANNOT be used here — the per-tick
+			// sampler only records living players, so a dead player's last in-round
+			// sample still shows HP>0. Reading rs.Survived from endState.IsAlive made
+			// KAST ≈100% for everyone (kast_rounds == rounds_played). The kill record
+			// is the authoritative death signal.
+			rs.Survived = !wasKilled
 			if hasEndState {
-				rs.Survived = endState.IsAlive
 				rs.UnusedUtility = endState.GrenadeCount
 			}
 

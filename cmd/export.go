@@ -17,15 +17,17 @@ import (
 )
 
 var (
-	exportTeam     string
-	exportPlayers  string
-	exportRoster   string
-	exportSince    int
-	exportBefore   string
-	exportQuorum   int
-	exportOut      string
-	exportHalfLife float64
-	exportVRSDB    string
+	exportTeam         string
+	exportPlayers      string
+	exportRoster       string
+	exportSince        int
+	exportBefore       string
+	exportQuorum       int
+	exportOut          string
+	exportHalfLife     float64
+	exportVRSDB        string
+	exportShrinkRounds float64
+	exportRatingPrior  float64
 )
 
 // rosterFile is the schema for --roster JSON files.
@@ -125,6 +127,11 @@ func init() {
 	defaultVRSDB := filepath.Join(mustUserHome(), ".csmetrics", "vrs.db")
 	exportCmd.Flags().StringVar(&exportVRSDB, "vrs-db", defaultVRSDB,
 		"path to VRS database for stratified stats (skip if absent)")
+	exportCmd.Flags().Float64Var(&exportShrinkRounds, "rating-shrink-rounds", 0,
+		"empirical-Bayes shrinkage strength for player ratings, in weighted rounds "+
+			"(0 = off; e.g. 200 pulls thin-sample teams toward the population mean)")
+	exportCmd.Flags().Float64Var(&exportRatingPrior, "rating-prior", -1,
+		"prior mean rating to shrink toward (<0 = auto: population mean over the window)")
 }
 
 func runExport(_ *cobra.Command, _ []string) error {
@@ -254,12 +261,38 @@ func runExport(_ *cobra.Command, _ []string) error {
 			mapName, n, mapWinPct, normPct(mapWinPct), ctPct, normPct(ctPct), tPct, normPct(tPct))
 	}
 
+	// Resolve the empirical-Bayes shrinkage prior once for this export. When
+	// --rating-shrink-rounds > 0, small-sample roster ratings are regressed toward
+	// priorMean with weight rounds/(rounds+shrinkRounds). The prior is the
+	// population mean rating over the same window (or --rating-prior if set), so it
+	// tracks whatever the rating scale is rather than assuming 1.0.
+	priorMean := exportRatingPrior
+	if exportShrinkRounds > 0 && priorMean < 0 {
+		const priorMinRounds = 100 // ~2 maps; excludes one-off stand-ins from the prior
+		mean, nPlayers, perr := db.PopulationMeanRating(since, refDate, priorMinRounds)
+		if perr != nil {
+			return fmt.Errorf("population mean rating: %w", perr)
+		}
+		if nPlayers == 0 {
+			fmt.Fprintf(os.Stderr, "  shrinkage: no players with >=%d rounds in window — disabled\n", priorMinRounds)
+			priorMean = -1 // signal disabled to buildWeightedRatings
+		} else {
+			priorMean = mean
+			fmt.Fprintf(os.Stderr, "  shrinkage: prior=%.3f over %d players (shrink-rounds=%.0f)\n",
+				priorMean, nPlayers, exportShrinkRounds)
+		}
+	}
+	shrinkRounds := exportShrinkRounds
+	if priorMean < 0 {
+		shrinkRounds = 0 // prior unavailable -> no shrinkage
+	}
+
 	// Compute HLTV Rating 2.0 proxies for the top 5 players by activity.
 	byDemo, err := db.RosterMatchTotalsByDemo(steamIDs, allHashes)
 	if err != nil {
 		return fmt.Errorf("roster match totals: %w", err)
 	}
-	ratings, namedGlobal := buildWeightedRatings(byDemo, weights)
+	ratings, namedGlobal := buildWeightedRatings(byDemo, weights, priorMean, shrinkRounds)
 
 	// Normalise ratings for opponent quality.
 	oppByDemo, err := db.OpponentMatchTotalsByDemo(steamIDs, allHashes)
@@ -344,10 +377,10 @@ func runExport(_ *cobra.Command, _ []string) error {
 	// VRS roster data, then partition hashes into top30/top20 strata and
 	// compute per-stratum map and rating stats.
 	var (
-		vrsRatingsTop30, vrsRatingsTop20, vrsRatingsTop10 []float64
+		vrsRatingsTop30, vrsRatingsTop20, vrsRatingsTop10       []float64
 		vrsDemoCountTop30, vrsDemoCountTop20, vrsDemoCountTop10 int
-		vrsOwnRank                                               int
-		vrsOwnSnapshotDate                                       string
+		vrsOwnRank                                              int
+		vrsOwnSnapshotDate                                      string
 	)
 	vrsStore := openVRSStore(exportVRSDB)
 	if vrsStore != nil {
@@ -416,7 +449,7 @@ func runExport(_ *cobra.Command, _ []string) error {
 				if err != nil {
 					return fmt.Errorf("opponent match totals (top30): %w", err)
 				}
-				r30, _ := buildWeightedRatings(byDemoTop30, weights)
+				r30, _ := buildWeightedRatings(byDemoTop30, weights, priorMean, shrinkRounds)
 				nf30 := computeOpponentNormFactor(oppTop30, weights)
 				for i := range r30 {
 					r30[i] = roundTo2dp(r30[i] * nf30)
@@ -442,7 +475,7 @@ func runExport(_ *cobra.Command, _ []string) error {
 				if err != nil {
 					return fmt.Errorf("opponent match totals (top20): %w", err)
 				}
-				r20, _ := buildWeightedRatings(byDemoTop20, weights)
+				r20, _ := buildWeightedRatings(byDemoTop20, weights, priorMean, shrinkRounds)
 				nf20 := computeOpponentNormFactor(oppTop20, weights)
 				for i := range r20 {
 					r20[i] = roundTo2dp(r20[i] * nf20)
@@ -468,7 +501,7 @@ func runExport(_ *cobra.Command, _ []string) error {
 				if err != nil {
 					return fmt.Errorf("opponent match totals (top10): %w", err)
 				}
-				r10, _ := buildWeightedRatings(byDemoTop10, weights)
+				r10, _ := buildWeightedRatings(byDemoTop10, weights, priorMean, shrinkRounds)
 				nf10 := computeOpponentNormFactor(oppTop10, weights)
 				for i := range r10 {
 					r10[i] = roundTo2dp(r10[i] * nf10)
@@ -632,7 +665,12 @@ type namedRating struct {
 // weighted stat sums, computes KPR/DPR/APR/KAST/ADR from weighted totals.
 // Returns a 5-element slice sorted descending (padded with 1.00) and the top
 // players by rounds in rounds-descending order for informational logging.
-func buildWeightedRatings(byDemo []storage.PlayerDemoTotals, weights map[string]float64) ([]float64, []namedRating) {
+//
+// When shrinkRounds > 0 each player's rating is regressed toward priorMean by the
+// empirical-Bayes factor rounds/(rounds+shrinkRounds): a player with few weighted
+// rounds is pulled toward the population mean, so thin-sample teams stop receiving
+// inflated/noisy ratings. shrinkRounds <= 0 (or priorMean < 0) disables shrinkage.
+func buildWeightedRatings(byDemo []storage.PlayerDemoTotals, weights map[string]float64, priorMean, shrinkRounds float64) ([]float64, []namedRating) {
 	type acc struct {
 		name        string
 		kills       float64
@@ -691,6 +729,10 @@ func buildWeightedRatings(byDemo []storage.PlayerDemoTotals, weights map[string]
 		adr := p.totalDamage / p.rounds
 		impact := 2.13*kpr + 0.42*apr - 0.41
 		r := 0.0073*kast + 0.3591*kpr - 0.5329*dpr + 0.2372*impact + 0.0032*adr + 0.1587
+		if shrinkRounds > 0 && priorMean >= 0 {
+			f := p.rounds / (p.rounds + shrinkRounds)
+			r = priorMean + (r-priorMean)*f
+		}
 		ratings[i] = roundTo2dp(r)
 		named = append(named, namedRating{p.name, roundTo2dp(r)})
 	}
@@ -703,7 +745,6 @@ func buildWeightedRatings(byDemo []storage.PlayerDemoTotals, weights map[string]
 	sort.Slice(ratings, func(i, j int) bool { return ratings[i] > ratings[j] })
 	return ratings, named
 }
-
 
 func roundTo2dp(v float64) float64 {
 	return math.Round(v*100) / 100

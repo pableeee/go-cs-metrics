@@ -282,10 +282,40 @@ Impact  = 2.13*KPR + 0.42*APR − 0.41
 ```
 
 Key files:
-- `internal/storage/export_queries.go` — `QualifyingDemos`, `MapWinOutcomes`, `RoundSideStats`, `RosterMatchTotals`
+- `internal/storage/export_queries.go` — `QualifyingDemos`, `MapWinOutcomes`, `RoundSideStats`, `RosterMatchTotals`, `PopulationMeanRating`
 - `cmd/export.go` — roster resolution, per-map stat aggregation, Rating 2.0 proxy, JSON output
 
 Top 5 players by `rounds_played` are selected; extras padded with 1.00. **Not official HLTV math** — expect ±0.05–0.10 deviation.
+
+### Sample-size shrinkage (`--rating-shrink-rounds`, `--rating-prior`)
+
+`players_rating2_3m` is **not** sample-size-corrected by default, so a team with very
+few demos can get a wildly inflated rating (observed: a 2-demo team produced a 2.24
+player rating, out-rating well-sampled tier-1 rosters). This corrupts simbo3 rankings
+for any field containing thin-data teams.
+
+Optional empirical-Bayes shrinkage fixes this:
+
+```
+r' = priorMean + (r − priorMean) · rounds / (rounds + shrinkRounds)
+```
+
+- `--rating-shrink-rounds K` (default `0` = **off**, preserving legacy behavior) — the
+  weighted-round count at which a player gets half its own rating and half the prior.
+  `200` (~9 maps) pulls thin teams hard toward the mean while leaving well-sampled
+  teams (hundreds of rounds) essentially untouched.
+- `--rating-prior P` (default `-1` = **auto**) — the mean to shrink toward. Auto uses
+  `PopulationMeanRating` over the same `[since, before)` window (players with ≥100
+  rounds), so the prior tracks the actual rating scale (currently ≈1.24 — inflated,
+  see KAST note below) rather than assuming 1.0. Applies to the global rating and all
+  VRS strata (`players_rating_vs_top30/20/10`). `backtest-dataset` always uses raw
+  (un-shrunk) ratings.
+
+> **Note — KAST is broken DB-wide (as of 2026-06-05):** ~95% of `player_match_stats`
+> rows have `kast_rounds == rounds_played` (KAST pinned at 100%), inflating every
+> rating by ~+0.2 and lifting the population mean to ~1.24 instead of ~1.0. This is an
+> aggregator bug (separate from shrinkage) requiring a full re-aggregation to fix.
+> Shrinkage toward the *empirical* mean is robust to it; a hardcoded 1.0 prior is not.
 
 ## Key Validation Rules
 

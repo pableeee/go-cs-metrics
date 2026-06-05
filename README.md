@@ -716,10 +716,16 @@ demo data.
 | `--roster <file>` | `""` | JSON file `{"team":"...","players":["...",...]}` |
 | `--since <days>` | `90` | Look-back window in days |
 | `--quorum <n>` | `3` | Minimum roster players that must appear in a demo for it to be included |
+| `--rating-shrink-rounds <k>` | `0` (off) | Empirical-Bayes shrinkage of player ratings toward the prior, in weighted rounds (e.g. `200` regresses thin-sample teams toward the population mean) |
+| `--rating-prior <p>` | `-1` (auto) | Prior mean rating to shrink toward; auto = population mean over the window |
 | `--out <file>` | `""` | Output path; defaults to stdout |
 
 A demo is included if at least `--quorum` players from the roster appear in
 `player_match_stats` for that demo within the `--since` window.
+
+Without `--rating-shrink-rounds`, ratings are **not** sample-size-corrected — a team
+with only 2–3 demos can produce inflated player ratings. Set `--rating-shrink-rounds 200`
+to regress small samples toward the window's population mean.
 
 **Rating proxy formula** (community approximation of HLTV Rating 2.0):
 

@@ -375,6 +375,8 @@ Same as `parse` — writes to `metrics.db` tables: `demos`, `player_match_stats`
 | `--half-life` | 35 | Temporal decay half-life in days (0 = uniform weights) |
 | `--out` | stdout | Output file path |
 | `--vrs-db` | `~/.csmetrics/vrs.db` | VRS database for stratified stats (skipped if absent) |
+| `--rating-shrink-rounds` | 0 (off) | Empirical-Bayes shrinkage strength in weighted rounds; pulls thin-sample player ratings toward the prior |
+| `--rating-prior` | -1 (auto) | Prior mean rating to shrink toward; auto = population mean over the window (`PopulationMeanRating`) |
 
 ### Export Algorithm
 
@@ -383,6 +385,9 @@ Same as `parse` — writes to `metrics.db` tables: `demos`, `player_match_stats`
 3. **Tier factor**: shrinks win-rate deviations toward 0.50 for non-top-tier event demos.
 4. **Per-map stats**: `MapWinOutcomes` + `RoundSideStatsByDemo` → weighted win%/CT%/T%.
 5. **Player ratings**: HLTV Rating 2.0 proxy per player, weighted by rounds played.
+   - **Optional shrinkage** (`--rating-shrink-rounds K > 0`): each player's rating is
+     regressed toward the prior by `rounds/(rounds+K)`, so thin-sample teams stop
+     getting inflated ratings. Prior defaults to the window's population mean rating.
 6. **Opponent norm**: weighted average opponent rating → scales team ratings toward baseline.
 7. **VRS stratification** (if `--vrs-db` present):
    - Each demo's opponent is matched to a VRS team via player name lookup
