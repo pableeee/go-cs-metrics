@@ -467,7 +467,8 @@ When both team JSONs contain `vrs_global_rank` fields:
 (scans a directory for team JSONs), live coefficient sliders (re-simulates on
 change), per-map logit term breakdown (α/β/γ/δ/ε waterfall), shrinkage
 raw→smoothed tables with the VRS stratum used, score distribution, and top veto
-sequences. Simulation is veto-mode only (no manual maps yet).
+sequences. A "Maps" toggle switches between simulating the veto and a fixed
+manual map list (per-slot map + side selects).
 
 | Flag | Default | Description |
 |------|---------|-------------|
