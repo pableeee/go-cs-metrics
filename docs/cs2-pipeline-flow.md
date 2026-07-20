@@ -450,7 +450,31 @@ When both team JSONs contain `vrs_global_rank` fields:
 | `--trials` | 50000 | Monte Carlo trial count |
 | `--seed` | random | RNG seed for reproducibility |
 | `--config` | defaults | Coefficient override file |
+| `--stakes` | -1 (off) | Match stakes level for the stakes-temperature knob: `0`=online group, `1`=LAN non-Major, `2`=Major. Requires `stakes_gamma` in the config. |
 | `--explain` | false | Show intermediate stats and analytical breakdown |
+
+> **Stakes-temperature knob (`stakes_gamma`, default 0 = off):** scales the per-map
+> outcome logit by `T = 1 + stakes_gamma·(stakes − 1)` — sharpen toward the model's
+> favorite at Majors, relax toward 50/50 in online groups, neutral at LAN non-Major.
+> Applied to outcome sampling only (not veto). **Empirically validated to add nothing
+> over VRS stratification** (2026-07-07: monotonically *worsens* held-out logloss on the
+> deployed `strat_rank_gate=20` model — VRS already absorbs the Major-favorite effect),
+> so it ships **disabled**. Retained for a future re-test if the corpus gains ≥2 Majors.
+
+### Interactive web UI (`simbo3 serve`)
+
+`simbo3 serve` launches a localhost web UI over the same engine: team pickers
+(scans a directory for team JSONs), live coefficient sliders (re-simulates on
+change), per-map logit term breakdown (α/β/γ/δ/ε waterfall), shrinkage
+raw→smoothed tables with the VRS stratum used, score distribution, and top veto
+sequences. Simulation is veto-mode only (no manual maps yet).
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--port` | 8666 | Listen port (binds 127.0.0.1 only) |
+| `--teams-dir` | `.` | Directory scanned for team JSON files |
+| `--teamA` / `--teamB` | — | Team JSONs to preload (optional) |
+| `--config` | defaults | Coefficient override file, same format as `run` |
 
 ---
 
