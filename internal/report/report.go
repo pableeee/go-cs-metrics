@@ -816,16 +816,18 @@ func PrintAimTimingTable(w io.Writer, stats []model.PlayerMatchStats, focusSteam
 		"MEDIAN_TTK=median ms from first shot fired → kill, multi-hit kills only (lower = faster finisher)\n"+
 			"MEDIAN_TTD=median ms from enemy's first shot → your death, multi-hit only (lower = died faster)\n"+
 			"ONE_TAP%=% of kills where the first shot fired in a 3s window was the killing shot\n"+
-			"CS%=% of shots fired while horizontal speed ≤ 34 u/s (counter-strafed)")
+			"CS%=% of shots fired while horizontal speed ≤ 34 u/s (counter-strafed)\n"+
+			"DWELL%=out-of-combat time with crosshair settled (<25°/s); low = panic swiping\n"+
+			"REV/MIN=out-of-combat yaw direction reversals (both legs ≥60°/s) per minute")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
 	withMarker := focusSteamID != 0
 	if withMarker {
-		table.Header(" ", "PLAYER", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%")
+		table.Header(" ", "PLAYER", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%", "DWELL%", "REV/MIN")
 	} else {
-		table.Header("PLAYER", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%")
+		table.Header("PLAYER", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%", "DWELL%", "REV/MIN")
 	}
 
 	for _, s := range stats {
@@ -845,7 +847,12 @@ func PrintAimTimingTable(w io.Writer, stats []model.PlayerMatchStats, focusSteam
 		if s.CounterStrafePercent > 0 {
 			csStr = fmt.Sprintf("%.0f%%", s.CounterStrafePercent)
 		}
-		row := []string{s.Name, ttkStr, ttdStr, oneTapStr, csStr}
+		dwellStr, revStr := "—", "—"
+		if s.ScanOOCSeconds > 0 {
+			dwellStr = fmt.Sprintf("%.0f%%", s.ScanDwellPct)
+			revStr = fmt.Sprintf("%.1f", s.ScanReversalsPerMin)
+		}
+		row := []string{s.Name, ttkStr, ttdStr, oneTapStr, csStr, dwellStr, revStr}
 		if withMarker {
 			marker := " "
 			if s.SteamID == focusSteamID {
@@ -907,12 +914,13 @@ func PrintAimTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
 	printSection(w, "Aim Timing Trend",
 		"Per-match aim timing in chronological order.\n"+
 			"MEDIAN_TTK/TTD=ms from first shot fired to kill/death (multi-hit only)\n"+
-			"ONE_TAP%=% of kills that were one-taps  CS%=% of shots fired while counter-strafed (speed ≤ 34 u/s)")
+			"ONE_TAP%=% of kills that were one-taps  CS%=% of shots fired while counter-strafed (speed ≤ 34 u/s)\n"+
+			"DWELL%=out-of-combat time with crosshair settled (<25°/s)  REV/MIN=yaw reversals per minute")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	table.Header("DATE", "MAP", "RD", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%")
+	table.Header("DATE", "MAP", "RD", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%", "DWELL%", "REV/MIN")
 
 	for _, s := range stats {
 		mapDisplay := strings.TrimPrefix(s.MapName, "de_")
@@ -932,6 +940,11 @@ func PrintAimTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
 		if s.CounterStrafePercent > 0 {
 			csStr = fmt.Sprintf("%.0f%%", s.CounterStrafePercent)
 		}
+		dwellStr, revStr := "—", "—"
+		if s.ScanOOCSeconds > 0 {
+			dwellStr = fmt.Sprintf("%.0f%%", s.ScanDwellPct)
+			revStr = fmt.Sprintf("%.1f", s.ScanReversalsPerMin)
+		}
 		table.Append(
 			s.MatchDate,
 			mapDisplay,
@@ -940,6 +953,8 @@ func PrintAimTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
 			ttdStr,
 			oneTapStr,
 			csStr,
+			dwellStr,
+			revStr,
 		)
 	}
 	table.Render()
@@ -1096,12 +1111,14 @@ func PrintRoundDetailTable(w io.Writer, stats []model.PlayerRoundStats, playerNa
 	}
 	printSection(w, fmt.Sprintf("%s — %s — %d rounds", playerName, mapName, len(stats)),
 		"SIDE=CT or T  BUY=buy type (full/force/half/eco)  K/A/DMG=kills/assists/damage\n"+
-			"KAST=✓ if earned KAST that round  FLAGS=OPEN_K/OPEN_D/TRADE_K/TRADE_D/POST_PLT/CLUTCH_1vN")
+			"KAST=✓ if earned KAST that round  FLAGS=OPEN_K/OPEN_D/TRADE_K/TRADE_D/POST_PLT/CLUTCH_1vN\n"+
+			"DWELL%=out-of-combat time with crosshair settled (<25°/s); low = panic swiping  REV=yaw reversals\n"+
+			"— shown when the round had <5 s of qualifying out-of-combat time")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	table.Header("RD", "SIDE", "BUY", "K", "A", "DMG", "KAST", "FLAGS")
+	table.Header("RD", "SIDE", "BUY", "K", "A", "DMG", "KAST", "DWELL%", "REV", "FLAGS")
 
 	buyCount := make(map[string]int)
 	for _, s := range stats {
@@ -1137,6 +1154,12 @@ func PrintRoundDetailTable(w io.Writer, stats []model.PlayerRoundStats, playerNa
 		}
 		flagStr := strings.Join(flags, ",")
 
+		dwellStr, revStr := "—", "—"
+		if s.ScanOOCSeconds >= 5 {
+			dwellStr = fmt.Sprintf("%.0f%%", s.ScanDwellPct)
+			revStr = strconv.Itoa(s.ScanReversals)
+		}
+
 		table.Append(
 			strconv.Itoa(s.RoundNumber),
 			colorSide(s.Team.String()),
@@ -1145,6 +1168,8 @@ func PrintRoundDetailTable(w io.Writer, stats []model.PlayerRoundStats, playerNa
 			strconv.Itoa(s.Assists),
 			strconv.Itoa(s.Damage),
 			kastStr,
+			dwellStr,
+			revStr,
 			flagStr,
 		)
 	}
@@ -1177,12 +1202,14 @@ func PrintPlayerAggregateAimTable(w io.Writer, aggs []model.PlayerAggregate) {
 			"AVG_TTK=avg ms from your first shot fired to kill (you as attacker, multi-hit kills only)\n"+
 			"AVG_TTD=avg ms from enemy's first shot to your death (you as victim); higher than TTK is good\n"+
 			"ONE_TAP%=one-tap kills as % of total kills across all matches\n"+
-			"AVG_CS%=average per-match counter-strafe % (shots at horizontal speed ≤ 34 u/s)")
+			"AVG_CS%=average per-match counter-strafe % (shots at horizontal speed ≤ 34 u/s)\n"+
+			"DWELL%=out-of-combat time with crosshair settled (<25°/s), time-weighted; low = panic swiping\n"+
+			"REV/MIN=out-of-combat yaw direction reversals (both legs ≥60°/s) per minute, time-weighted")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	table.Header("PLAYER", "ROLE", "AVG_TTK", "AVG_TTD", "ONE_TAP%", "AVG_CS%")
+	table.Header("PLAYER", "ROLE", "AVG_TTK", "AVG_TTD", "ONE_TAP%", "AVG_CS%", "DWELL%", "REV/MIN")
 
 	for _, a := range aggs {
 		role := a.Role
@@ -1205,7 +1232,12 @@ func PrintPlayerAggregateAimTable(w io.Writer, aggs []model.PlayerAggregate) {
 		if a.AvgCounterStrafePct > 0 {
 			csStr = fmt.Sprintf("%.0f%%", a.AvgCounterStrafePct)
 		}
-		table.Append(a.Name, role, ttkStr, ttdStr, oneTapStr, csStr)
+		dwellStr, revStr := "—", "—"
+		if a.ScanOOCSeconds > 0 {
+			dwellStr = fmt.Sprintf("%.0f%%", a.ScanDwellPct)
+			revStr = fmt.Sprintf("%.1f", a.ScanReversalsPerMin)
+		}
+		table.Append(a.Name, role, ttkStr, ttdStr, oneTapStr, csStr, dwellStr, revStr)
 	}
 	table.Render()
 }

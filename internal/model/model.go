@@ -169,6 +169,7 @@ type RawMatch struct {
 	MapName        string
 	MatchDate      string
 	MatchType      string
+	Tier           string // from the csraw2 header; "" for data paths without one
 	Tickrate       float64
 	TicksPerSecond float64
 	Rounds         []RawRound
@@ -178,8 +179,22 @@ type RawMatch struct {
 	FirstSights    []RawFirstSight
 	WeaponFires    []RawWeaponFire
 	Grenades       []RawGrenadeEvent
+	ViewSamples    []RawViewSample
 	PlayerNames    map[uint64]string
 	PlayerTeams    map[uint64]Team
+}
+
+// RawViewSample is one tick-sampled view-state row for one player, reduced
+// from csraw2 PlayerSamples to the fields the scan-volatility pass (Pass 17)
+// needs. Baseline sampling is 16 Hz with 64 Hz bursts around events; the
+// pass differences consecutive samples so it tolerates variable spacing.
+type RawViewSample struct {
+	Tick           int
+	RoundNumber    int
+	SteamID        uint64
+	YawDeg         float64 // signed degrees, [-180, 180)
+	HP             int     // 0 = dead (sample skipped by the scan pass)
+	EnemiesVisible bool    // any enemy in the player's spotted mask this tick
 }
 
 // ---- Aggregated metrics ----
@@ -278,6 +293,18 @@ type PlayerMatchStats struct {
 	// only requires being last on one's own team).
 	AliveSecondsTotal     float64
 	LastAliveServerRounds int
+
+	// Pass 17: Scan volatility — out-of-combat crosshair discipline
+	// ("panic swiping"). Computed over alive time excluding any sample where
+	// an enemy is visible and ±2 s around the player's own kills, deaths,
+	// damage, shots, and grenade throws.
+	// ScanDwellPct: % of that time with yaw speed < 25 °/s (settled).
+	// ScanReversalsPerMin: yaw direction flips (both legs ≥ 60 °/s) per minute.
+	// ScanAvgYawDegPerSec: mean absolute yaw speed.
+	ScanOOCSeconds      float64
+	ScanDwellPct        float64
+	ScanReversalsPerMin float64
+	ScanAvgYawDegPerSec float64
 }
 
 // KDRatio returns the kill-to-death ratio. If deaths is 0, kills is returned.
@@ -343,6 +370,14 @@ type PlayerRoundStats struct {
 	IsInClutch       bool // player was last alive on their team with ≥1 enemy alive
 	ClutchEnemyCount int  // max enemies alive when player entered clutch (0 if not clutch)
 	WonRound         bool // player's team won this round
+
+	// Pass 17: Scan volatility for this round (see PlayerMatchStats for the
+	// metric definitions). Values are raw — a round with only a few seconds
+	// of out-of-combat time is noisy; filter on ScanOOCSeconds when querying.
+	ScanOOCSeconds      float64
+	ScanDwellPct        float64
+	ScanReversals       int
+	ScanAvgYawDegPerSec float64
 }
 
 // PlayerClutchMatchStats holds per-match clutch attempt/win counts broken down
@@ -450,6 +485,13 @@ type PlayerAggregate struct {
 	// Liveness (Pass 16) — summed across matches.
 	AliveSecondsTotal     float64
 	LastAliveServerRounds int
+
+	// Scan volatility (Pass 17) — time-weighted across matches by
+	// scan_ooc_seconds, so short matches don't skew the averages.
+	ScanOOCSeconds      float64
+	ScanDwellPct        float64
+	ScanReversalsPerMin float64
+	ScanAvgYawDegPerSec float64
 }
 
 // KDRatio returns the aggregate kill-to-death ratio across all matches.

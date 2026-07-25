@@ -40,8 +40,8 @@ go-cs-metrics/
     ├── csraw2bridge/                # csraw2.Match → model.RawMatch adapter for the aggregator
     ├── parser/parser.go             # legacy .dem → RawMatch direct walker (used by csraw2-compare validation only)
     ├── aggregator/
-    │   ├── aggregator.go            # RawMatch → PlayerMatchStats + all segment types (16-pass pipeline)
-    │   └── aggregator_test.go       # unit tests for metric logic (incl. Pass 14 save/assist, Pass 15 HLTV flash assists, Pass 16 liveness)
+    │   ├── aggregator.go            # RawMatch → PlayerMatchStats + all segment types (17-pass pipeline)
+    │   └── aggregator_test.go       # unit tests for metric logic (incl. Pass 14 save/assist, Pass 15 HLTV flash assists, Pass 16 liveness, Pass 17 scan volatility)
     ├── storage/
     │   ├── schema.sql               # embedded SQL (go:embed)
     │   ├── storage.go               # DB open / schema apply
@@ -81,7 +81,7 @@ Two equivalent paths feed the same aggregator → storage → report chain:
                        ▼
 [aggregator]   Aggregate(raw) → ([]PlayerMatchStats, []PlayerRoundStats,
     │                            []PlayerWeaponStats, []PlayerDuelSegment, error)
-    │           • 16-pass algorithm over raw event slices
+    │           • 17-pass algorithm over raw event slices
     │           • no I/O, no external dependencies
     │
     ▼
@@ -221,9 +221,9 @@ First-hit headshot rate per segment is reported with a 95% Wilson score confiden
 
 ---
 
-## Aggregator: Eleven-Pass Algorithm
+## Aggregator: Seventeen-Pass Algorithm
 
-The aggregator makes eleven sequential passes over the raw event data.
+The aggregator makes seventeen sequential passes over the raw event data. (Passes 12–16 — death events, flash events, save/assist annotation, HLTV flash assists, and liveness — are summarized in CLAUDE.md; Pass 17 is documented below.)
 
 ### Pass 1 — Trade annotation
 
@@ -322,6 +322,19 @@ For each kill, uses the weapon-fire index (`wfIdx`) to find the **first shot fir
 ### Pass 11 — Counter-strafe %
 
 Scans `raw.WeaponFires` per player. Each shot where `HorizontalSpeed ≤ 34.0` u/s (captured at fire tick via `e.Shooter.Velocity()`) is counted as counter-strafed. `CounterStrafePercent = strafed / total * 100`. Utility/knife fires are excluded by the parser.
+
+### Pass 17 — Scan volatility ("panic swiping")
+
+Measures out-of-combat crosshair discipline from `raw.ViewSamples` (16 Hz view-state rows the bridge reduces from csraw2 `player_samples`; empty for data paths without samples, in which case all scan metrics stay 0).
+
+**Qualifying time**: consecutive same-round samples where the player is alive, past `FreezeEndTick`, gap ≤ 0.3 s, no enemy in the player's spotted mask, and neither endpoint within ±2 s of the player's own kills, deaths, damage dealt/taken, weapon fires, or grenade throws (utility lineups are deliberate aim, not scanning). Yaw is unwrapped across the ±180° seam; per-step deltas > 160° (a flick or teleport artifact at 16 Hz) are skipped entirely.
+
+Per qualifying step, three accumulators:
+- **Dwell** — yaw speed < 25 °/s counts as settled time. `ScanDwellPct = dwell / total * 100`; low dwell = the crosshair never settles.
+- **Reversals** — a yaw-direction flip where both legs are ≥ 60 °/s. Two consecutive settled steps break the chain, so a pause followed by an opposite-direction scan is a new scan, not a reversal. `ScanReversalsPerMin` at match level, raw `ScanReversals` per round.
+- **Travel** — summed |Δyaw| → `ScanAvgYawDegPerSec`.
+
+Rationale: raw angular speed punishes fast angle-clearing (snap → dwell → snap). What distinguishes panic is the *pattern* — continuous back-and-forth swiping with no dwell — hence reversal rate + dwell fraction rather than mean speed alone. Rounds with < 5 s of qualifying time render as `—` in the `rounds` table (values are still stored; filter on `scan_ooc_seconds` in SQL). Match-level values are time-weighted across rounds; the `player` cross-match aggregate is time-weighted by `scan_ooc_seconds` per match.
 
 ---
 

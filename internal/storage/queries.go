@@ -112,8 +112,9 @@ func (db *DB) InsertPlayerMatchStats(stats []model.PlayerMatchStats) error {
 			rounds_won, median_trade_kill_delay_ms, median_trade_death_delay_ms,
 			saved_by_teammate, saved_teammate, assisted_kills,
 			hltv_flash_assists,
-			alive_seconds_total, last_alive_server_rounds
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+			alive_seconds_total, last_alive_server_rounds,
+			scan_ooc_seconds, scan_dwell_pct, scan_reversals_per_min, scan_avg_yaw_deg_per_sec
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -139,6 +140,7 @@ func (db *DB) InsertPlayerMatchStats(stats []model.PlayerMatchStats) error {
 			s.SavedByTeammate, s.SavedTeammate, s.AssistedKills,
 			s.HltvFlashAssists,
 			s.AliveSecondsTotal, s.LastAliveServerRounds,
+			s.ScanOOCSeconds, s.ScanDwellPct, s.ScanReversalsPerMin, s.ScanAvgYawDegPerSec,
 		)
 		if err != nil {
 			return fmt.Errorf("insert player_match_stats for %d: %w", s.SteamID, err)
@@ -161,8 +163,9 @@ func (db *DB) InsertPlayerRoundStats(stats []model.PlayerRoundStats) error {
 			got_kill, got_assist, survived, was_traded, kast_earned,
 			is_opening_kill, is_opening_death, is_trade_kill, is_trade_death,
 			kills, assists, damage, unused_utility, buy_type,
-			is_post_plant, is_in_clutch, clutch_enemy_count, won_round
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+			is_post_plant, is_in_clutch, clutch_enemy_count, won_round,
+			scan_ooc_seconds, scan_dwell_pct, scan_reversals, scan_avg_yaw_deg_per_sec
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -178,6 +181,7 @@ func (db *DB) InsertPlayerRoundStats(stats []model.PlayerRoundStats) error {
 			s.Kills, s.Assists, s.Damage, s.UnusedUtility, s.BuyType,
 			boolInt(s.IsPostPlant), boolInt(s.IsInClutch), s.ClutchEnemyCount,
 			boolInt(s.WonRound),
+			s.ScanOOCSeconds, s.ScanDwellPct, s.ScanReversals, s.ScanAvgYawDegPerSec,
 		)
 		if err != nil {
 			return fmt.Errorf("insert player_round_stats: %w", err)
@@ -248,7 +252,8 @@ func (db *DB) GetPlayerMatchStats(demoHash string) ([]model.PlayerMatchStats, er
 		       role, median_ttk_ms, median_ttd_ms, one_tap_kills, counter_strafe_pct,
 		       saved_by_teammate, saved_teammate, assisted_kills,
 		       hltv_flash_assists,
-		       alive_seconds_total, last_alive_server_rounds
+		       alive_seconds_total, last_alive_server_rounds,
+		       scan_ooc_seconds, scan_dwell_pct, scan_reversals_per_min, scan_avg_yaw_deg_per_sec
 		FROM player_match_stats WHERE demo_hash = ?
 		ORDER BY kills DESC`, demoHash)
 	if err != nil {
@@ -278,6 +283,7 @@ func (db *DB) GetPlayerMatchStats(demoHash string) ([]model.PlayerMatchStats, er
 			&s.SavedByTeammate, &s.SavedTeammate, &s.AssistedKills,
 			&s.HltvFlashAssists,
 			&s.AliveSecondsTotal, &s.LastAliveServerRounds,
+			&s.ScanOOCSeconds, &s.ScanDwellPct, &s.ScanReversalsPerMin, &s.ScanAvgYawDegPerSec,
 		); err != nil {
 			return nil, err
 		}
@@ -340,7 +346,8 @@ func (db *DB) GetPlayerRoundStats(demoHash string, steamID uint64) ([]model.Play
 		       got_kill, got_assist, survived, was_traded, kast_earned,
 		       is_opening_kill, is_opening_death, is_trade_kill, is_trade_death,
 		       kills, assists, damage, unused_utility, buy_type,
-		       is_post_plant, is_in_clutch, clutch_enemy_count, won_round
+		       is_post_plant, is_in_clutch, clutch_enemy_count, won_round,
+		       scan_ooc_seconds, scan_dwell_pct, scan_reversals, scan_avg_yaw_deg_per_sec
 		FROM player_round_stats
 		WHERE demo_hash = ? AND steam_id = ?
 		ORDER BY round_number ASC`,
@@ -363,6 +370,7 @@ func (db *DB) GetPlayerRoundStats(demoHash string, steamID uint64) ([]model.Play
 			&isOpeningKill, &isOpeningDeath, &isTradeKill, &isTradeDeath,
 			&s.Kills, &s.Assists, &s.Damage, &s.UnusedUtility, &s.BuyType,
 			&isPostPlant, &isInClutch, &s.ClutchEnemyCount, &wonRound,
+			&s.ScanOOCSeconds, &s.ScanDwellPct, &s.ScanReversals, &s.ScanAvgYawDegPerSec,
 		); err != nil {
 			return nil, err
 		}
@@ -466,7 +474,8 @@ func (db *DB) GetAllPlayerMatchStats(steamID uint64) ([]model.PlayerMatchStats, 
 		       p.rounds_won, p.median_trade_kill_delay_ms, p.median_trade_death_delay_ms,
 		       p.saved_by_teammate, p.saved_teammate, p.assisted_kills,
 		       p.hltv_flash_assists,
-		       p.alive_seconds_total, p.last_alive_server_rounds
+		       p.alive_seconds_total, p.last_alive_server_rounds,
+		       p.scan_ooc_seconds, p.scan_dwell_pct, p.scan_reversals_per_min, p.scan_avg_yaw_deg_per_sec
 		FROM player_match_stats p
 		JOIN demos d ON d.hash = p.demo_hash
 		WHERE p.steam_id = ?
@@ -499,6 +508,7 @@ func (db *DB) GetAllPlayerMatchStats(steamID uint64) ([]model.PlayerMatchStats, 
 			&s.SavedByTeammate, &s.SavedTeammate, &s.AssistedKills,
 			&s.HltvFlashAssists,
 			&s.AliveSecondsTotal, &s.LastAliveServerRounds,
+			&s.ScanOOCSeconds, &s.ScanDwellPct, &s.ScanReversalsPerMin, &s.ScanAvgYawDegPerSec,
 		); err != nil {
 			return nil, err
 		}

@@ -64,6 +64,10 @@ CREATE TABLE IF NOT EXISTS player_match_stats (
     hltv_flash_assists        INTEGER NOT NULL DEFAULT 0,
     alive_seconds_total       REAL    NOT NULL DEFAULT 0,
     last_alive_server_rounds  INTEGER NOT NULL DEFAULT 0,
+    scan_ooc_seconds          REAL    NOT NULL DEFAULT 0,
+    scan_dwell_pct            REAL    NOT NULL DEFAULT 0,
+    scan_reversals_per_min    REAL    NOT NULL DEFAULT 0,
+    scan_avg_yaw_deg_per_sec  REAL    NOT NULL DEFAULT 0,
     UNIQUE(demo_hash, steam_id)
 );
 
@@ -89,6 +93,10 @@ CREATE TABLE IF NOT EXISTS player_round_stats (
     is_post_plant      INTEGER NOT NULL DEFAULT 0,
     is_in_clutch       INTEGER NOT NULL DEFAULT 0,
     clutch_enemy_count INTEGER NOT NULL DEFAULT 0,
+    scan_ooc_seconds         REAL    NOT NULL DEFAULT 0,
+    scan_dwell_pct           REAL    NOT NULL DEFAULT 0,
+    scan_reversals           INTEGER NOT NULL DEFAULT 0,
+    scan_avg_yaw_deg_per_sec REAL    NOT NULL DEFAULT 0,
     UNIQUE(demo_hash, steam_id, round_number)
 );
 

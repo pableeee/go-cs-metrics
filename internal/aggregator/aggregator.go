@@ -140,6 +140,7 @@ func wilsonCI(hits, n int) (lo, hi float64) {
 //  7. AWP death classifier (dry/repeek/isolated)
 //  8. Flash quality window (effective flashes within 1.5 s)
 //  9. Role classification (AWPer/Entry/Support/Rifler)
+//
 // 10. TTK and TTD (median ms from first hit to kill/death)
 // 11. Counter-strafe % (shots fired at horizontal velocity ≤ 34 u/s)
 // 12. Death events (per-kill rows with position, weapon, tactical context)
@@ -214,7 +215,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 	}
 
 	// Collect per-player trade delay samples from the annotated kills.
-	tradeKillDelays  := make(map[uint64][]float64) // killerID → ms delays for their trade kills
+	tradeKillDelays := make(map[uint64][]float64)  // killerID → ms delays for their trade kills
 	tradeDeathDelays := make(map[uint64][]float64) // victimID → ms delays until their death was traded
 	for _, kills := range killsByRound {
 		for _, k := range kills {
@@ -327,8 +328,8 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 	}
 
 	type dkey struct {
-		round              int
-		attacker, victim   uint64
+		round            int
+		attacker, victim uint64
 	}
 	damagesByAtkVic := make(map[dkey][]model.RawDamage)
 	for _, d := range raw.Damages {
@@ -348,7 +349,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			// active at the kill tick and was thrown by A's teammate.
 			flashes := flashesByRoundVictim[fkey{k.RoundNumber, V}]
 			var (
-				bestFlash    *model.RawFlash
+				bestFlash     *model.RawFlash
 				bestStartTick = -1
 				bestEndTick   int
 			)
@@ -469,8 +470,14 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 	// ---- Pass 3: per-round per-player stats. ----
 
 	// Build indexed damage/flash maps.
-	type damageKey struct{ roundN int; attackerID, victimID uint64 }
-	type flashKey struct{ roundN int; attackerID, victimID uint64 }
+	type damageKey struct {
+		roundN               int
+		attackerID, victimID uint64
+	}
+	type flashKey struct {
+		roundN               int
+		attackerID, victimID uint64
+	}
 
 	// player x round → total damage dealt, utility damage, flash assists.
 	type roundDamage struct {
@@ -491,7 +498,10 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 	// Flash assists: attacker flashed victim who was killed by a teammate of attacker.
 	// Strategy: for each kill with AssistedFlash=true, the assister is the flasher.
 	// Track total health damage per (attacker, round).
-	type playerRoundKey struct{ playerID uint64; roundN int }
+	type playerRoundKey struct {
+		playerID uint64
+		roundN   int
+	}
 	totalDmgByPlayerRound := make(map[playerRoundKey]int)
 	utilDmgByPlayerRound := make(map[playerRoundKey]int)
 	for _, d := range raw.Damages {
@@ -508,12 +518,12 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		playerID uint64
 		weapon   string
 	}
-	weaponKills  := make(map[weaponKey]int)
-	weaponHS     := make(map[weaponKey]int)
+	weaponKills := make(map[weaponKey]int)
+	weaponHS := make(map[weaponKey]int)
 	weaponDeaths := make(map[weaponKey]int)
 	weaponAssist := make(map[weaponKey]int)
 	weaponDamage := make(map[weaponKey]int)
-	weaponHits   := make(map[weaponKey]int)
+	weaponHits := make(map[weaponKey]int)
 
 	for _, d := range raw.Damages {
 		if d.AttackerSteamID == 0 {
@@ -809,6 +819,21 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		}
 	}
 
+	// ---- Pass 17: Scan volatility — out-of-combat crosshair discipline. ----
+	// (Implementation in computeScanVolatility; see the constants there for
+	// the metric definitions.) Patch per-round rows, then roll up per player
+	// below when building PlayerMatchStats.
+	scanByPlayer := computeScanVolatility(raw)
+	for i := range allRoundStats {
+		rs := &allRoundStats[i]
+		if res, ok := scanByPlayer[rs.SteamID][rs.RoundNumber]; ok {
+			rs.ScanOOCSeconds = res.oocSeconds
+			rs.ScanDwellPct = 100 * res.dwellSec / res.oocSeconds
+			rs.ScanReversals = res.reversals
+			rs.ScanAvgYawDegPerSec = res.absYawDeg / res.oocSeconds
+		}
+	}
+
 	// ---- Pass 4: roll up into PlayerMatchStats. ----
 	var matchStats []model.PlayerMatchStats
 	for playerID, acc := range matchAccums {
@@ -816,25 +841,25 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			continue
 		}
 		ms := model.PlayerMatchStats{
-			DemoHash:       raw.DemoHash,
-			SteamID:        playerID,
-			Name:           raw.PlayerNames[playerID],
-			Team:           playerDominantTeam[playerID],
-			Kills:          acc.kills,
-			Assists:        acc.assists,
-			Deaths:         acc.deaths,
-			HeadshotKills:  acc.headshotKills,
-			FlashAssists:   acc.flashAssists,
-			TotalDamage:    acc.totalDamage,
-			UtilityDamage:  acc.utilityDamage,
-			RoundsPlayed:   acc.roundsPlayed,
-			OpeningKills:   acc.openingKills,
-			OpeningDeaths:  acc.openingDeaths,
-			TradeKills:     acc.tradeKills,
-			TradeDeaths:    acc.tradeDeaths,
-			KASTRounds:     acc.kastRounds,
-			UnusedUtility:  acc.unusedUtility,
-			RoundsWon:      acc.roundsWon,
+			DemoHash:      raw.DemoHash,
+			SteamID:       playerID,
+			Name:          raw.PlayerNames[playerID],
+			Team:          playerDominantTeam[playerID],
+			Kills:         acc.kills,
+			Assists:       acc.assists,
+			Deaths:        acc.deaths,
+			HeadshotKills: acc.headshotKills,
+			FlashAssists:  acc.flashAssists,
+			TotalDamage:   acc.totalDamage,
+			UtilityDamage: acc.utilityDamage,
+			RoundsPlayed:  acc.roundsPlayed,
+			OpeningKills:  acc.openingKills,
+			OpeningDeaths: acc.openingDeaths,
+			TradeKills:    acc.tradeKills,
+			TradeDeaths:   acc.tradeDeaths,
+			KASTRounds:    acc.kastRounds,
+			UnusedUtility: acc.unusedUtility,
+			RoundsWon:     acc.roundsWon,
 		}
 		if delays := tradeKillDelays[playerID]; len(delays) > 0 {
 			sort.Float64s(delays)
@@ -850,6 +875,21 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		ms.HltvFlashAssists = hltvFlashAssists[playerID]
 		ms.AliveSecondsTotal = aliveSeconds[playerID]
 		ms.LastAliveServerRounds = lastAliveServer[playerID]
+		// Pass 17 rollup: time-weighted across rounds.
+		var scanOOC, scanDwell, scanYaw float64
+		var scanRevs int
+		for _, res := range scanByPlayer[playerID] {
+			scanOOC += res.oocSeconds
+			scanDwell += res.dwellSec
+			scanYaw += res.absYawDeg
+			scanRevs += res.reversals
+		}
+		if scanOOC > 0 {
+			ms.ScanOOCSeconds = scanOOC
+			ms.ScanDwellPct = 100 * scanDwell / scanOOC
+			ms.ScanReversalsPerMin = float64(scanRevs) / scanOOC * 60
+			ms.ScanAvgYawDegPerSec = scanYaw / scanOOC
+		}
 		matchStats = append(matchStats, ms)
 	}
 
@@ -860,7 +900,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 
 	// ---- Pass 5: crosshair placement aggregation (total + pitch/yaw split). ----
 	type xhairAccum struct {
-		angles []float64
+		angles  []float64
 		pitches []float64
 		yaws    []float64
 	}
@@ -937,7 +977,10 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 	// ---- Pass 6: Duel Engine ----
 
 	// Build first-sight index: (observerID, enemyID, roundN) → first-sight tick.
-	type sightKey struct{ obsID, enemyID uint64; roundN int }
+	type sightKey struct {
+		obsID, enemyID uint64
+		roundN         int
+	}
 	firstSightIdx := make(map[sightKey]model.RawFirstSight)
 	for _, fs := range raw.FirstSights {
 		k := sightKey{fs.ObserverID, fs.EnemyID, fs.RoundNumber}
@@ -947,7 +990,10 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 	}
 
 	// Build damage index: (roundN, atkID, vicID) → sorted slice of RawDamage (non-utility only).
-	type duelDmgKey struct{ roundN int; atkID, vicID uint64 }
+	type duelDmgKey struct {
+		roundN       int
+		atkID, vicID uint64
+	}
 	duelDmgIdx := make(map[duelDmgKey][]model.RawDamage)
 	for _, d := range raw.Damages {
 		if d.IsUtility {
@@ -964,7 +1010,10 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 	}
 
 	// Build weapon-fire index: (shooterID, roundN) → sorted slice of RawWeaponFire.
-	type wfKey struct{ shooterID uint64; roundN int }
+	type wfKey struct {
+		shooterID uint64
+		roundN    int
+	}
 	wfIdx := make(map[wfKey][]model.RawWeaponFire)
 	for _, wf := range raw.WeaponFires {
 		k := wfKey{wf.ShooterID, wf.RoundNumber}
@@ -978,9 +1027,9 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 
 	// Duel accumulators per player.
 	type duelAccum struct {
-		winMs          []float64
-		lossMs         []float64
-		hitsToKill     []float64
+		winMs           []float64
+		lossMs          []float64
+		hitsToKill      []float64
 		firstHitHSCount int
 		firstHitTotal   int
 		correctionDegs  []float64
@@ -1183,7 +1232,10 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 	// ---- Pass 7: AWP Death Classifier ----
 
 	// Build flash index: victimID → []tick for flashes with FlashDuration > 0 per round.
-	type flashVictimKey struct{ victimID uint64; roundN int }
+	type flashVictimKey struct {
+		victimID uint64
+		roundN   int
+	}
 	flashTicksByVictim := make(map[flashVictimKey][]int)
 	for _, fl := range raw.Flashes {
 		if fl.FlashDuration <= 0 {
@@ -1644,4 +1696,165 @@ func angularDeltaDeg(pitch1, yaw1, pitch2, yaw2 float64) float64 {
 		dot = -1
 	}
 	return math.Acos(dot) * 180 / math.Pi
+}
+
+// ---- Pass 17: Scan volatility ("panic swiping") ----
+//
+// Measures out-of-combat crosshair discipline from the 16 Hz view samples.
+// "Out of combat" excludes any sample where an enemy is visible to the
+// player, plus ±scanCombatRadiusSec around the player's own kills, deaths,
+// damage dealt/taken, weapon fires, and grenade throws — utility lineups
+// are deliberate aim, not scanning.
+//
+// Per qualifying sample pair (consecutive alive samples in the same round,
+// gap ≤ scanMaxGapSec):
+//   - dwell    — yaw speed below scanSettledDegPerSec counts as settled time
+//   - reversal — a yaw-direction flip where both legs exceed
+//     scanReversalDegPerSec ("crosshair never settles" swiping)
+//   - travel   — absolute yaw degrees, for the average scan speed
+//
+// Yaw is unwrapped across the ±180° seam; per-step deltas above
+// scanFlickClampDeg (a flick or teleport artifact at 16 Hz) are skipped.
+const (
+	scanSettledDegPerSec  = 25.0
+	scanReversalDegPerSec = 60.0
+	scanFlickClampDeg     = 160.0
+	scanCombatRadiusSec   = 2.0
+	scanMaxGapSec         = 0.3
+)
+
+// scanRoundResult holds Pass 17 accumulators for one (player, round).
+type scanRoundResult struct {
+	oocSeconds float64
+	dwellSec   float64
+	reversals  int
+	absYawDeg  float64
+}
+
+func computeScanVolatility(raw *model.RawMatch) map[uint64]map[int]*scanRoundResult {
+	out := map[uint64]map[int]*scanRoundResult{}
+	if len(raw.ViewSamples) == 0 || raw.TicksPerSecond <= 0 {
+		return out
+	}
+	radius := int(scanCombatRadiusSec * raw.TicksPerSecond)
+
+	// Combat-event ticks per (player, round), sorted for window lookup.
+	type prKey struct {
+		id uint64
+		rn int
+	}
+	combat := map[prKey][]int{}
+	add := func(id uint64, rn, tick int) {
+		if id != 0 {
+			k := prKey{id, rn}
+			combat[k] = append(combat[k], tick)
+		}
+	}
+	for _, k := range raw.Kills {
+		add(k.KillerSteamID, k.RoundNumber, k.Tick)
+		add(k.VictimSteamID, k.RoundNumber, k.Tick)
+	}
+	for _, d := range raw.Damages {
+		add(d.AttackerSteamID, d.RoundNumber, d.Tick)
+		add(d.VictimSteamID, d.RoundNumber, d.Tick)
+	}
+	for _, w := range raw.WeaponFires {
+		add(w.ShooterID, w.RoundNumber, w.Tick)
+	}
+	for _, g := range raw.Grenades {
+		add(g.ThrowerSteamID, g.RoundNumber, g.ThrowTick)
+	}
+	for k := range combat {
+		sort.Ints(combat[k])
+	}
+	inCombat := func(id uint64, rn, tick int) bool {
+		ts := combat[prKey{id, rn}]
+		i := sort.SearchInts(ts, tick-radius)
+		return i < len(ts) && ts[i] <= tick+radius
+	}
+
+	freezeEnd := map[int]int{}
+	for _, r := range raw.Rounds {
+		freezeEnd[r.Number] = r.FreezeEndTick
+	}
+
+	// Group samples per (player, round), preserving tick order.
+	grouped := map[prKey][]model.RawViewSample{}
+	for _, s := range raw.ViewSamples {
+		k := prKey{s.SteamID, s.RoundNumber}
+		grouped[k] = append(grouped[k], s)
+	}
+
+	for k, samples := range grouped {
+		sort.Slice(samples, func(i, j int) bool { return samples[i].Tick < samples[j].Tick })
+
+		res := &scanRoundResult{}
+		havePrev := false
+		var prevTick int
+		var prevYaw float64 // unwrapped
+		lastDir := 0        // sign of the last leg exceeding the reversal threshold
+		prevSettled := true
+
+		for _, s := range samples {
+			if s.HP == 0 || s.Tick < freezeEnd[k.rn] {
+				havePrev = false
+				lastDir = 0
+				continue
+			}
+			if !havePrev {
+				prevTick, prevYaw, havePrev = s.Tick, s.YawDeg, true
+				continue
+			}
+			dt := float64(s.Tick-prevTick) / raw.TicksPerSecond
+			dyaw := s.YawDeg - prevYaw
+			for dyaw > 180 {
+				dyaw -= 360
+			}
+			for dyaw < -180 {
+				dyaw += 360
+			}
+			tick, lastTick := s.Tick, prevTick
+			prevTick, prevYaw = s.Tick, s.YawDeg
+			if dt <= 0 || dt > scanMaxGapSec || math.Abs(dyaw) > scanFlickClampDeg {
+				lastDir = 0
+				continue
+			}
+			if s.EnemiesVisible || inCombat(k.id, k.rn, tick) || inCombat(k.id, k.rn, lastTick) {
+				lastDir = 0
+				continue
+			}
+
+			rate := dyaw / dt
+			res.oocSeconds += dt
+			res.absYawDeg += math.Abs(dyaw)
+			settled := math.Abs(rate) < scanSettledDegPerSec
+			if settled {
+				res.dwellSec += dt
+			}
+			if math.Abs(rate) >= scanReversalDegPerSec {
+				dir := 1
+				if rate < 0 {
+					dir = -1
+				}
+				if lastDir != 0 && dir != lastDir {
+					res.reversals++
+				}
+				lastDir = dir
+			} else if settled && prevSettled {
+				// Two consecutive settled steps break the swipe chain — a
+				// later swing in the opposite direction is a new scan, not
+				// a reversal.
+				lastDir = 0
+			}
+			prevSettled = settled
+		}
+
+		if res.oocSeconds > 0 {
+			if out[k.id] == nil {
+				out[k.id] = map[int]*scanRoundResult{}
+			}
+			out[k.id][k.rn] = res
+		}
+	}
+	return out
 }

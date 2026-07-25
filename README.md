@@ -527,16 +527,18 @@ Per-round drill-down table for one player in one match. Shows side, buy type, ki
 ```
 === PlayerName — Mirage — 25 rounds ===
 
- RD | SIDE | BUY   | K | A | DMG | KAST | FLAGS
-  1 | CT   | full  | 2 | 0 | 150 | ✓    | OPEN_K
-  2 | CT   | full  | 0 | 1 |  45 | ✓    |
-  3 | CT   | eco   | 0 | 0 |   0 |      |
+ RD | SIDE | BUY   | K | A | DMG | KAST | DWELL% | REV | FLAGS
+  1 | CT   | full  | 2 | 0 | 150 | ✓    |    78% |   0 | OPEN_K
+  2 | CT   | full  | 0 | 1 |  45 | ✓    |    72% |   3 |
+  3 | CT   | eco   | 0 | 0 |   0 |      |    61% |   8 |
  ...
 
 Buy Profile: full=14 (56%)  force=5 (20%)  half=3 (12%)  eco=3 (12%)
 ```
 
 FLAGS: `OPEN_K` = opening kill, `OPEN_D` = opening death, `TRADE_K` = trade kill, `TRADE_D` = trade death, `POST_PLT` = bomb was planted this round, `CLUTCH_1vN` = player was last alive on their team facing N enemies.
+
+DWELL% / REV: out-of-combat scan volatility for the round — see [Scan Volatility](#scan-volatility-panic-swiping). `—` when the round had under 5 s of qualifying out-of-combat time.
 
 > **Note:** New columns are added automatically at startup. Re-parse demos after an update to populate newly added metrics with correct values.
 
@@ -552,7 +554,7 @@ Chronological per-match performance trend for a single player. Shows two tables 
 
 **Table 1 — Performance Trend:** DATE, MAP, RD (rounds), K, A, D, K/D, KPR (kills per round), ADR, KAST%
 
-**Table 2 — Aim Timing Trend** (only shown if TTK/TTD data exists): DATE, MAP, RD, MEDIAN_TTK, MEDIAN_TTD, ONE_TAP%, CS%
+**Table 2 — Aim Timing Trend** (only shown if TTK/TTD data exists): DATE, MAP, RD, MEDIAN_TTK, MEDIAN_TTD, ONE_TAP%, CS%, DWELL%, REV/MIN
 
 **Example:**
 
@@ -970,6 +972,22 @@ Measured at the moment an enemy is **first spotted** each round (server-side `m_
 
 ---
 
+### Scan Volatility ("panic swiping")
+
+Where crosshair placement measures readiness at the moment of contact, scan volatility measures crosshair discipline during the rest of the round — the out-of-combat time when the player is moving and holding. Computed from 16 Hz view samples, excluding any sample where an enemy is visible and ±2 s around the player's own kills, deaths, damage, shots, and grenade throws.
+
+| Metric | Definition |
+|--------|------------|
+| **DWELL%** | Percentage of out-of-combat time with yaw speed < 25 °/s (crosshair settled on an angle). Low dwell = the crosshair never settles — the "panic swiping" signature. |
+| **REV/MIN** | Yaw direction reversals per minute, counting only flips where both swings exceed 60 °/s. Deliberate angle-clearing (snap → hold → snap) produces few reversals; frantic back-and-forth scanning produces many. |
+| **AVG °/s** | Mean absolute yaw speed over out-of-combat time (stored as `scan_avg_yaw_deg_per_sec`; not shown in tables). |
+
+Shown as `DWELL%` and `REV/MIN` in the Aim Timing & Movement tables (`show`, `player`) and per round in the `rounds` drill-down (rounds with < 5 s of qualifying time show `—`). Per-round raw values live in `player_round_stats` (`scan_ooc_seconds`, `scan_dwell_pct`, `scan_reversals`, `scan_avg_yaw_deg_per_sec`) for SQL analysis, e.g. comparing clutch vs. non-clutch rounds. Compare spike rounds against your own baseline rather than absolute thresholds.
+
+> **Note:** Values require view samples, which the `.csraw2.tar` pipeline always carries. Demos ingested before this metric shipped show 0 / `—`; re-run `replay --dir <event>/ --force` to backfill.
+
+---
+
 ### Duel Engine
 
 Tracks the lifecycle of every kill: from the moment the killer first spotted the victim (`m_bSpottedByMask`) to the kill tick.
@@ -1086,7 +1104,7 @@ Two ingestion paths feed the same pipeline:
                               │  *RawMatch
                               ▼
                ┌──────────────────────────────┐
-               │  aggregator (internal/       │  16-pass aggregation:
+               │  aggregator (internal/       │  17-pass aggregation:
                │  aggregator)                 │  trade annotation + timing,
                │                              │  opening kills, round W/L,
                │                              │  KAST, crosshair, duel engine,
@@ -1095,7 +1113,8 @@ Two ingestion paths feed the same pipeline:
                │                              │  death events, flash events,
                │                              │  save & assist annotation,
                │                              │  HLTV-style flash assists,
-               │                              │  liveness (time-alive + sole-survivor)
+               │                              │  liveness (time-alive + sole-survivor),
+               │                              │  scan volatility (dwell% + reversals)
                └──────────────┬───────────────┘
                               │  PlayerMatchStats
                               │  PlayerRoundStats
@@ -1225,6 +1244,7 @@ go test ./internal/aggregator/... -run TestTradeKill -v
 - ~~**Drill-down**~~ — done (`rounds` command shows per-round detail with buy type and flags).
 - ~~**TTK/TTD**~~ — done (median ms from first hit to kill/death).
 - ~~**Counter-strafe %**~~ — done. Shots fired at horizontal speed ≤ 34 u/s (≈ stopped/counter-strafed); shown as `CS%` in aim timing tables and `AVG_CS%` in the `player` command.
+- ~~**Scan volatility**~~ — done (Pass 17). Out-of-combat crosshair dwell% and yaw-reversal rate ("panic swiping" detector); `DWELL%`/`REV/MIN` in aim timing tables, per-round in `rounds`.
 - ~~**Trend view**~~ — done (`trend` command, chronological KPR/ADR/KAST% and TTK/TTD tables per match).
 - ~~**Round context**~~ — done (`POST_PLT` and `CLUTCH_1vN` flags in `rounds` drill-down).
 - ~~**Player filters**~~ — done (`--map`, `--since`, `--last` on the `player` command).

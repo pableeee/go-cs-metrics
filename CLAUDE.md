@@ -28,7 +28,7 @@ The processing pipeline has five stages:
 1. **Ingestion** — Accept a `.dem` (or pre-converted `.csraw2.tar`), compute the SHA-256 hash, and dedup against the DB.
 2. **Parsing** — `internal/parserv2` walks the `.dem` and produces a `*csraw2.Match` (events + per-tick player samples). The reader in `internal/csraw2` produces the same value from a `.csraw2.tar` archive without demoinfocs.
 3. **Bridging** — `internal/csraw2bridge.ToRawMatch(m)` adapts `csraw2.Match` to the legacy `*model.RawMatch` the aggregator expects. (The bridge will disappear once the aggregator is rewritten against csraw2 directly.)
-4. **Aggregation** — 16-pass algorithm producing `[]PlayerMatchStats`, `[]PlayerRoundStats`, `[]PlayerWeaponStats`, `[]PlayerDuelSegment`, `[]PlayerDeathEvent`, `[]FlashEvent`.
+4. **Aggregation** — 17-pass algorithm producing `[]PlayerMatchStats`, `[]PlayerRoundStats`, `[]PlayerWeaponStats`, `[]PlayerDuelSegment`, `[]PlayerDeathEvent`, `[]FlashEvent`.
 5. **Presentation** — CLI output via `tablewriter`; storage is SQLite.
 
 Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.csmetrics/metrics.db`. Intermediate-format spec: `docs/csraw-v2-spec.md`.
@@ -110,7 +110,7 @@ Core types (all in `internal/model/model.go`):
 - **`PlayerDuelSegment`** — FHHS counts per (weapon_bucket, distance_bin) per demo
 - **`PlayerAggregate`** — cross-demo sums/averages used by the `player` command
 
-## Aggregator: 16 Passes
+## Aggregator: 17 Passes
 
 1. Trade annotation (backward + forward scan within 5 s window); captures trade kill/death delay in ticks for timing metrics
 2. Opening kills (first kill after `FreezeEndTick`)
@@ -128,6 +128,7 @@ Core types (all in `internal/model/model.go`):
 14. Save & Assist annotation (HLTV-compatible 1 s save window + assisted-kill flag; populates `saved_by_teammate`, `saved_teammate`, `assisted_kills` on `player_match_stats`)
 15. HLTV-style flash assists (25 dmg threshold during blind window; populates `hltv_flash_assists` on `player_match_stats` — distinct from the in-game `flash_assists` field which uses the kill-feed ~40 dmg rule)
 16. Liveness — per-player action time alive and sole-survivor moments (populates `alive_seconds_total` and `last_alive_server_rounds` on `player_match_stats`; alive time anchored at `FreezeEndTick`)
+17. Scan volatility — out-of-combat crosshair discipline / "panic swiping" from 16 Hz view samples (dwell% below 25 °/s, yaw reversals with both legs ≥ 60 °/s, avg yaw speed; excludes enemy-visible samples and ±2 s around own combat events; populates `scan_*` columns on `player_match_stats` and `player_round_stats`)
 
 ## Memory Behaviour of the Parser
 

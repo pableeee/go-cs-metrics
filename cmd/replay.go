@@ -171,6 +171,12 @@ func runReplay(cmd *cobra.Command, args []string) error {
 		}
 
 		ctScore, tScore := computeScore(raw.Rounds)
+		// Tier precedence: --tier flag / event.json sidecar, then the
+		// archive header (matches the --tier flag's documented default).
+		demoTier := effectiveTier
+		if demoTier == "" {
+			demoTier = raw.Tier
+		}
 		summary := model.MatchSummary{
 			DemoHash:  raw.DemoHash,
 			MapName:   raw.MapName,
@@ -179,7 +185,7 @@ func runReplay(cmd *cobra.Command, args []string) error {
 			Tickrate:  raw.Tickrate,
 			CTScore:   ctScore,
 			TScore:    tScore,
-			Tier:      effectiveTier,
+			Tier:      demoTier,
 			EventID:   effectiveEventID,
 		}
 

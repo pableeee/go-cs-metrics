@@ -32,6 +32,7 @@ func ToRawMatch(m *csraw2.Match) (*model.RawMatch, error) {
 		MapName:        m.Header.Map,
 		MatchDate:      m.Header.MatchDate,
 		MatchType:      m.Header.MatchType,
+		Tier:           m.Header.Tier,
 		Tickrate:       m.Header.Tickrate,
 		TicksPerSecond: m.Header.Tickrate,
 		PlayerNames:    map[uint64]string{},
@@ -322,6 +323,25 @@ func ToRawMatch(m *csraw2.Match) (*model.RawMatch, error) {
 			ThrowPos:       vec3From(g.ThrowPosX, g.ThrowPosY, g.ThrowPosZ),
 			LandPos:        vec3From(landX, landY, landZ),
 		}
+	}
+
+	// ── View samples (for the scan-volatility pass) ────────────────────
+	// Reduce PlayerSamples to the view-state fields Pass 17 needs. Rows for
+	// slots without a resolvable steamID are dropped.
+	raw.ViewSamples = make([]model.RawViewSample, 0, len(m.PlayerSamples))
+	for _, s := range m.PlayerSamples {
+		id := idOf(s.PlayerSlot)
+		if id == 0 {
+			continue
+		}
+		raw.ViewSamples = append(raw.ViewSamples, model.RawViewSample{
+			Tick:           int(s.Tick),
+			RoundNumber:    int(s.Round),
+			SteamID:        id,
+			YawDeg:         float64(s.YawDeg) / 100,
+			HP:             int(s.HP),
+			EnemiesVisible: s.VisibleEnemiesMask != 0,
+		})
 	}
 
 	return raw, nil

@@ -375,6 +375,10 @@ func runParse(cmd *cobra.Command, args []string) error {
 		}
 
 		ctScore, tScore := computeScore(raw.Rounds)
+		demoTier := effectiveTier
+		if demoTier == "" {
+			demoTier = raw.Tier // .csraw2.tar input: fall back to the archive header
+		}
 		summary := model.MatchSummary{
 			DemoHash:   raw.DemoHash,
 			MapName:    raw.MapName,
@@ -383,7 +387,7 @@ func runParse(cmd *cobra.Command, args []string) error {
 			Tickrate:   raw.Tickrate,
 			CTScore:    ctScore,
 			TScore:     tScore,
-			Tier:       effectiveTier,
+			Tier:       demoTier,
 			IsBaseline: parseBaseline,
 			EventID:    effectiveEventID,
 		}
@@ -513,6 +517,10 @@ func runParse(cmd *cobra.Command, args []string) error {
 		}
 
 		ctScore, tScore := computeScore(res.raw.Rounds)
+		demoTier := effectiveTier
+		if demoTier == "" {
+			demoTier = res.raw.Tier // .csraw2.tar input: fall back to the archive header
+		}
 		summary := model.MatchSummary{
 			DemoHash:   res.raw.DemoHash,
 			MapName:    res.raw.MapName,
@@ -521,7 +529,7 @@ func runParse(cmd *cobra.Command, args []string) error {
 			Tickrate:   res.raw.Tickrate,
 			CTScore:    ctScore,
 			TScore:     tScore,
-			Tier:       effectiveTier,
+			Tier:       demoTier,
 			IsBaseline: parseBaseline,
 			EventID:    effectiveEventID,
 		}

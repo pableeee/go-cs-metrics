@@ -69,6 +69,15 @@ func Open(path string) (*DB, error) {
 		// Slice 4 (Pass 16): liveness — time alive and sole-survivor moments.
 		`ALTER TABLE player_match_stats ADD COLUMN alive_seconds_total REAL NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_match_stats ADD COLUMN last_alive_server_rounds INTEGER NOT NULL DEFAULT 0`,
+		// Pass 17: scan volatility — out-of-combat crosshair discipline.
+		`ALTER TABLE player_match_stats ADD COLUMN scan_ooc_seconds REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_match_stats ADD COLUMN scan_dwell_pct REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_match_stats ADD COLUMN scan_reversals_per_min REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_match_stats ADD COLUMN scan_avg_yaw_deg_per_sec REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_round_stats ADD COLUMN scan_ooc_seconds REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_round_stats ADD COLUMN scan_dwell_pct REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_round_stats ADD COLUMN scan_reversals INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_round_stats ADD COLUMN scan_avg_yaw_deg_per_sec REAL NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range altMigrations {
 		if _, err := conn.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {

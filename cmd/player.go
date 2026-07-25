@@ -296,6 +296,7 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 	var ttkN, ttdN, csN int
 	var tradeKillDelaySum, tradeDeathDelaySum float64
 	var tradeKillDelayN, tradeDeathDelayN int
+	var scanDwellWSum, scanRevWSum, scanYawWSum float64
 	roleCounts := make(map[string]int)
 
 	for _, s := range stats {
@@ -357,11 +358,22 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 			tradeDeathDelaySum += s.MedianTradeDeathDelayMs
 			tradeDeathDelayN++
 		}
+		if s.ScanOOCSeconds > 0 {
+			agg.ScanOOCSeconds += s.ScanOOCSeconds
+			scanDwellWSum += s.ScanDwellPct * s.ScanOOCSeconds
+			scanRevWSum += s.ScanReversalsPerMin * s.ScanOOCSeconds
+			scanYawWSum += s.ScanAvgYawDegPerSec * s.ScanOOCSeconds
+		}
 		role := s.Role
 		if role == "" {
 			role = "Rifler"
 		}
 		roleCounts[role]++
+	}
+	if agg.ScanOOCSeconds > 0 {
+		agg.ScanDwellPct = scanDwellWSum / agg.ScanOOCSeconds
+		agg.ScanReversalsPerMin = scanRevWSum / agg.ScanOOCSeconds
+		agg.ScanAvgYawDegPerSec = scanYawWSum / agg.ScanOOCSeconds
 	}
 
 	if expoWinN > 0 {
