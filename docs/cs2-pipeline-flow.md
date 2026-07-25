@@ -404,6 +404,15 @@ Impact  = 2.13*KPR + 0.42*APR - 0.41
 
 Community approximation of HLTV Rating 2.0. Expect ±0.05–0.10 vs. official HLTV.
 
+**ADR definition change (2026-07):** ADR (and therefore the Rating 2.0 proxy)
+now uses HLTV-style damage — capped at the victim's remaining HP and excluding
+team/self damage. Previously it summed raw `PlayerHurt` health damage, which is
+not capped at remaining HP, inflating ADR ~20–60%. `total_damage` /
+`utility_damage` rows in metrics.db parsed **before** this fix still carry
+inflated values (there are no per-hit rows in sqlite to backfill from); re-parse
+the demos (from `.dem` or `.csraw2.tar`) to correct them. Exported team JSON
+ratings drop slightly after re-parse because the ADR term shrinks.
+
 ### VRS Opponent Matching
 
 - For each qualifying demo, opponent player names are looked up in the VRS snapshot

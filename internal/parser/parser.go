@@ -399,16 +399,18 @@ func ParseDemo(path, matchType string) (*model.RawMatch, error) {
 
 		vp := e.Player.Position()
 		raw.Damages = append(raw.Damages, model.RawDamage{
-			Tick:            p.GameState().IngameTick(),
-			RoundNumber:     roundNumber,
-			AttackerSteamID: e.Attacker.SteamID64,
-			VictimSteamID:   e.Player.SteamID64,
-			AttackerTeam:    teamFromCommon(e.Attacker.Team),
-			HealthDamage:    e.HealthDamage,
-			Weapon:          weapName,
-			IsUtility:       isUtil,
-			HitGroup:        hitGroupName(e.HitGroup),
-			VictimPos:       model.Vec3{X: vp.X, Y: vp.Y, Z: vp.Z},
+			Tick:              p.GameState().IngameTick(),
+			RoundNumber:       roundNumber,
+			AttackerSteamID:   e.Attacker.SteamID64,
+			VictimSteamID:     e.Player.SteamID64,
+			AttackerTeam:      teamFromCommon(e.Attacker.Team),
+			VictimTeam:        teamFromCommon(e.Player.Team),
+			HealthDamage:      e.HealthDamage,
+			HealthDamageTaken: e.HealthDamageTaken,
+			Weapon:            weapName,
+			IsUtility:         isUtil,
+			HitGroup:          hitGroupName(e.HitGroup),
+			VictimPos:         model.Vec3{X: vp.X, Y: vp.Y, Z: vp.Z},
 		})
 	})
 

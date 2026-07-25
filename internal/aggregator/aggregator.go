@@ -17,6 +17,19 @@ import (
 // unitsToMeters is the conversion factor from Source 2 Hammer units to meters.
 const unitsToMeters = 0.01905
 
+// enemyDamageTaken returns the HLTV-style damage credit for a damage event:
+// the health the victim actually lost (HealthDamageTaken, capped at remaining
+// HP — raw HealthDamage is NOT capped, so an AWP shot on a 20 HP player logs
+// ~90+), and 0 for team damage (attacker and victim on the same known team).
+// Self-damage is already filtered at parse/bridge time. This is the value
+// that must feed ADR / total_damage / the Rating 2.0 proxy.
+func enemyDamageTaken(d model.RawDamage) int {
+	if d.AttackerTeam != model.TeamUnknown && d.AttackerTeam == d.VictimTeam {
+		return 0
+	}
+	return d.HealthDamageTaken
+}
+
 // weaponBucket maps a weapon name (as returned by demoinfocs .String()) to a
 // broad category bucket used for FHHS segment grouping. For example, "M4A1-S"
 // and "M4A4" both map to "M4". Weapons that do not match any known category
@@ -364,7 +377,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			var dmgInWindow int
 			for _, d := range damagesByAtkVic[dkey{k.RoundNumber, A, V}] {
 				if d.Tick >= bestFlash.Tick && d.Tick <= bestEndTick {
-					dmgInWindow += d.HealthDamage
+					dmgInWindow += enemyDamageTaken(d)
 				}
 			}
 			if dmgInWindow >= hltvFlashAssistDmgThreshold {
@@ -468,9 +481,9 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 	for _, d := range raw.Damages {
 		k := damageKey{d.RoundNumber, d.AttackerSteamID, d.VictimSteamID}
 		prev := damageLedger[k]
-		prev.health += d.HealthDamage
+		prev.health += enemyDamageTaken(d)
 		if d.IsUtility {
-			prev.utility += d.HealthDamage
+			prev.utility += enemyDamageTaken(d)
 		}
 		damageLedger[k] = prev
 	}
@@ -482,10 +495,11 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 	totalDmgByPlayerRound := make(map[playerRoundKey]int)
 	utilDmgByPlayerRound := make(map[playerRoundKey]int)
 	for _, d := range raw.Damages {
+		// ADR path: capped, enemy-only damage (HLTV definition).
 		pk := playerRoundKey{d.AttackerSteamID, d.RoundNumber}
-		totalDmgByPlayerRound[pk] += d.HealthDamage
+		totalDmgByPlayerRound[pk] += enemyDamageTaken(d)
 		if d.IsUtility {
-			utilDmgByPlayerRound[pk] += d.HealthDamage
+			utilDmgByPlayerRound[pk] += enemyDamageTaken(d)
 		}
 	}
 
@@ -505,8 +519,13 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		if d.AttackerSteamID == 0 {
 			continue
 		}
+		// Skip team damage: hits on teammates shouldn't count toward
+		// per-weapon damage or hit counts (combat accuracy vs enemies).
+		if d.AttackerTeam != model.TeamUnknown && d.AttackerTeam == d.VictimTeam {
+			continue
+		}
 		wk := weaponKey{d.AttackerSteamID, d.Weapon}
-		weaponDamage[wk] += d.HealthDamage
+		weaponDamage[wk] += enemyDamageTaken(d)
 		weaponHits[wk]++
 	}
 

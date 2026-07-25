@@ -212,13 +212,25 @@ func ToRawMatch(m *csraw2.Match) (*model.RawMatch, error) {
 		if uint8(d.AttackerSlot) == d.VictimSlot {
 			continue
 		}
+		// Capped damage = health actually lost (HLTV-style). The parquet
+		// rows carry pre/post HP snapshots, so derive it here rather than
+		// trusting raw HealthDamage, which is NOT capped at remaining HP.
+		taken := int(d.PreDamageHP) - int(d.PostDamageHP)
+		if taken < 0 {
+			taken = 0
+		}
+		if taken > int(d.HealthDamage) {
+			taken = int(d.HealthDamage)
+		}
 		raw.Damages = append(raw.Damages, model.RawDamage{
-			Tick:            int(d.Tick),
-			RoundNumber:     int(d.Round),
-			AttackerSteamID: idOf(uint8(d.AttackerSlot)),
-			VictimSteamID:   idOf(d.VictimSlot),
-			AttackerTeam:    teamAt(d.Round, uint8(d.AttackerSlot)),
-			HealthDamage:    int(d.HealthDamage),
+			Tick:              int(d.Tick),
+			RoundNumber:       int(d.Round),
+			AttackerSteamID:   idOf(uint8(d.AttackerSlot)),
+			VictimSteamID:     idOf(d.VictimSlot),
+			AttackerTeam:      teamAt(d.Round, uint8(d.AttackerSlot)),
+			VictimTeam:        teamAt(d.Round, d.VictimSlot),
+			HealthDamage:      int(d.HealthDamage),
+			HealthDamageTaken: taken,
 			Weapon:          weaponName(d.WeaponID),
 			IsUtility:       d.IsUtility,
 			HitGroup:        hitGroupName(d.HitGroup),

@@ -542,7 +542,8 @@ func TestADR_Basic(t *testing.T) {
 	raw := makeRaw([]model.RawKill{k1}, []model.RawRound{round})
 	raw.Damages = []model.RawDamage{
 		{Tick: 900, RoundNumber: 1, AttackerSteamID: playerA, VictimSteamID: playerB,
-			AttackerTeam: model.TeamT, HealthDamage: 75},
+			AttackerTeam: model.TeamT, VictimTeam: model.TeamCT,
+			HealthDamage: 75, HealthDamageTaken: 75},
 	}
 
 	matchStats, _, _, _, _, _, err := Aggregate(raw)
@@ -560,6 +561,50 @@ func TestADR_Basic(t *testing.T) {
 			}
 			if ms.ADR() != 75.0 {
 				t.Errorf("expected ADR=75.0, got %.2f", ms.ADR())
+			}
+		}
+	}
+}
+
+// TestADR_CappedAndEnemyOnly: total_damage must use HealthDamageTaken (capped
+// at the victim's remaining HP) and ignore team damage entirely.
+func TestADR_CappedAndEnemyOnly(t *testing.T) {
+	k1 := model.RawKill{
+		Tick: 1000, RoundNumber: 1,
+		KillerSteamID: playerA, VictimSteamID: playerB,
+		KillerTeam: model.TeamT, VictimTeam: model.TeamCT,
+	}
+	round := makeRound(1, 500, []uint64{playerA, playerB, playerC}, map[uint64]bool{playerA: true, playerC: true})
+	raw := makeRaw([]model.RawKill{k1}, []model.RawRound{round})
+	raw.PlayerNames[playerC] = "C"
+	raw.PlayerTeams[playerC] = model.TeamT
+	raw.Damages = []model.RawDamage{
+		// AWP shot on a 20 HP enemy: raw event says 90, health lost is 20.
+		{Tick: 900, RoundNumber: 1, AttackerSteamID: playerA, VictimSteamID: playerB,
+			AttackerTeam: model.TeamT, VictimTeam: model.TeamCT,
+			HealthDamage: 90, HealthDamageTaken: 20, Weapon: "AWP"},
+		// Team damage: must not count toward total or per-weapon damage.
+		{Tick: 950, RoundNumber: 1, AttackerSteamID: playerA, VictimSteamID: playerC,
+			AttackerTeam: model.TeamT, VictimTeam: model.TeamT,
+			HealthDamage: 40, HealthDamageTaken: 40, Weapon: "AWP"},
+	}
+
+	matchStats, _, weaponStats, _, _, _, err := Aggregate(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, ms := range matchStats {
+		if ms.SteamID == playerA && ms.TotalDamage != 20 {
+			t.Errorf("expected TotalDamage=20 (capped, enemy-only), got %d", ms.TotalDamage)
+		}
+	}
+	for _, ws := range weaponStats {
+		if ws.SteamID == playerA && ws.Weapon == "AWP" {
+			if ws.Damage != 20 {
+				t.Errorf("expected weapon Damage=20, got %d", ws.Damage)
+			}
+			if ws.Hits != 1 {
+				t.Errorf("expected weapon Hits=1 (team hit excluded), got %d", ws.Hits)
 			}
 		}
 	}
@@ -748,7 +793,8 @@ func makeFlashScenario(flashTick, killTick, dmgTick, dmgInBlind int, fThrowerIsA
 	dmg := model.RawDamage{
 		Tick: dmgTick, RoundNumber: 1,
 		AttackerSteamID: A, VictimSteamID: V,
-		AttackerTeam: model.TeamCT, HealthDamage: dmgInBlind,
+		AttackerTeam: model.TeamCT, VictimTeam: model.TeamT,
+		HealthDamage: dmgInBlind, HealthDamageTaken: dmgInBlind,
 	}
 	kill := model.RawKill{
 		Tick: killTick, RoundNumber: 1,

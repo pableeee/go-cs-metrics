@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS player_match_stats (
     deaths          INTEGER NOT NULL DEFAULT 0,
     headshot_kills  INTEGER NOT NULL DEFAULT 0,
     flash_assists   INTEGER NOT NULL DEFAULT 0,
+    -- total_damage / utility_damage: HLTV-style damage — capped at the
+    -- victim's remaining HP and excluding team/self damage (fix 2026-07).
+    -- Rows ingested before the fix summed raw PlayerHurt HealthDamage and
+    -- carry ADR inflated ~20-60% until the demo is re-parsed.
     total_damage    INTEGER NOT NULL DEFAULT 0,
     utility_damage  INTEGER NOT NULL DEFAULT 0,
     rounds_played   INTEGER NOT NULL DEFAULT 0,

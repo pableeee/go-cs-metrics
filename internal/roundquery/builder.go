@@ -219,11 +219,24 @@ func sumHEDamage(damages []csraw2.Damage, teamAt func(int, uint8) uint8, weaponN
 		if !isHEGrenadeName(weaponNameForID(d.WeaponID)) {
 			continue
 		}
-		switch teamAt(int(d.Round), uint8(d.AttackerSlot)) {
+		atkTeam := teamAt(int(d.Round), uint8(d.AttackerSlot))
+		// Exclude team damage (HE on own teammates is not side output).
+		if atkTeam != csraw2.TeamUnknown && atkTeam == teamAt(int(d.Round), d.VictimSlot) {
+			continue
+		}
+		// Cap at health actually lost (raw HealthDamage overshoots at low HP).
+		dmg := int(d.PreDamageHP) - int(d.PostDamageHP)
+		if dmg < 0 {
+			dmg = 0
+		}
+		if dmg > int(d.HealthDamage) {
+			dmg = int(d.HealthDamage)
+		}
+		switch atkTeam {
 		case csraw2.TeamT:
-			t += int(d.HealthDamage)
+			t += dmg
 		case csraw2.TeamCT:
-			ct += int(d.HealthDamage)
+			ct += dmg
 		}
 	}
 	return

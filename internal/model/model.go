@@ -31,33 +31,40 @@ func (t Team) String() string {
 
 // RawKill represents a single kill event extracted from a demo tick stream.
 type RawKill struct {
-	Tick, RoundNumber               int
-	KillerSteamID, VictimSteamID   uint64
-	AssisterSteamID                 uint64 // 0 if none
-	KillerTeam, VictimTeam          Team
-	Weapon                          string
-	IsHeadshot, AssistedFlash       bool
-	NearbyVictimTeammates           int     // alive teammates of victim within 512 units at kill tick (0 = isolated)
-	VictimPos                       Vec3    // victim world position at kill tick
-	KillerPos                       Vec3    // killer world position at kill tick
-	VictimYawDeg                    float64 // victim view yaw (0–360) at kill tick
+	Tick, RoundNumber            int
+	KillerSteamID, VictimSteamID uint64
+	AssisterSteamID              uint64 // 0 if none
+	KillerTeam, VictimTeam       Team
+	Weapon                       string
+	IsHeadshot, AssistedFlash    bool
+	NearbyVictimTeammates        int     // alive teammates of victim within 512 units at kill tick (0 = isolated)
+	VictimPos                    Vec3    // victim world position at kill tick
+	KillerPos                    Vec3    // killer world position at kill tick
+	VictimYawDeg                 float64 // victim view yaw (0–360) at kill tick
 }
 
 // RawDamage represents a single damage event (PlayerHurt) from the demo.
 type RawDamage struct {
-	Tick, RoundNumber                   int
-	AttackerSteamID, VictimSteamID     uint64
-	AttackerTeam                        Team
-	HealthDamage                        int
-	Weapon                              string
-	IsUtility                           bool   // HE/molotov/incendiary
-	HitGroup                            string // "head", "chest", "stomach", "left_arm", "right_arm", "left_leg", "right_leg", "other"
-	VictimPos                           Vec3   // victim world position at hurt tick
+	Tick, RoundNumber              int
+	AttackerSteamID, VictimSteamID uint64
+	AttackerTeam                   Team
+	VictimTeam                     Team
+	HealthDamage                   int
+	// HealthDamageTaken is HealthDamage capped at the victim's remaining HP
+	// (health actually lost; an AWP shot on a 20 HP player records 20, not
+	// ~90+). This is the HLTV-style value that must feed ADR / total_damage.
+	// Populated by both parsers (demoinfocs e.HealthDamageTaken) and by the
+	// csraw2 bridge (PreDamageHP − PostDamageHP).
+	HealthDamageTaken int
+	Weapon            string
+	IsUtility         bool   // HE/molotov/incendiary
+	HitGroup          string // "head", "chest", "stomach", "left_arm", "right_arm", "left_leg", "right_leg", "other"
+	VictimPos         Vec3   // victim world position at hurt tick
 }
 
 // RawFlash represents a flashbang blind event from the demo.
 type RawFlash struct {
-	Tick, RoundNumber               int
+	Tick, RoundNumber              int
 	AttackerSteamID, VictimSteamID uint64
 	AttackerTeam, VictimTeam       Team
 	FlashDuration                  time.Duration
@@ -158,21 +165,21 @@ type RawGrenadeEvent struct {
 // RawMatch is the fully parsed representation of a single demo file.
 // It contains all tick-level events and metadata needed by the aggregator.
 type RawMatch struct {
-	DemoHash    string
-	MapName     string
-	MatchDate   string
-	MatchType   string
-	Tickrate    float64
+	DemoHash       string
+	MapName        string
+	MatchDate      string
+	MatchType      string
+	Tickrate       float64
 	TicksPerSecond float64
-	Rounds      []RawRound
-	Kills       []RawKill
-	Damages     []RawDamage
-	Flashes     []RawFlash
-	FirstSights []RawFirstSight
-	WeaponFires []RawWeaponFire
-	Grenades    []RawGrenadeEvent
-	PlayerNames map[uint64]string
-	PlayerTeams map[uint64]Team
+	Rounds         []RawRound
+	Kills          []RawKill
+	Damages        []RawDamage
+	Flashes        []RawFlash
+	FirstSights    []RawFirstSight
+	WeaponFires    []RawWeaponFire
+	Grenades       []RawGrenadeEvent
+	PlayerNames    map[uint64]string
+	PlayerTeams    map[uint64]Team
 }
 
 // ---- Aggregated metrics ----
@@ -185,18 +192,18 @@ type PlayerMatchStats struct {
 	MapName   string // populated when queried across demos (JOIN with demos table)
 	MatchDate string // populated when queried (JOIN with demos.match_date)
 	SteamID   uint64
-	Name     string
-	Team     Team
+	Name      string
+	Team      Team
 
-	Kills          int
-	Assists        int
-	Deaths         int
-	HeadshotKills  int
-	FlashAssists   int
+	Kills         int
+	Assists       int
+	Deaths        int
+	HeadshotKills int
+	FlashAssists  int
 
-	TotalDamage    int
-	UtilityDamage  int
-	RoundsPlayed   int
+	TotalDamage   int
+	UtilityDamage int
+	RoundsPlayed  int
 
 	// Entry
 	OpeningKills  int
@@ -213,9 +220,9 @@ type PlayerMatchStats struct {
 	UnusedUtility int
 
 	// Crosshair placement (Option A — spotted flag approximation)
-	CrosshairEncounters    int
-	CrosshairMedianDeg     float64
-	CrosshairPctUnder5     float64
+	CrosshairEncounters     int
+	CrosshairMedianDeg      float64
+	CrosshairPctUnder5      float64
 	CrosshairMedianPitchDeg float64
 	CrosshairMedianYawDeg   float64
 
@@ -241,11 +248,11 @@ type PlayerMatchStats struct {
 	EffectiveFlashes int // your flashes where blinded enemy died to your team within 1.5s
 
 	// Role and aim timing metrics
-	Role                  string  // "AWPer" | "Entry" | "Support" | "Rifler"
-	MedianTTKMs           float64 // median ms first shot fired → kill, multi-hit kills only (attacker POV)
-	MedianTTDMs           float64 // median ms enemy's first shot → death, multi-hit only (victim POV)
-	OneTapKills           int     // kills where the first shot in the 3s window was the kill shot
-	CounterStrafePercent  float64 // % of shots fired while horizontal speed ≤ 34 u/s
+	Role                 string  // "AWPer" | "Entry" | "Support" | "Rifler"
+	MedianTTKMs          float64 // median ms first shot fired → kill, multi-hit kills only (attacker POV)
+	MedianTTDMs          float64 // median ms enemy's first shot → death, multi-hit only (victim POV)
+	OneTapKills          int     // kills where the first shot in the 3s window was the kill shot
+	CounterStrafePercent float64 // % of shots fired while horizontal speed ≤ 34 u/s
 
 	// Round outcome and trade timing
 	RoundsWon               int     // rounds where player's team won
@@ -421,16 +428,16 @@ type PlayerAggregate struct {
 	AvgHitsToKill    float64
 
 	// Role and aim timing
-	Role                   string
-	AvgTTKMs               float64
-	AvgTTDMs               float64
-	OneTapKills            int
-	AvgCounterStrafePct    float64
+	Role                string
+	AvgTTKMs            float64
+	AvgTTDMs            float64
+	OneTapKills         int
+	AvgCounterStrafePct float64
 
 	// Round outcome and trade timing
-	RoundsWon                  int
-	AvgTradeKillDelayMs        float64
-	AvgTradeDeathDelayMs       float64
+	RoundsWon            int
+	AvgTradeKillDelayMs  float64
+	AvgTradeDeathDelayMs float64
 
 	// Save & assist annotation (Pass 14) — summed across matches.
 	SavedByTeammate int
@@ -511,17 +518,17 @@ type PlayerMapSideAggregate struct {
 	Side    string // "CT" or "T"
 	Matches int
 
-	Kills, Assists, Deaths int
-	HeadshotKills          int
-	TotalDamage, RoundsPlayed int
-	KASTRounds             int
+	Kills, Assists, Deaths      int
+	HeadshotKills               int
+	TotalDamage, RoundsPlayed   int
+	KASTRounds                  int
 	OpeningKills, OpeningDeaths int
 	TradeKills, TradeDeaths     int
 	OneTapKills                 int
 
 	// Aim timing (averages of per-match medians across matches on this map/side).
-	AvgTTKMs           float64
-	AvgTTDMs           float64
+	AvgTTKMs            float64
+	AvgTTDMs            float64
 	AvgCounterStrafePct float64
 }
 
@@ -570,11 +577,11 @@ type PlayerSideStats struct {
 	Name    string
 	Team    Team // CT or T
 
-	Kills, Assists, Deaths    int
-	TotalDamage, RoundsPlayed int
-	KASTRounds                int
+	Kills, Assists, Deaths      int
+	TotalDamage, RoundsPlayed   int
+	KASTRounds                  int
 	OpeningKills, OpeningDeaths int
-	TradeKills, TradeDeaths   int
+	TradeKills, TradeDeaths     int
 }
 
 // KDRatio returns the kill-to-death ratio for this side.
@@ -693,8 +700,8 @@ type PlayerRoleStats struct {
 	PistolRoundRating float64 // Rating 2.0 over pistol rounds only
 
 	// §2.2 Entrying
-	OpeningDeathTradedPct  float64
-	SupportRoundsPct       float64
+	OpeningDeathTradedPct   float64
+	SupportRoundsPct        float64
 	SavedByTeammatePerRound float64 // Pass 14
 
 	// §2.3 Trading
@@ -726,18 +733,18 @@ type PlayerRoleStats struct {
 	SniperOpeningKillsPerRound float64
 
 	// §2.7 Utility
-	UtilityDamagePerRound       float64 // from player_match_stats (full coverage)
-	UtilityKillsPer100R         float64 // (event-table)
-	FlashesThrownPerRound       float64 // (event-table)
-	OppFlashSecPerRound         float64 // (event-table)
-	HltvFlashAssistsPerRound    float64 // Pass 15 — 25-dmg blind-window rule
+	UtilityDamagePerRound    float64 // from player_match_stats (full coverage)
+	UtilityKillsPer100R      float64 // (event-table)
+	FlashesThrownPerRound    float64 // (event-table)
+	OppFlashSecPerRound      float64 // (event-table)
+	HltvFlashAssistsPerRound float64 // Pass 15 — 25-dmg blind-window rule
 
 	// Coverage flags — true if at least one source-table row was found.
 	// Lets the renderer mark blank sections instead of showing 0.00 lies.
-	HasSniperData    bool
-	HasUtilityData   bool
+	HasSniperData     bool
+	HasUtilityData    bool
 	HasFlashThrowData bool
-	HasFlashTimeData bool
+	HasFlashTimeData  bool
 
 	// Cohort percentile for Rating 2.0 in [0,100]. -1 when the cohort was too
 	// small to be meaningful (see CohortMinPlayers in cmd/player). Higher is
