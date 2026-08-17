@@ -282,3 +282,125 @@ func TestDuelSegment_ShotDelayUsesFirstShot(t *testing.T) {
 		t.Errorf("RoundNumber = %d, want 1", seg.RoundNumber)
 	}
 }
+
+// ---- Pass 3: per-round team resolution ----
+
+// Sides swap at halftime, so a player's team is a property of the round, not
+// of the match. This pins the case that broke: a player who appears in a round
+// only through a kill (no end state) must take their side from that kill, not
+// from whichever side they played most across the match.
+func TestPass3_TeamComesFromTheRoundNotTheMatch(t *testing.T) {
+	// playerA plays T in rounds 1-2 (so T is their match-level dominant side)
+	// and CT in round 3, where they have no end state.
+	firstHalf := func(n int) model.RawRound {
+		return model.RawRound{
+			Number: n, StartTick: 0, FreezeEndTick: 100, EndTick: 5000,
+			WinnerTeam: model.TeamT,
+			PlayerEndState: map[uint64]model.PlayerRoundEndState{
+				playerA: {SteamID64: playerA, IsAlive: true, Team: model.TeamT},
+				playerB: {SteamID64: playerB, IsAlive: false, Team: model.TeamCT},
+			},
+		}
+	}
+	// Round 3: post-swap, and playerA is absent from the end state entirely.
+	third := model.RawRound{
+		Number: 3, StartTick: 0, FreezeEndTick: 100, EndTick: 5000,
+		WinnerTeam: model.TeamCT,
+		PlayerEndState: map[uint64]model.PlayerRoundEndState{
+			playerB: {SteamID64: playerB, IsAlive: false, Team: model.TeamT},
+		},
+	}
+
+	raw := &model.RawMatch{
+		DemoHash: "h", TicksPerSecond: tickRate,
+		Rounds: []model.RawRound{firstHalf(1), firstHalf(2), third},
+		Kills: []model.RawKill{
+			{Tick: 200, RoundNumber: 1, KillerSteamID: playerA, VictimSteamID: playerB,
+				KillerTeam: model.TeamT, VictimTeam: model.TeamCT, Weapon: "AK-47"},
+			{Tick: 200, RoundNumber: 2, KillerSteamID: playerA, VictimSteamID: playerB,
+				KillerTeam: model.TeamT, VictimTeam: model.TeamCT, Weapon: "AK-47"},
+			// Round 3, sides swapped: playerA is CT now.
+			{Tick: 200, RoundNumber: 3, KillerSteamID: playerA, VictimSteamID: playerB,
+				KillerTeam: model.TeamCT, VictimTeam: model.TeamT, Weapon: "M4A1"},
+		},
+		PlayerNames: map[uint64]string{playerA: "A", playerB: "B"},
+		PlayerTeams: map[uint64]model.Team{playerA: model.TeamT, playerB: model.TeamCT},
+	}
+
+	_, roundStats, _, _, _, _, err := Aggregate(raw)
+	if err != nil {
+		t.Fatalf("Aggregate: %v", err)
+	}
+	var got model.Team
+	found := false
+	for _, rs := range roundStats {
+		if rs.SteamID == playerA && rs.RoundNumber == 3 {
+			got, found = rs.Team, true
+		}
+	}
+	if !found {
+		t.Fatal("no round-3 row for playerA")
+	}
+	if got != model.TeamCT {
+		t.Errorf("round 3 team = %v, want CT — the match-level dominant side (T) leaked in", got)
+	}
+}
+
+// No round may end up with more than five players on a side. This is the
+// symptom the team-resolution bug produced at corpus scale.
+func TestPass3_NoRoundExceedsFivePerSide(t *testing.T) {
+	var kills []model.RawKill
+	endState := map[uint64]model.PlayerRoundEndState{}
+	ids := []uint64{playerA, playerB, playerC, playerD}
+	teams := []model.Team{model.TeamT, model.TeamT, model.TeamCT, model.TeamCT}
+	for i, id := range ids {
+		endState[id] = model.PlayerRoundEndState{SteamID64: id, IsAlive: true, Team: teams[i]}
+	}
+	// Second-half round where nobody has an end state — every side must still
+	// come from the kills, not collapse onto one team.
+	swapped := model.RawRound{
+		Number: 13, StartTick: 0, FreezeEndTick: 100, EndTick: 5000,
+		WinnerTeam:     model.TeamT,
+		PlayerEndState: map[uint64]model.PlayerRoundEndState{},
+	}
+	kills = append(kills,
+		model.RawKill{Tick: 200, RoundNumber: 13, KillerSteamID: playerA, VictimSteamID: playerC,
+			KillerTeam: model.TeamCT, VictimTeam: model.TeamT, Weapon: "AK-47"},
+		model.RawKill{Tick: 300, RoundNumber: 13, KillerSteamID: playerD, VictimSteamID: playerB,
+			KillerTeam: model.TeamT, VictimTeam: model.TeamCT, Weapon: "AK-47"},
+	)
+
+	raw := &model.RawMatch{
+		DemoHash: "h", TicksPerSecond: tickRate,
+		Rounds: []model.RawRound{
+			{Number: 1, FreezeEndTick: 100, EndTick: 5000, WinnerTeam: model.TeamT, PlayerEndState: endState},
+			swapped,
+		},
+		Kills:       kills,
+		PlayerNames: map[uint64]string{playerA: "A", playerB: "B", playerC: "C", playerD: "D"},
+		PlayerTeams: map[uint64]model.Team{playerA: model.TeamT, playerB: model.TeamT,
+			playerC: model.TeamCT, playerD: model.TeamCT},
+	}
+
+	_, roundStats, _, _, _, _, err := Aggregate(raw)
+	if err != nil {
+		t.Fatalf("Aggregate: %v", err)
+	}
+	perSide := map[int]map[model.Team]int{}
+	for _, rs := range roundStats {
+		if perSide[rs.RoundNumber] == nil {
+			perSide[rs.RoundNumber] = map[model.Team]int{}
+		}
+		perSide[rs.RoundNumber][rs.Team]++
+	}
+	for rn, sides := range perSide {
+		for team, n := range sides {
+			if n > 5 {
+				t.Errorf("round %d has %d players on %v, want <= 5", rn, n, team)
+			}
+		}
+		if sides[model.TeamT] == 0 || sides[model.TeamCT] == 0 {
+			t.Errorf("round %d collapsed onto one side: %v", rn, sides)
+		}
+	}
+}

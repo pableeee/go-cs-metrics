@@ -639,6 +639,59 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		matchAccums[id] = &matchAccum{}
 	}
 
+	// Per-round team resolution. A player's side is NOT a property of the
+	// match: sides swap at halftime, so the match-level dominant team is wrong
+	// for one half of every game. Falling back to it put players on the side
+	// they played most, which piled whole rounds onto one side — 7% of rounds
+	// ended up with more than five players a side, some with all ten.
+	//
+	// Priority: the round's own end state, then the team recorded on that
+	// round's kills, then its damages, and only then the match-level fallback.
+	roundTeams := make(map[int]map[uint64]model.Team, len(raw.Rounds))
+	for _, round := range raw.Rounds {
+		tm := make(map[uint64]model.Team, len(round.PlayerEndState))
+		for id, es := range round.PlayerEndState {
+			if es.Team != model.TeamUnknown {
+				tm[id] = es.Team
+			}
+		}
+		set := func(id uint64, t model.Team) {
+			if id == 0 || t == model.TeamUnknown {
+				return
+			}
+			if _, ok := tm[id]; !ok {
+				tm[id] = t
+			}
+		}
+		for _, k := range killsByRound[round.Number] {
+			set(k.KillerSteamID, k.KillerTeam)
+			set(k.VictimSteamID, k.VictimTeam)
+		}
+		roundTeams[round.Number] = tm
+	}
+	for _, d := range raw.Damages {
+		tm := roundTeams[d.RoundNumber]
+		if tm == nil {
+			continue
+		}
+		if d.AttackerSteamID != 0 && d.AttackerTeam != model.TeamUnknown {
+			if _, ok := tm[d.AttackerSteamID]; !ok {
+				tm[d.AttackerSteamID] = d.AttackerTeam
+			}
+		}
+		if d.VictimSteamID != 0 && d.VictimTeam != model.TeamUnknown {
+			if _, ok := tm[d.VictimSteamID]; !ok {
+				tm[d.VictimSteamID] = d.VictimTeam
+			}
+		}
+	}
+	teamInRound := func(rn int, id uint64) model.Team {
+		if t, ok := roundTeams[rn][id]; ok {
+			return t
+		}
+		return playerDominantTeam[id]
+	}
+
 	for _, round := range raw.Rounds {
 		rn := round.Number
 		kills := roundKillResults[rn]
@@ -660,10 +713,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			victimOrder = append(victimOrder, k.victimID)
 		}
 		clutchMap := computeClutch(roundPlayers, victimOrder, func(id uint64) model.Team {
-			if es, ok := round.PlayerEndState[id]; ok {
-				return es.Team
-			}
-			return playerDominantTeam[id]
+			return teamInRound(rn, id)
 		})
 
 		for playerID := range roundPlayers {
@@ -677,10 +727,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 				DemoHash:    raw.DemoHash,
 				SteamID:     playerID,
 				RoundNumber: rn,
-				Team:        playerDominantTeam[playerID],
-			}
-			if hasEndState {
-				rs.Team = endState.Team
+				Team:        teamInRound(rn, playerID),
 			}
 
 			// Per-kill accounting.

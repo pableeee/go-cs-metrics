@@ -38,6 +38,8 @@ For each round, the kills list (already sorted by tick) is scanned forward. The 
 
 ## Pass 3 — Per-round per-player stats
 
+**Team is resolved per round, not per match.** Sides swap at halftime, so a match-level dominant team is wrong for one half of every game. Resolution order: the round's own `PlayerEndState`, then the team recorded on that round's kills, then its damages, and only then the match-level fallback. Using the match-level value directly (the original behaviour) put players who appeared in a round only through an event onto whichever side they played most, which collapsed 7% of rounds onto one side — some with all ten players marked CT.
+
 **Input:** `raw.Damages`, `raw.Kills`, `raw.Rounds`, `raw.Flashes`, annotations from Passes 1–2
 **Output:** `allRoundStats []PlayerRoundStats`, `matchAccums` (intermediate)
 
