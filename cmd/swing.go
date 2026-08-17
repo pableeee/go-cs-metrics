@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -15,15 +16,27 @@ import (
 )
 
 var (
-	swingTier    string
-	swingSince   string
-	swingBefore  string
-	swingByMap   bool
-	swingBySide  bool
-	swingMinRnds int
-	swingTables  bool
-	swingTop     int
+	swingTier     string
+	swingSince    string
+	swingBefore   string
+	swingByMap    bool
+	swingBySide   bool
+	swingByWeapon bool
+	swingFloorC   bool
+	swingMinDemos int
+	swingRoster   string
+	swingContext  bool
+	swingMinRnds  int
+	swingTables   bool
+	swingTop      int
 )
+
+// swingWeaponMinDuels hides weapon classes with too few duels to mean anything.
+const swingWeaponMinDuels = 20
+
+// swingFloorMinRoundsPerDemo excludes fragment appearances (short overtime
+// stand-ins) from the per-demo rate distribution.
+const swingFloorMinRoundsPerDemo = 10
 
 // swingLeaderMinRounds is the round floor for entering the reference
 // population. Round swing per round is a small number divided by a small
@@ -51,7 +64,7 @@ Both are zero-sum across all players, which is checked before anything prints.
 separates the two things a combined number blends: holding a site above
 expectation and taking space below it average out to nothing. A side on its own
 is not zero-sum, so read a CT number against other players' CT numbers.`,
-	Args: cobra.MinimumNArgs(1),
+	Args: cobra.ArbitraryArgs,
 	RunE: runSwing,
 }
 
@@ -59,7 +72,12 @@ func init() {
 	swingCmd.Flags().StringVar(&swingTier, "tier", "", "restrict to a tier ('personal', 'pro'); default all")
 	swingCmd.Flags().StringVar(&swingSince, "since", "", "only matches on or after this date (YYYY-MM-DD)")
 	swingCmd.Flags().StringVar(&swingBefore, "before", "", "only matches strictly before this date (YYYY-MM-DD); with --since, bounds a point-in-time window")
-	swingCmd.Flags().BoolVar(&swingByMap, "by-map", false, "break the player's swing down per map")
+	swingCmd.Flags().BoolVar(&swingByMap, "by-map", false, "break the player's swing down per map; combine with --by-side for CT/T rows per map")
+	swingCmd.Flags().BoolVar(&swingByWeapon, "by-weapon", false, "break the player's swing down by the weapon class that resolved each duel")
+	swingCmd.Flags().BoolVar(&swingFloorC, "floor-ceiling", false, "per-demo rate distribution (p25/p50/p75); with --top, a leaderboard by round-swing floor")
+	swingCmd.Flags().IntVar(&swingMinDemos, "min-demos", 8, "floor/ceiling: omit players with fewer qualifying demos")
+	swingCmd.Flags().StringVar(&swingRoster, "roster", "", "roster JSON ({\"team\":...,\"players\":[...]}); its players are added to the query")
+	swingCmd.Flags().BoolVar(&swingContext, "context", false, "per-side resource/positioning context: good-gun %, pack distance, contact timing")
 	swingCmd.Flags().BoolVar(&swingBySide, "by-side", false, "break the player's swing down by CT/T side; adds per-side duel swing columns to --top")
 	swingCmd.Flags().IntVar(&swingMinRnds, "min-rounds", 20, "hide per-map rows below this many rounds")
 	swingCmd.Flags().BoolVar(&swingTables, "show-tables", false, "print the empirical probability tables that back the numbers")
@@ -74,6 +92,27 @@ func runSwing(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("invalid SteamID64 %q: %w", a, err)
 		}
 		ids = append(ids, id)
+	}
+	teamName := ""
+	if swingRoster != "" {
+		team, rosterIDs, err := loadRosterIDs(swingRoster)
+		if err != nil {
+			return err
+		}
+		teamName = team
+		seen := map[uint64]bool{}
+		for _, id := range ids {
+			seen[id] = true
+		}
+		for _, id := range rosterIDs {
+			if !seen[id] {
+				ids = append(ids, id)
+				seen[id] = true
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return fmt.Errorf("need at least one SteamID64 argument or --roster")
 	}
 
 	db, err := storage.Open(dbPath)
@@ -136,6 +175,54 @@ func runSwing(cmd *cobra.Command, args []string) error {
 	if swingBySide {
 		report.PrintSwingBySide(os.Stdout, overall, names)
 	}
+	if swingByWeapon {
+		for _, p := range overall {
+			report.PrintSwingByWeapon(os.Stdout, names[p.SteamID], p, swingWeaponMinDuels)
+		}
+	}
+	// Team shape only makes sense over an actual set of teammates: an explicit
+	// roster, or enough queried ids to look like one.
+	if swingRoster != "" || len(overall) >= 3 {
+		report.PrintSwingTeamShape(os.Stdout, teamName, overall, names)
+	}
+	if swingContext {
+		ctxRows, err := db.LoadPlayerContext(ids, base)
+		if err != nil {
+			return fmt.Errorf("load context: %w", err)
+		}
+		popCtx, err := db.LoadPopulationContext(base)
+		if err != nil {
+			return fmt.Errorf("load population context: %w", err)
+		}
+		report.PrintSwingContext(os.Stdout, ids, ctxRows, popCtx, names)
+	}
+	if swingFloorC {
+		byDemo := swing.ComputeByDemo(rounds, kills, rt, dt)
+		fc := swing.FloorCeilings(byDemo, swingMinDemos, swingFloorMinRoundsPerDemo)
+		var queried []swing.PlayerFloorCeiling
+		for _, id := range ids {
+			if v, ok := fc[id]; ok {
+				queried = append(queried, v)
+			} else if res[id] != nil {
+				fmt.Fprintf(os.Stderr, "%s: fewer than %d qualifying demos, not in floor/ceiling\n", names[id], swingMinDemos)
+			}
+		}
+		var pop []swing.PlayerFloorCeiling
+		fcNames, fcTiers := names, map[uint64]string{}
+		if swingTop > 0 {
+			for _, v := range fc {
+				pop = append(pop, v)
+			}
+			var err error
+			if fcNames, err = db.PlayerNames(base); err != nil {
+				return fmt.Errorf("player names: %w", err)
+			}
+			if fcTiers, err = db.PlayerTiers(base); err != nil {
+				return fmt.Errorf("player tiers: %w", err)
+			}
+		}
+		report.PrintSwingFloorCeiling(os.Stdout, queried, pop, fcNames, fcTiers, swingTop, swingMinDemos)
+	}
 
 	if swingTop > 0 {
 		popNames, err := db.PlayerNames(base)
@@ -186,7 +273,7 @@ func runSwing(cmd *cobra.Command, args []string) error {
 				return rowsOut[i].Swing.Rounds > rowsOut[j].Swing.Rounds
 			})
 			if len(rowsOut) > 0 {
-				report.PrintSwingByMap(os.Stdout, nameFor(db, id), rowsOut, swingMinRnds)
+				report.PrintSwingByMap(os.Stdout, nameFor(db, id), rowsOut, swingMinRnds, swingBySide)
 			}
 		}
 	}
@@ -225,4 +312,24 @@ func nameFor(db *storage.DB, id uint64) string {
 		}
 	}
 	return strconv.FormatUint(id, 10)
+}
+
+// loadRosterIDs reads an export-style roster JSON and parses its players.
+func loadRosterIDs(path string) (team string, ids []uint64, err error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", nil, fmt.Errorf("read roster: %w", err)
+	}
+	var rf rosterFile
+	if err := json.Unmarshal(data, &rf); err != nil {
+		return "", nil, fmt.Errorf("parse roster %s: %w", path, err)
+	}
+	for _, p := range rf.Players {
+		id, err := strconv.ParseUint(p, 10, 64)
+		if err != nil {
+			return "", nil, fmt.Errorf("roster %s: invalid SteamID64 %q: %w", path, p, err)
+		}
+		ids = append(ids, id)
+	}
+	return rf.Team, ids, nil
 }

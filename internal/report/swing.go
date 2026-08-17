@@ -9,6 +9,7 @@ import (
 	"github.com/olekukonko/tablewriter"
 	"github.com/olekukonko/tablewriter/tw"
 
+	"github.com/pable/go-cs-metrics/internal/storage"
 	"github.com/pable/go-cs-metrics/internal/swing"
 )
 
@@ -117,29 +118,180 @@ func PrintSwingBySide(w io.Writer, players []*swing.PlayerSwing, names map[uint6
 	table.Render()
 }
 
-// PrintSwingByMap renders the per-map breakdown for a single player.
-func PrintSwingByMap(w io.Writer, name string, rows []SwingMapRow, minRounds int) {
-	printSection(w, fmt.Sprintf("Swing by Map — %s", name),
-		fmt.Sprintf("Maps with fewer than %d rounds are omitted.\n", minRounds)+
-			"The probability tables stay corpus-wide; only the attribution is per map,\n"+
-			"so a map's number says how you performed there, not how that map behaves.\n"+duelSELegend)
+// PrintSwingByMap renders the per-map breakdown for a single player. With
+// bySide set, each map gets CT and T rows after the combined one.
+func PrintSwingByMap(w io.Writer, name string, rows []SwingMapRow, minRounds int, bySide bool) {
+	desc := fmt.Sprintf("Maps with fewer than %d rounds are omitted.\n", minRounds) +
+		"The probability tables stay corpus-wide; only the attribution is per map,\n" +
+		"so a map's number says how you performed there, not how that map behaves.\n"
+	if bySide {
+		desc += "CT and T rows sum back to the map's combined row; a side is not zero-sum\n" +
+			"on its own, so compare it against other CT (or T) numbers only.\n"
+	}
+	printSection(w, fmt.Sprintf("Swing by Map — %s", name), desc+duelSELegend)
 
 	table := swingTable(w)
-	table.Header("MAP", "ROUNDS", "DUELS", "RND_SWING", "RND/RND", "DUEL_SWING", "DUEL/DUEL", "WON", "EXP")
+	if bySide {
+		table.Header("MAP", "SIDE", "ROUNDS", "DUELS", "RND_SWING", "RND/RND", "DUEL_SWING", "DUEL/DUEL", "WON", "EXP")
+	} else {
+		table.Header("MAP", "ROUNDS", "DUELS", "RND_SWING", "RND/RND", "DUEL_SWING", "DUEL/DUEL", "WON", "EXP")
+	}
+	appendRow := func(mapName, side string, rounds, duels int, rst, rspr, dst float64, ddCell string, won int, exp float64) {
+		row := []any{mapName}
+		if bySide {
+			row = append(row, side)
+		}
+		row = append(row,
+			strconv.Itoa(rounds),
+			strconv.Itoa(duels),
+			fmt.Sprintf("%+.1f", rst),
+			fmt.Sprintf("%+.4f", rspr),
+			fmt.Sprintf("%+.1f", dst),
+			ddCell,
+			strconv.Itoa(won),
+			fmt.Sprintf("%.1f", exp),
+		)
+		table.Append(row...)
+	}
 	for _, r := range rows {
 		p := r.Swing
+		appendRow(r.MapName, "ALL", p.Rounds, p.Duels, p.RoundSwingTotal, p.RoundSwingPerRound,
+			p.DuelSwingTotal, duelCell(p.DuelSwingPerDuel, p.DuelSwingSE), p.DuelsWon, p.ExpectedWins)
+		if bySide {
+			for _, sr := range []struct {
+				label string
+				s     *swing.SideSwing
+			}{{"CT", &p.CT}, {"T", &p.T}} {
+				appendRow("", sr.label, sr.s.Rounds, sr.s.Duels, sr.s.RoundSwingTotal, sr.s.RoundSwingPerRound,
+					sr.s.DuelSwingTotal, duelCell(sr.s.DuelSwingPerDuel, sr.s.DuelSwingSE), sr.s.DuelsWon, sr.s.ExpectedWins)
+			}
+		}
+	}
+	table.Render()
+}
+
+// PrintSwingByWeapon renders one player's swing sliced by the weapon class
+// that resolved each duel.
+func PrintSwingByWeapon(w io.Writer, name string, p *swing.PlayerSwing, minDuels int) {
+	printSection(w, fmt.Sprintf("Swing by Weapon — %s", name),
+		"The weapon is the one that RESOLVED the duel — the killer's. 'pistol' means\n"+
+			"duels decided by a pistol, not duels you held one in: on your wins it is your\n"+
+			"weapon, on your losses the opponent's.\n"+
+			fmt.Sprintf("Classes with fewer than %d duels are omitted. Per-round rates are not\n", minDuels)+
+			"defined within a class — a round is not played 'with a weapon'.\n"+duelSELegend)
+
+	type entry struct {
+		class string
+		s     *swing.SideSwing
+	}
+	var entries []entry
+	for cls, s := range p.Weapons {
+		if s.Duels >= minDuels {
+			entries = append(entries, entry{cls, s})
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].s.Duels > entries[j].s.Duels })
+
+	table := swingTable(w)
+	table.Header("WEAPON", "DUELS", "RND_SWING", "DUEL_SWING", "DUEL/DUEL", "WON", "EXP")
+	for _, e := range entries {
 		table.Append(
-			r.MapName,
-			strconv.Itoa(p.Rounds),
-			strconv.Itoa(p.Duels),
-			fmt.Sprintf("%+.1f", p.RoundSwingTotal),
-			fmt.Sprintf("%+.4f", p.RoundSwingPerRound),
-			fmt.Sprintf("%+.1f", p.DuelSwingTotal),
-			duelCell(p.DuelSwingPerDuel, p.DuelSwingSE),
-			strconv.Itoa(p.DuelsWon),
-			fmt.Sprintf("%.1f", p.ExpectedWins),
+			e.class,
+			strconv.Itoa(e.s.Duels),
+			fmt.Sprintf("%+.1f", e.s.RoundSwingTotal),
+			fmt.Sprintf("%+.1f", e.s.DuelSwingTotal),
+			duelCell(e.s.DuelSwingPerDuel, e.s.DuelSwingSE),
+			strconv.Itoa(e.s.DuelsWon),
+			fmt.Sprintf("%.1f", e.s.ExpectedWins),
 		)
 	}
+	table.Render()
+}
+
+// PrintSwingFloorCeiling renders the per-demo distribution of both rates for
+// the queried players and, with topN > 0, a population leaderboard ranked by
+// round-swing floor — the players who beat expectation even on bad days.
+func PrintSwingFloorCeiling(w io.Writer, queried, pop []swing.PlayerFloorCeiling, names, tiers map[uint64]string, topN, minDemos int) {
+	printSection(w, "Swing Floor / Ceiling",
+		fmt.Sprintf("Quantiles of PER-DEMO rates: floor = p25, ceiling = p75. Demos where the\n"+
+			"player has fewer than 10 rounds are skipped, and players with fewer than %d\n"+
+			"qualifying demos are omitted — a distribution over a handful of demos is noise.\n"+
+			"A floor above zero means beating expectation even in the bad games.", minDemos))
+
+	printRows := func(rows []swing.PlayerFloorCeiling, withRank bool) {
+		table := swingTable(w)
+		header := []any{"PLAYER", "DEMOS", "ROUNDS", "RND_FLOOR", "RND_MED", "RND_CEIL", "DUEL_FLOOR", "DUEL_MED", "DUEL_CEIL"}
+		if withRank {
+			header = append([]any{"#"}, append(header, "TIER")...)
+		}
+		table.Header(header...)
+		for i, fc := range rows {
+			row := []any{
+				nameOr(names, fc.SteamID),
+				strconv.Itoa(fc.Demos),
+				strconv.Itoa(fc.RoundsTotal),
+				fmt.Sprintf("%+.4f", fc.RndFloor),
+				fmt.Sprintf("%+.4f", fc.RndMedian),
+				fmt.Sprintf("%+.4f", fc.RndCeiling),
+				fmt.Sprintf("%+.4f", fc.DuelFloor),
+				fmt.Sprintf("%+.4f", fc.DuelMedian),
+				fmt.Sprintf("%+.4f", fc.DuelCeiling),
+			}
+			if withRank {
+				row = append([]any{strconv.Itoa(i + 1)}, append(row, tiers[fc.SteamID])...)
+			}
+			table.Append(row...)
+		}
+		table.Render()
+	}
+
+	if len(queried) > 0 {
+		printRows(queried, false)
+	}
+	if topN > 0 && len(pop) > 0 {
+		sort.Slice(pop, func(i, j int) bool { return pop[i].RndFloor > pop[j].RndFloor })
+		limit := min(topN, len(pop))
+		fmt.Fprintf(w, "\nTop %d of %d players by round-swing floor:\n", limit, len(pop))
+		printRows(pop[:limit], true)
+	}
+}
+
+// PrintSwingTeamShape renders how concentrated a queried set's firepower is:
+// the median player against the best one. A large gap is the "hard carried"
+// shape — one player far above a middle that cannot follow.
+func PrintSwingTeamShape(w io.Writer, team string, players []*swing.PlayerSwing, names map[uint64]string) {
+	title := "Team Shape"
+	if team != "" {
+		title += " — " + team
+	}
+	printSection(w, title,
+		"Median vs best DUEL/DUEL across the queried players. The gap is the carry\n"+
+			"concentration: a big gap means one player is the team's firepower.\n"+
+			"Only meaningful when the queried set is an actual roster.")
+
+	rates := make([]float64, 0, len(players))
+	best := players[0]
+	for _, p := range players {
+		rates = append(rates, p.DuelSwingPerDuel)
+		if p.DuelSwingPerDuel > best.DuelSwingPerDuel {
+			best = p
+		}
+	}
+	sort.Float64s(rates)
+	median := rates[len(rates)/2]
+	if len(rates)%2 == 0 {
+		median = (rates[len(rates)/2-1] + rates[len(rates)/2]) / 2
+	}
+
+	table := swingTable(w)
+	table.Header("PLAYERS", "MEDIAN DUEL/DUEL", "BEST", "BEST PLAYER", "GAP")
+	table.Append(
+		strconv.Itoa(len(players)),
+		fmt.Sprintf("%+.4f", median),
+		fmt.Sprintf("%+.4f", best.DuelSwingPerDuel),
+		nameOr(names, best.SteamID),
+		fmt.Sprintf("%+.4f", best.DuelSwingPerDuel-median),
+	)
 	table.Render()
 }
 
@@ -304,4 +456,65 @@ func nameOr(names map[uint64]string, id uint64) string {
 		return n
 	}
 	return strconv.FormatUint(id, 10)
+}
+
+// PrintSwingContext renders the Pass 19 round-context aggregates: what the
+// rounds GAVE each player, per side, against the population per-side mean.
+// This is the denominator axis for the swing numbers — a star's swing is
+// bought with resources and freedom a support never gets.
+func PrintSwingContext(w io.Writer, ids []uint64, rows map[uint64]map[string]*storage.PlayerContextRow, pop map[string]*storage.PlayerContextRow, names map[uint64]string) {
+	printSection(w, "Round Context (resources & positioning)",
+		"GOOD_GUN%=share of alive in-round 16 Hz samples with a rifle or sniper in hand\n"+
+			"RIFLE%/SNIPER%=the same, split by class. High SNIPER% = the team feeds the AWP.\n"+
+			"PACK_DIST=avg distance (m) to the nearest alive teammate. High on T = lurker;\n"+
+			"low = pack player. FIRST_CONTACT=avg seconds into the round of first combat\n"+
+			"involvement. DEATH=avg seconds into the round of death (survived rounds excluded).\n"+
+			"Rounds counts only measured rounds — demos aggregated before the context\n"+
+			"backfill are excluded automatically. '-' = no qualifying rounds.")
+
+	fmtSec := func(v float64) string {
+		if v < 0 {
+			return "-"
+		}
+		return fmt.Sprintf("%.1f", v)
+	}
+	pct := func(part, whole int64) string {
+		if whole == 0 {
+			return "-"
+		}
+		return fmt.Sprintf("%.1f", 100*float64(part)/float64(whole))
+	}
+
+	table := swingTable(w)
+	table.Header("PLAYER", "SIDE", "ROUNDS", "GOOD_GUN%", "RIFLE%", "SNIPER%", "PACK_DIST", "FIRST_CONTACT", "DEATH")
+	appendRow := func(label string, r *storage.PlayerContextRow) {
+		if r == nil {
+			return
+		}
+		table.Append(
+			label, r.Side,
+			strconv.Itoa(r.Rounds),
+			pct(r.GunRifle+r.GunSniper, r.GunSamples),
+			pct(r.GunRifle, r.GunSamples),
+			pct(r.GunSniper, r.GunSamples),
+			fmtSec(r.PackDistAvgM),
+			fmtSec(r.FirstContactSec),
+			fmtSec(r.DeathSec),
+		)
+	}
+	for _, id := range ids {
+		sides := rows[id]
+		if sides == nil {
+			continue
+		}
+		name := nameOr(names, id)
+		for _, side := range []string{"CT", "T"} {
+			appendRow(name, sides[side])
+			name = ""
+		}
+	}
+	for _, side := range []string{"CT", "T"} {
+		appendRow("— population —", pop[side])
+	}
+	table.Render()
 }

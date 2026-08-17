@@ -373,6 +373,12 @@ type PlayerSwing struct {
 	// at the time. Their totals sum back to the fields above.
 	CT SideSwing
 	T  SideSwing
+
+	// Weapons slices the same numbers by the weapon class that RESOLVED each
+	// duel — the killer's weapon, since the victim's own is not stored. Slices
+	// sum back to the totals. Rounds stays 0 here: a round is not played "with
+	// a weapon class", so per-round rates are undefined within a slice.
+	Weapons map[string]*SideSwing
 }
 
 // Side returns the per-side bucket to attribute to.
@@ -381,6 +387,19 @@ func (p *PlayerSwing) Side(isCT bool) *SideSwing {
 		return &p.CT
 	}
 	return &p.T
+}
+
+// WeaponSlice returns the bucket for one weapon class, allocating on first use.
+func (p *PlayerSwing) WeaponSlice(bucket string) *SideSwing {
+	if p.Weapons == nil {
+		p.Weapons = map[string]*SideSwing{}
+	}
+	s := p.Weapons[bucket]
+	if s == nil {
+		s = &SideSwing{}
+		p.Weapons[bucket] = s
+	}
+	return s
 }
 
 type roundKey struct {
@@ -455,10 +474,15 @@ func Compute(rounds []Round, kills []Kill, rt *RoundTable, dt *DuelTable) map[ui
 			// The victim is on the opposite side by construction: a duel is
 			// always across the divide.
 			kSide, vSide := kw.Side(k.KillerIsCT), vw.Side(!k.KillerIsCT)
+			// Both parties share the duel's weapon bucket (the killer's
+			// weapon), which is what keeps each class slice zero-sum.
+			kWpn, vWpn := kw.WeaponSlice(k.WeaponBucket), vw.WeaponSlice(k.WeaponBucket)
 			kw.RoundSwingTotal += delta
 			kSide.RoundSwingTotal += delta
+			kWpn.RoundSwingTotal += delta
 			vw.RoundSwingTotal -= delta
 			vSide.RoundSwingTotal -= delta
+			vWpn.RoundSwingTotal -= delta
 			pCT = nextCT
 
 			// Duel swing: outcome minus expectation, zero-sum across the pair.
@@ -487,6 +511,16 @@ func Compute(rounds []Round, kills []Kill, rt *RoundTable, dt *DuelTable) map[ui
 			vSide.DuelSwingTotal -= 1 - p
 			kSide.DuelVarSum += v
 			vSide.DuelVarSum += v
+
+			kWpn.Duels++
+			vWpn.Duels++
+			kWpn.DuelsWon++
+			kWpn.ExpectedWins += p
+			vWpn.ExpectedWins += 1 - p
+			kWpn.DuelSwingTotal += 1 - p
+			vWpn.DuelSwingTotal -= 1 - p
+			kWpn.DuelVarSum += v
+			vWpn.DuelVarSum += v
 		}
 	}
 
@@ -498,7 +532,11 @@ func Compute(rounds []Round, kills []Kill, rt *RoundTable, dt *DuelTable) map[ui
 			p.DuelSwingPerDuel = p.DuelSwingTotal / float64(p.Duels)
 			p.DuelSwingSE = math.Sqrt(p.DuelVarSum) / float64(p.Duels)
 		}
-		for _, s := range []*SideSwing{&p.CT, &p.T} {
+		slices := []*SideSwing{&p.CT, &p.T}
+		for _, s := range p.Weapons {
+			slices = append(slices, s)
+		}
+		for _, s := range slices {
 			if s.Rounds > 0 {
 				s.RoundSwingPerRound = s.RoundSwingTotal / float64(s.Rounds)
 			}
@@ -533,6 +571,38 @@ func Validate(res map[uint64]*PlayerSwing) error {
 		if math.Abs(p.CT.RoundSwingTotal+p.T.RoundSwingTotal-p.RoundSwingTotal) > tol ||
 			math.Abs(p.CT.DuelSwingTotal+p.T.DuelSwingTotal-p.DuelSwingTotal) > tol {
 			return fmt.Errorf("player %d: side swing does not sum to the total", p.SteamID)
+		}
+
+		// The weapon slices must also reconstruct the totals: every kill has
+		// exactly one bucket, so nothing may fall between the classes.
+		var wRound, wDuel float64
+		var wDuels int
+		for _, s := range p.Weapons {
+			wRound += s.RoundSwingTotal
+			wDuel += s.DuelSwingTotal
+			wDuels += s.Duels
+		}
+		if wDuels != p.Duels {
+			return fmt.Errorf("player %d: weapon duel counts sum to %d, want %d", p.SteamID, wDuels, p.Duels)
+		}
+		if math.Abs(wRound-p.RoundSwingTotal) > tol || math.Abs(wDuel-p.DuelSwingTotal) > tol {
+			return fmt.Errorf("player %d: weapon swing does not sum to the total", p.SteamID)
+		}
+	}
+
+	// Each weapon class is a closed zero-sum slice on its own — both parties
+	// of a duel share the bucket — so a per-class leak is detectable too.
+	classRound := map[string]float64{}
+	classDuel := map[string]float64{}
+	for _, p := range res {
+		for cls, s := range p.Weapons {
+			classRound[cls] += s.RoundSwingTotal
+			classDuel[cls] += s.DuelSwingTotal
+		}
+	}
+	for cls := range classRound {
+		if math.Abs(classRound[cls]) > tol || math.Abs(classDuel[cls]) > tol {
+			return fmt.Errorf("weapon class %q is not zero-sum: round=%.9f duel=%.9f", cls, classRound[cls], classDuel[cls])
 		}
 	}
 	if math.Abs(roundSum) > tol || math.Abs(duelSum) > tol {
