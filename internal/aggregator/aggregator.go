@@ -38,7 +38,11 @@ func weaponBucket(weapon string) string {
 	switch weapon {
 	case "AK-47":
 		return "AK"
-	case "M4A1-S", "M4A4":
+	// The csraw2 weapon table names the silenced M4 "M4A1"; "M4A1-S" is kept
+	// for any path that emits the storefront name. Matching only "M4A1-S"
+	// silently dumped every silenced-M4 duel into "Other" — the most-used CT
+	// rifle was missing from the FHHS table entirely.
+	case "M4A1", "M4A1-S", "M4A4":
 		return "M4"
 	case "Galil AR":
 		return "Galil"
@@ -635,6 +639,59 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		matchAccums[id] = &matchAccum{}
 	}
 
+	// Per-round team resolution. A player's side is NOT a property of the
+	// match: sides swap at halftime, so the match-level dominant team is wrong
+	// for one half of every game. Falling back to it put players on the side
+	// they played most, which piled whole rounds onto one side — 7% of rounds
+	// ended up with more than five players a side, some with all ten.
+	//
+	// Priority: the round's own end state, then the team recorded on that
+	// round's kills, then its damages, and only then the match-level fallback.
+	roundTeams := make(map[int]map[uint64]model.Team, len(raw.Rounds))
+	for _, round := range raw.Rounds {
+		tm := make(map[uint64]model.Team, len(round.PlayerEndState))
+		for id, es := range round.PlayerEndState {
+			if es.Team != model.TeamUnknown {
+				tm[id] = es.Team
+			}
+		}
+		set := func(id uint64, t model.Team) {
+			if id == 0 || t == model.TeamUnknown {
+				return
+			}
+			if _, ok := tm[id]; !ok {
+				tm[id] = t
+			}
+		}
+		for _, k := range killsByRound[round.Number] {
+			set(k.KillerSteamID, k.KillerTeam)
+			set(k.VictimSteamID, k.VictimTeam)
+		}
+		roundTeams[round.Number] = tm
+	}
+	for _, d := range raw.Damages {
+		tm := roundTeams[d.RoundNumber]
+		if tm == nil {
+			continue
+		}
+		if d.AttackerSteamID != 0 && d.AttackerTeam != model.TeamUnknown {
+			if _, ok := tm[d.AttackerSteamID]; !ok {
+				tm[d.AttackerSteamID] = d.AttackerTeam
+			}
+		}
+		if d.VictimSteamID != 0 && d.VictimTeam != model.TeamUnknown {
+			if _, ok := tm[d.VictimSteamID]; !ok {
+				tm[d.VictimSteamID] = d.VictimTeam
+			}
+		}
+	}
+	teamInRound := func(rn int, id uint64) model.Team {
+		if t, ok := roundTeams[rn][id]; ok {
+			return t
+		}
+		return playerDominantTeam[id]
+	}
+
 	for _, round := range raw.Rounds {
 		rn := round.Number
 		kills := roundKillResults[rn]
@@ -656,10 +713,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			victimOrder = append(victimOrder, k.victimID)
 		}
 		clutchMap := computeClutch(roundPlayers, victimOrder, func(id uint64) model.Team {
-			if es, ok := round.PlayerEndState[id]; ok {
-				return es.Team
-			}
-			return playerDominantTeam[id]
+			return teamInRound(rn, id)
 		})
 
 		for playerID := range roundPlayers {
@@ -673,10 +727,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 				DemoHash:    raw.DemoHash,
 				SteamID:     playerID,
 				RoundNumber: rn,
-				Team:        playerDominantTeam[playerID],
-			}
-			if hasEndState {
-				rs.Team = endState.Team
+				Team:        teamInRound(rn, playerID),
 			}
 
 			// Per-kill accounting.
@@ -953,18 +1004,35 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		allWeaponKeys[wk] = struct{}{}
 	}
 
+	// ---- Pass 18: shot accounting (accuracy + aimed/blind split) ----
+	shotAcct := computeShotAccounting(raw)
+	// A weapon can be fired without ever landing a hit or a kill, so shot
+	// keys widen the weapon-row set rather than just annotating it.
+	for sk := range shotAcct {
+		allWeaponKeys[weaponKey{sk.playerID, sk.weapon}] = struct{}{}
+	}
+
 	var weaponStats []model.PlayerWeaponStats
 	for wk := range allWeaponKeys {
+		sa := shotAcct[shotKey{wk.playerID, wk.weapon}]
+		if sa == nil {
+			sa = &shotAccum{}
+		}
 		weaponStats = append(weaponStats, model.PlayerWeaponStats{
-			DemoHash:      raw.DemoHash,
-			SteamID:       wk.playerID,
-			Weapon:        wk.weapon,
-			Kills:         weaponKills[wk],
-			HeadshotKills: weaponHS[wk],
-			Assists:       weaponAssist[wk],
-			Deaths:        weaponDeaths[wk],
-			Damage:        weaponDamage[wk],
-			Hits:          weaponHits[wk],
+			DemoHash:        raw.DemoHash,
+			SteamID:         wk.playerID,
+			Weapon:          wk.weapon,
+			Kills:           weaponKills[wk],
+			HeadshotKills:   weaponHS[wk],
+			Assists:         weaponAssist[wk],
+			Deaths:          weaponDeaths[wk],
+			Damage:          weaponDamage[wk],
+			Hits:            weaponHits[wk],
+			ShotsFired:      sa.shots,
+			ShotsVisible:    sa.shotsVisible,
+			HitsVisible:     sa.hitsVisible,
+			HeadHits:        sa.headHits,
+			HeadHitsVisible: sa.headHitsVis,
 		})
 	}
 	sort.Slice(weaponStats, func(i, j int) bool {
@@ -1042,9 +1110,13 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		return duelAccums[id]
 	}
 
-	// Segment accumulators: per (player, weapon_bucket, distance_bin).
+	// Segment accumulators: per (player, round, weapon_bucket, distance_bin).
+	// The round dimension lets consumers slice FHHS by side / buy type /
+	// round phase by joining player_round_stats; it also makes each cell
+	// nearly one duel, so the medians below are effectively per-duel values.
 	type segKey struct {
 		playerID uint64
+		round    int
 		bucket   string
 		bin      string
 	}
@@ -1055,6 +1127,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		corrDegs        []float64
 		sightDegs       []float64
 		expoWinMs       []float64
+		shotDelayMs     []float64
 	}
 	segAccums := make(map[segKey]*segAccum)
 
@@ -1109,6 +1182,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			// Pre-shot correction and attacker position from first weapon fire in window.
 			wfList := wfIdx[wfKey{killerID, rn}]
 			corrDeg := 0.0
+			shotDelayMs := 0.0
 			corrComputed := false
 			attackerPos := model.Vec3{}
 			attackerPosSet := false
@@ -1117,6 +1191,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 					continue
 				}
 				corrDeg = angularDeltaDeg(fs.ObserverPitchDeg, fs.ObserverYawDeg, wf.PitchDeg, wf.YawDeg)
+				shotDelayMs = float64(wf.Tick-sightTick) / tps * 1000
 				corrComputed = true
 				acc.correctionDegs = append(acc.correctionDegs, corrDeg)
 				attackerPos = wf.AttackerPos
@@ -1135,7 +1210,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			bucket := weaponBucket(kill.Weapon)
 			bin := distanceBin(distM)
 
-			sk2 := segKey{killerID, bucket, bin}
+			sk2 := segKey{killerID, rn, bucket, bin}
 			if segAccums[sk2] == nil {
 				segAccums[sk2] = &segAccum{}
 			}
@@ -1151,6 +1226,7 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 			}
 			if corrComputed {
 				sa.corrDegs = append(sa.corrDegs, corrDeg)
+				sa.shotDelayMs = append(sa.shotDelayMs, shotDelayMs)
 			}
 		}
 
@@ -1215,17 +1291,20 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		sort.Float64s(sa.corrDegs)
 		sort.Float64s(sa.sightDegs)
 		sort.Float64s(sa.expoWinMs)
+		sort.Float64s(sa.shotDelayMs)
 		duelSegments = append(duelSegments, model.PlayerDuelSegment{
-			DemoHash:        raw.DemoHash,
-			SteamID:         k.playerID,
-			WeaponBucket:    k.bucket,
-			DistanceBin:     k.bin,
-			DuelCount:       sa.duelCount,
-			FirstHitCount:   sa.firstHitCount,
-			FirstHitHSCount: sa.firstHitHSCount,
-			MedianCorrDeg:   median(sa.corrDegs),
-			MedianSightDeg:  median(sa.sightDegs),
-			MedianExpoWinMs: median(sa.expoWinMs),
+			DemoHash:          raw.DemoHash,
+			SteamID:           k.playerID,
+			RoundNumber:       k.round,
+			WeaponBucket:      k.bucket,
+			DistanceBin:       k.bin,
+			DuelCount:         sa.duelCount,
+			FirstHitCount:     sa.firstHitCount,
+			FirstHitHSCount:   sa.firstHitHSCount,
+			MedianCorrDeg:     median(sa.corrDegs),
+			MedianSightDeg:    median(sa.sightDegs),
+			MedianExpoWinMs:   median(sa.expoWinMs),
+			MedianShotDelayMs: median(sa.shotDelayMs),
 		})
 	}
 
@@ -1474,26 +1553,40 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 
 			isOpening := openingByRound[rn].victimID == k.VictimSteamID
 
+			// First-sight ticks for both parties, from the Pass 6 index.
+			// -1 means that player never spotted the other this round.
+			killerSight, victimSight := -1, -1
+			if fs, ok := firstSightIdx[sightKey{k.KillerSteamID, k.VictimSteamID, rn}]; ok {
+				killerSight = fs.Tick
+			}
+			if fs, ok := firstSightIdx[sightKey{k.VictimSteamID, k.KillerSteamID, rn}]; ok {
+				victimSight = fs.Tick
+			}
+			bombPlanted := round.BombPlantTick > 0 && k.Tick >= round.BombPlantTick
+
 			deathEvents = append(deathEvents, model.PlayerDeathEvent{
-				DemoHash:       raw.DemoHash,
-				MatchDate:      raw.MatchDate,
-				MapName:        raw.MapName,
-				RoundNumber:    rn,
-				Tick:           k.Tick,
-				VictimSteamID:  k.VictimSteamID,
-				VictimTeam:     k.VictimTeam,
-				KillerSteamID:  k.KillerSteamID,
-				KillerTeam:     k.KillerTeam,
-				Weapon:         k.Weapon,
-				IsHeadshot:     k.IsHeadshot,
-				VictimPos:      k.VictimPos,
-				KillerPos:      k.KillerPos,
-				VictimYawDeg:   k.VictimYawDeg,
-				DistanceMeters: dist,
-				WasFlashed:     wasFlashed,
-				WasTraded:      k.isTradeDeath,
-				IsOpeningDeath: isOpening,
-				RoundPhase:     roundPhase(k.Tick, round, rn),
+				DemoHash:        raw.DemoHash,
+				MatchDate:       raw.MatchDate,
+				MapName:         raw.MapName,
+				RoundNumber:     rn,
+				Tick:            k.Tick,
+				VictimSteamID:   k.VictimSteamID,
+				VictimTeam:      k.VictimTeam,
+				KillerSteamID:   k.KillerSteamID,
+				KillerTeam:      k.KillerTeam,
+				Weapon:          k.Weapon,
+				IsHeadshot:      k.IsHeadshot,
+				VictimPos:       k.VictimPos,
+				KillerPos:       k.KillerPos,
+				VictimYawDeg:    k.VictimYawDeg,
+				DistanceMeters:  dist,
+				WasFlashed:      wasFlashed,
+				WasTraded:       k.isTradeDeath,
+				IsOpeningDeath:  isOpening,
+				RoundPhase:      roundPhase(k.Tick, round, rn),
+				KillerSightTick: killerSight,
+				VictimSightTick: victimSight,
+				BombPlanted:     bombPlanted,
 			})
 		}
 	}
@@ -1857,4 +1950,148 @@ func computeScanVolatility(raw *model.RawMatch) map[uint64]map[int]*scanRoundRes
 		}
 	}
 	return out
+}
+
+// ---- Pass 18: shot accounting (accuracy + aimed/blind split) -------------
+//
+// Raw accuracy (hits ÷ shots) is not comparable across skill tiers, because
+// tiers differ enormously in how many shots they deliberately aim at nobody:
+// smoke spam, prefire, wallbangs, suppressing fire. Measured on the pro
+// corpus ~79% of rifle shots are fired with no enemy visible, against ~59%
+// for a mid-tier player — enough to invert the raw-accuracy ranking.
+//
+// So every shot and every hit is tagged with the engine's own answer to
+// "was an enemy visible to this player at this tick", taken from the nearest
+// view sample (RawViewSample.EnemiesVisible, i.e. the spotted mask).
+//
+// Caveats, both inherent to the spotted mask rather than to this pass:
+//   - The mask has latency and is FOV-gated, so the blind bucket is somewhat
+//     over-inclusive. It is the same measure on both sides of any comparison.
+//   - "Blind" cannot be decomposed into smoke / prefire / wallbang: the
+//     converter never populates csraw2's in-smoke flag.
+
+type shotKey struct {
+	playerID uint64
+	weapon   string
+}
+
+type shotAccum struct {
+	shots, shotsVisible   int
+	hitsVisible           int
+	headHits, headHitsVis int
+}
+
+// shotSampleToleranceTicks returns how far from an event tick a view sample
+// may sit and still describe that event. Baseline sampling is 16 Hz with
+// 64 Hz bursts around events — and weapon fires *are* events, so in practice
+// the nearest sample is 0–1 ticks away. The +2 is slack for the baseline
+// case; anything beyond that is treated as "no sample" rather than guessed.
+func shotSampleToleranceTicks(ticksPerSecond float64) int {
+	if ticksPerSecond <= 0 {
+		return 0
+	}
+	return int(math.Ceil(ticksPerSecond/16)) + 2
+}
+
+// computeShotAccounting tags every weapon fire and every enemy hit with
+// whether an enemy was visible, keyed by (player, weapon).
+//
+// The damage filters here mirror the weapon-hit accumulator earlier in
+// Aggregate exactly, so HitsVisible is always a subset of Hits.
+func computeShotAccounting(raw *model.RawMatch) map[shotKey]*shotAccum {
+	out := map[shotKey]*shotAccum{}
+	tol := shotSampleToleranceTicks(raw.TicksPerSecond)
+	if len(raw.ViewSamples) == 0 || tol == 0 {
+		// No visibility data: still count shots, leave the split at zero so
+		// callers can tell "no enemy visible" from "not measured".
+		for _, w := range raw.WeaponFires {
+			if w.ShooterID == 0 {
+				continue
+			}
+			shotAccFor(out, shotKey{w.ShooterID, w.Weapon}).shots++
+		}
+		return out
+	}
+
+	// Per-player view samples, tick-sorted, for nearest-sample lookup.
+	byPlayer := map[uint64][]model.RawViewSample{}
+	for _, s := range raw.ViewSamples {
+		byPlayer[s.SteamID] = append(byPlayer[s.SteamID], s)
+	}
+	for id := range byPlayer {
+		ss := byPlayer[id]
+		sort.Slice(ss, func(i, j int) bool { return ss[i].Tick < ss[j].Tick })
+		byPlayer[id] = ss
+	}
+
+	// visible reports whether an enemy was in the player's spotted mask at
+	// tick, using the nearest sample within tol. The second result is false
+	// when no sample is close enough.
+	visible := func(id uint64, tick int) (bool, bool) {
+		ss := byPlayer[id]
+		if len(ss) == 0 {
+			return false, false
+		}
+		i := sort.Search(len(ss), func(i int) bool { return ss[i].Tick >= tick })
+		best, bestDist := -1, math.MaxInt
+		for _, j := range []int{i - 1, i} {
+			if j < 0 || j >= len(ss) {
+				continue
+			}
+			d := ss[j].Tick - tick
+			if d < 0 {
+				d = -d
+			}
+			if d < bestDist {
+				best, bestDist = j, d
+			}
+		}
+		if best < 0 || bestDist > tol {
+			return false, false
+		}
+		return ss[best].EnemiesVisible, true
+	}
+
+	for _, w := range raw.WeaponFires {
+		if w.ShooterID == 0 {
+			continue
+		}
+		a := shotAccFor(out, shotKey{w.ShooterID, w.Weapon})
+		a.shots++
+		if vis, ok := visible(w.ShooterID, w.Tick); ok && vis {
+			a.shotsVisible++
+		}
+	}
+
+	for _, d := range raw.Damages {
+		if d.AttackerSteamID == 0 {
+			continue
+		}
+		if d.AttackerTeam != model.TeamUnknown && d.AttackerTeam == d.VictimTeam {
+			continue
+		}
+		a := shotAccFor(out, shotKey{d.AttackerSteamID, d.Weapon})
+		head := d.HitGroup == "head"
+		if head {
+			a.headHits++
+		}
+		if vis, ok := visible(d.AttackerSteamID, d.Tick); ok && vis {
+			a.hitsVisible++
+			if head {
+				a.headHitsVis++
+			}
+		}
+	}
+	return out
+}
+
+// shotAccFor returns the accumulator for a (player, weapon) pair, creating it
+// on first use.
+func shotAccFor(m map[shotKey]*shotAccum, k shotKey) *shotAccum {
+	a := m[k]
+	if a == nil {
+		a = &shotAccum{}
+		m[k] = a
+	}
+	return a
 }

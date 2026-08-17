@@ -26,6 +26,8 @@ go-cs-metrics/
 │   ├── player_roles.go              # "player --roles" helpers: HLTV-style 7-role decomposition
 │   ├── rounds.go                    # "rounds <hash> <steamid>" — per-round drill-down
 │   ├── trend.go                     # "trend <steamid64>" — chronological per-match trend
+│   ├── deaths.go                    # "deaths <steamid64>" — death drill-down over player_death_events
+│   ├── swing.go                     # "swing <steamid64>" — round swing + duel swing
 │   ├── sql.go                       # "sql <query>" — ad-hoc SQL query
 │   └── drop.go                      # "drop [--force]" — delete the metrics database
 └── internal/
@@ -40,18 +42,22 @@ go-cs-metrics/
     ├── csraw2bridge/                # csraw2.Match → model.RawMatch adapter for the aggregator
     ├── parser/parser.go             # legacy .dem → RawMatch direct walker (used by csraw2-compare validation only)
     ├── aggregator/
-    │   ├── aggregator.go            # RawMatch → PlayerMatchStats + all segment types (17-pass pipeline)
-    │   └── aggregator_test.go       # unit tests for metric logic (incl. Pass 14 save/assist, Pass 15 HLTV flash assists, Pass 16 liveness, Pass 17 scan volatility)
+    │   ├── aggregator.go            # RawMatch → PlayerMatchStats + all segment types (18-pass pipeline)
+    │   ├── aggregator_test.go       # unit tests for metric logic (incl. Pass 14 save/assist, Pass 15 HLTV flash assists, Pass 16 liveness)
+    │   ├── aggregator_scan_test.go  # unit tests for Pass 17 scan volatility
+    │   └── aggregator_shots_test.go # unit tests for Pass 18 shot accounting
     ├── storage/
     │   ├── schema.sql               # embedded SQL (go:embed)
     │   ├── storage.go               # DB open / schema apply
     │   ├── queries.go               # insert / query helpers
     │   ├── export_queries.go        # export command queries (QualifyingDemos, MapWinOutcomes, RoundSideStats, RosterMatchTotals, PlayerDemoCounts)
     │   ├── role_queries.go          # `player --roles` queries (per-round, per-weapon, sniper/utility/flash event aggregates)
+    │   ├── death_queries.go         # `deaths` command aggregations over player_death_events (by phase/weapon/distance/map)
     │   └── storage_test.go          # round-trip tests against :memory:
     ├── roundquery/                  # CEL-based round filter + 2D viewer record builder over csraw2.Match
     └── report/
-        └── report.go                # terminal table formatting
+        ├── report.go                # terminal table formatting
+        └── deaths.go                # `deaths` command tables + phase/distance ordering
 ```
 
 All business logic lives under `internal/`. The `cmd/` layer is thin: it only wires flags to the pipeline and handles top-level errors.
@@ -81,7 +87,7 @@ Two equivalent paths feed the same aggregator → storage → report chain:
                        ▼
 [aggregator]   Aggregate(raw) → ([]PlayerMatchStats, []PlayerRoundStats,
     │                            []PlayerWeaponStats, []PlayerDuelSegment, error)
-    │           • 17-pass algorithm over raw event slices
+    │           • 18-pass algorithm over raw event slices
     │           • no I/O, no external dependencies
     │
     ▼
@@ -221,9 +227,9 @@ First-hit headshot rate per segment is reported with a 95% Wilson score confiden
 
 ---
 
-## Aggregator: Seventeen-Pass Algorithm
+## Aggregator: Eighteen-Pass Algorithm
 
-The aggregator makes seventeen sequential passes over the raw event data. (Passes 12–16 — death events, flash events, save/assist annotation, HLTV flash assists, and liveness — are summarized in CLAUDE.md; Pass 17 is documented below.)
+The aggregator makes eighteen sequential passes over the raw event data. (Passes 12–16 — death events, flash events, save/assist annotation, HLTV flash assists, and liveness — are summarized in CLAUDE.md; Passes 17 and 18 are documented below.)
 
 ### Pass 1 — Trade annotation
 
@@ -323,6 +329,23 @@ For each kill, uses the weapon-fire index (`wfIdx`) to find the **first shot fir
 
 Scans `raw.WeaponFires` per player. Each shot where `HorizontalSpeed ≤ 34.0` u/s (captured at fire tick via `e.Shooter.Velocity()`) is counted as counter-strafed. `CounterStrafePercent = strafed / total * 100`. Utility/knife fires are excluded by the parser.
 
+### Pass 6 — Duel engine and the round dimension
+
+Duel segments are keyed by `(player, round, weapon_bucket, distance_bin)`. The round is what lets FHHS be sliced by side, buy type, or round phase — join `player_round_stats` on `(demo_hash, steam_id, round_number)`. Without it the FHHS table could only ever be read whole, which is the wrong granularity for questions like "is my T-side entry aim worse than my CT-side hold aim".
+
+Two consequences worth knowing:
+
+- **Storage granularity is near per-duel.** Measured on the corpus, segments average ~1.37 duels per row even before the round split, so `median_corr_deg` and friends were already close to single values rather than true medians. Adding the round makes that explicit rather than changing it materially.
+- **Aggregation must be count-weighted.** `mergeSegments` combines the per-segment medians weighted by `DuelCount`. An unweighted mean would let a one-duel round pull as hard as a five-duel round, making the merged value depend on how rows happen to be partitioned — which now varies with the round split. It is still a mean-of-medians, but a partition-invariant one.
+
+The round is part of the `UNIQUE` key, so the migration rebuilds the table rather than adding a column; pre-existing rows carry `round_number = -1`, meaning "aggregated before the round dimension existed". `InsertPlayerDuelSegments` clears a demo's rows before inserting, so a re-aggregation can never leave rows written under an older key shape behind to double-count.
+
+**Weapon bucketing.** `weaponBucket` maps weapon names to the buckets FHHS reports on. It matches on the exact strings the csraw2 weapon table emits — a mismatch is silent, since unmatched names fall through to `"Other"`. That bug shipped once: the table names the silenced M4 `"M4A1"` while the bucket matched only `"M4A1-S"`, so ~44k duels with the most-used CT rifle sat in `"Other"` and never appeared as an `M4` row. `TestWeaponBucket_CoversPrimaryWeapons` pins every observed name against its bucket to keep that from recurring.
+
+**Win-side only.** Segments are accumulated on the killer's side of a duel. A lost duel contributes only to the match-level `median_exposure_loss_ms`; it produces no segment, no distance bin, and no correction sample. Every FHHS / `MED_CORR` / `MED_SIGHT` / `SHOT_DLY` figure therefore describes duels the player **won**. Reading them as "how I aim" overstates their scope — they are "how I aim in the duels I win".
+
+**`median_shot_delay_ms`** records the gap from the enemy becoming visible to the player's *first shot* in that duel (not to the kill — `median_expo_win_ms` already covers that). It exists to disambiguate a large `median_corr_deg`: a big correction with a short delay is a reaction to something unexpected, while a big correction with a long delay means the time was there and the crosshair still travelled too far. Only the first weapon fire inside `[sightTick, killTick]` is used.
+
 ### Pass 17 — Scan volatility ("panic swiping")
 
 Measures out-of-combat crosshair discipline from `raw.ViewSamples` (16 Hz view-state rows the bridge reduces from csraw2 `player_samples`; empty for data paths without samples, in which case all scan metrics stay 0).
@@ -337,6 +360,70 @@ Per qualifying step, three accumulators:
 Rationale: raw angular speed punishes fast angle-clearing (snap → dwell → snap). What distinguishes panic is the *pattern* — continuous back-and-forth swiping with no dwell — hence reversal rate + dwell fraction rather than mean speed alone. Rounds with < 5 s of qualifying time render as `—` in the `rounds` table (values are still stored; filter on `scan_ooc_seconds` in SQL). Match-level values are time-weighted across rounds; the `player` cross-match aggregate is time-weighted by `scan_ooc_seconds` per match.
 
 ---
+
+### Pass 18 — Shot accounting (accuracy + aimed/blind split)
+
+Counts, per `(player, weapon)`: every weapon fire (`ShotsFired`), every head-hitbox hit (`HeadHits`, lethal or not — unlike `HeadshotKills`), and the subset of both taken with an enemy visible (`ShotsVisible`, `HitsVisible`, `HeadHitsVisible`).
+
+**Why the split exists.** Raw accuracy (hits ÷ shots) is not comparable across skill tiers, because tiers differ enormously in how many shots are deliberately aimed at nobody: smoke spam, prefire, wallbangs, suppressing fire. Measured on this corpus, ~79% of pro rifle shots are fired with no enemy visible against ~59% for a mid-tier player — enough to *invert* the raw-accuracy ranking between them. `AccuracyVisible()` is the comparable number; `Accuracy()` is kept because it is what in-game stats report.
+
+**Visibility source.** Each fire and each damage row is matched to the player's nearest `RawViewSample` (the same 16 Hz stream Pass 17 uses) and tagged with its `EnemiesVisible` flag — the engine's spotted mask. The tolerance is `ceil(tickrate/16) + 2` ticks: weapon fires are events, so csraw2's 64 Hz event-window burst normally puts a sample 0–1 ticks away, and the slack covers the baseline-sampling case. A shot with no sample in range counts toward `ShotsFired` but not toward `ShotsVisible`, so "not measured" never masquerades as "aimed".
+
+Damage rows use the same filters as the weapon-hit accumulator earlier in `Aggregate` (attacker known, team damage excluded), which guarantees `HitsVisible ≤ Hits`.
+
+**The visible bucket is phase-biased — important when reading head-hit rates.** The spotted mask is set *after* an enemy is acquired, so the opening shot of an engagement usually lands in the blind bucket while the follow-up spray lands in the visible one. Head-hit rate is therefore systematically *higher* blind than visible, for everyone: measured on this corpus, AK-47 head hits per hit run 26.7% blind vs 13.8% visible for pros, and 22.0% vs 6.4% for a mid-tier player — same direction in every weapon and every tier. Read `HeadHitPctVisible()` as "head rate once the duel is running" (spray discipline), not as first-shot precision. The bias applies equally to both sides of a cross-player comparison, so relative results still hold; it is the absolute interpretation that changes. `AccuracyVisible()` is not affected the same way — excluding fire aimed at nobody is the point there.
+
+**Limitations.** The spotted mask has latency and is FOV-gated, so the blind bucket is somewhat over-inclusive — it is the same measure on both sides of any comparison, so relative results hold. "Blind" cannot be decomposed into smoke / prefire / wallbang: `csraw2`'s in-smoke player flag exists in the schema but the converter never populates it, and re-converting is not possible for most of the pro corpus (the source `.dem` files are gone).
+
+Weapons fired but never landed still produce a row, so the worst-accuracy weapons do not silently vanish.
+
+## Swing metrics (`swing` command)
+
+Two win-probability-added metrics, both from **empirical tables counted over the corpus** rather than a fitted model. `internal/swing` builds the tables; `internal/storage/swing_queries.go` loads their inputs from `player_death_events` and `player_round_stats`; `cmd/swing.go` drives it.
+
+**Round swing** — walk each round's kills in tick order, tracking alive counts and plant state. At every kill, look up `P(CT wins | aliveCT, aliveT, planted)` before and after; the delta is credited to the killer and debited from the victim.
+
+**Duel swing** — every kill is one duel with a winner and a loser. Look up `P(win | first-sight advantage, distance bin, weapon class)`; the winner scores `1 - P`, the loser `-(1 - P)`. Positive means beating expectation.
+
+### Why counted, not fitted
+
+With ~42k rounds the cells are dense enough that a frequency beats a regression on both accuracy and auditability — `--show-tables` prints them so a cell can be checked against intuition ("3v2 unplanted should be around 0.7"; it is 0.780). Sparse cells back off to a coarser key rather than returning a wild frequency from `n = 1`; `MinCellSamples` is the floor.
+
+### The mirroring step
+
+`BuildDuelTable` enters every kill **twice**: once as observed and once mirrored from the loser's perspective with the advantage negated. Entering only the observed direction would make every cell 1.0 by construction, since the killer always won. This is the single easiest way to get this metric silently wrong, so it has its own test.
+
+A consequence worth knowing: the symmetric buckets (`even`, `neither`) are forced to exactly 0.500 by the mirroring, and they hold the large majority of duels. The model only truly discriminates through `unseen` / `blind` and the asymmetric advantage buckets.
+
+### Zero-sum validation
+
+Both metrics are zero-sum across all players by construction. `Validate` sums every player's totals and refuses to print if either is non-zero beyond floating-point slack — a leak means attribution is broken and the numbers are not trustworthy. The command runs it before any output. It also checks that each player's `CT` and `T` slices reconstruct their totals, which is the only structural check available on the side split (see below).
+
+### The side split (`--by-side`)
+
+`PlayerSwing.CT` / `.T` carry both metrics restricted to the side the player was on at the time; the duel's victim is on the opposite side by construction, so every attribution knows its side without extra lookups. Sides swap at halftime, so almost every player has both populated.
+
+The split is the cut that matters for role analysis: holding a site above expectation and taking space below it average to nothing in the combined number. `--by-side` prints two rows per player and adds `CT_DUEL/DUEL` / `T_DUEL/DUEL` columns to the `--top` leaderboard, which is the axis pair to plot as a scatter — one point per player, corners as role archetypes.
+
+**A side is not zero-sum on its own.** Only the two together are. Summed over every player, CT duel swing is the whole CT side's net over expectation, and that is zero only if the probability tables happen to be side-neutral. **They are not**: over the pro corpus every one of the top 15 players by round swing has a higher CT duel swing than T, typically by 0.04–0.11. The duel table keys on first-sight advantage, range and weapon class, none of which capture that the CT side is usually the one holding an angle. So a raw CT number and a raw T number are on different scales — compare a CT value against other players' CT values, and centre each axis on its own side's population mean before plotting the two together.
+
+### Reading the numbers
+
+Round swing per round is a fraction of a probability point, which means nothing without the spread. Measured over 271 players with at least 300 rounds: max +0.053, p95 +0.025, median -0.002, p05 -0.026, min -0.040. Multiply by ~24 to read it as rounds per map.
+
+`--top N` prints that distribution plus the queried player's rank. **The rank is not a cross-tier skill ranking** — a personal-tier player earns their swing against personal-tier opposition, so it conveys scale, not equivalence with a pro's.
+
+### Known limitations
+
+- The tables condition on states *reached*, which is not a random sample: teams that arrive at 3v2 differ systematically from those that do not. HLTV's round swing shares this property. Read a cell as "how this state resolves in practice", not as a causal claim.
+- This is **not** HLTV's published round swing. That one also credits damage, flash assists, trading and economy, so the scales are not comparable and an outside number must not be used as a reference for this one.
+- Round swing is attributed at kills only. Plants, defuses and utility damage move win probability too and are invisible to it.
+- The first-sight advantage is **not monotonic on its own**: `+1000ms` wins only 51.8% against `+400ms`'s 61.7%. The duel table therefore keys on a second axis, **freshness** — how long both players had been mutually aware when the duel resolved. It carries most of the missing signal: a `+400ms` lead is worth 0.680 when the duel resolves within 300ms of mutual awareness and only 0.503 once both sides have known for over three seconds. A stale lead is not a lead; the player saw and did not act, and the opponent picked the moment. Even at matched freshness `+1000ms` still trails `+400ms` (0.548 vs 0.680), so some of the effect remains unexplained — most likely a very long lead is a peripheral or distant spot rather than real awareness.
+- Duel swing conditions on first-sight advantage, range and weapon class. HP, armour, flashed state and movement are all in the corpus and would refine it.
+- **Duel swing per duel is printed with its standard error** (`DUEL/DUEL` reads `+0.0624 ±0.0187`). Each duel is one Bernoulli draw whose variance the table already supplies, so `Compute` accumulates `Σ p(1−p)` alongside the swing itself and `DuelSwingSE = √DuelVarSum / Duels`. Most duels sit in a bucket mirroring pins at exactly 0.500, so the result tracks `0.5/√duels` closely and runs a little tighter where the sighting was asymmetric. A player with ~700 T-side duels — a full season on one side — lands near ±0.018, so a 95% interval is ~0.07 wide, the same order as the entire spread between five teammates. **Ranking players inside one team is therefore usually not resolvable**; separating the top pair from the bottom pair often is. Two caveats the number does not cover: duels cluster within rounds and matches instead of being independent draws, so it is a floor; and it is sampling error only, silent about the features the table omits and the systematic CT/T offset those omissions produce.
+- `--by-map` recomputes attribution per map but keeps the tables corpus-wide, on purpose: splitting the tables per map would shrink every cell far more than map identity changes what a 3v2 is worth.
+- Symmetric advantage buckets (`even`, `neither`) sit at exactly 0.500 no matter what else is in the key: mirroring forces it. They hold the large majority of duels, so the model only truly discriminates where the sighting was asymmetric. Making the common case informative needs an asymmetric feature that is not the sighting — HP, armour, or who was holding versus moving.
+- `WeaponBucket` is the weapon the *kill* was made with, and the mirrored entry reuses it for the loser. The victim's own weapon is not stored, so a rifle-versus-pistol duel is keyed as if both sides held a rifle.
 
 ## Parser: Event Handling Notes
 
@@ -379,11 +466,12 @@ demos                         (hash PK, map_name, date, type, tickrate, ct_score
   │                             is_post_plant, is_in_clutch, clutch_enemy_count)
   │                            UNIQUE(demo_hash, steam_id, round_number)
   │
-  ├── player_weapon_stats      (demo_hash FK, steam_id, weapon, kills, hs_kills, damage, hits)
+  ├── player_weapon_stats      (demo_hash FK, steam_id, weapon, kills, hs_kills, damage, hits,
+  │                             shots_fired, shots_visible, hits_visible, head_hits, head_hits_visible)
   │                            UNIQUE(demo_hash, steam_id, weapon)
   │
-  ├── player_duel_segments     (demo_hash FK, steam_id, weapon_bucket, distance_bin,
-  │                             duel_count, first_hit_count, first_hit_hs_count,
+  ├── player_duel_segments     (demo_hash FK, steam_id, round_number, weapon_bucket, distance_bin,
+  │                             duel_count, first_hit_count, first_hit_hs_count, median_shot_delay_ms,
   │                             median_corr_deg, median_sight_deg, median_expo_win_ms)
   │                            UNIQUE(demo_hash, steam_id, weapon_bucket, distance_bin)
   │

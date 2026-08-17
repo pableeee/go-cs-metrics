@@ -324,6 +324,106 @@ func PrintDuelTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID ui
 	table.Render()
 }
 
+// PrintCrosshairTable prints the crosshair-placement breakdown for a single
+// match: how far off target the crosshair sat at first sight, split into its
+// yaw (horizontal) and pitch (vertical) components. Skips rendering when no
+// player has any first-sight encounters.
+//
+// The combined median also appears as XHAIR_MED in the Performance Overview;
+// this table adds the sample count and the yaw/pitch split, which distinguish
+// horizontal pre-aim errors (wrong angle held) from vertical ones (crosshair
+// off head level).
+func PrintCrosshairTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uint64) {
+	hasData := false
+	for _, s := range stats {
+		if s.CrosshairEncounters > 0 {
+			hasData = true
+			break
+		}
+	}
+	if !hasData {
+		return
+	}
+	printSection(w, "Crosshair Placement",
+		"N=first-sight encounters behind the medians (sample size; <20 is noisy)\n"+
+			"MED_DEV=median total angular deviation from the enemy at first sight (lower = better pre-aim)\n"+
+			"<5°%=share of encounters already within 5° of the enemy — effectively pre-aimed\n"+
+			"YAW=median horizontal component (wrong angle held)  PITCH=median vertical component (off head level)")
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	withMarker := focusSteamID != 0
+	if withMarker {
+		table.Header(" ", "PLAYER", "N", "MED_DEV", "<5°%", "YAW", "PITCH")
+	} else {
+		table.Header("PLAYER", "N", "MED_DEV", "<5°%", "YAW", "PITCH")
+	}
+
+	for _, s := range stats {
+		if s.CrosshairEncounters == 0 {
+			continue
+		}
+		row := []string{
+			s.Name,
+			strconv.Itoa(s.CrosshairEncounters),
+			fmt.Sprintf("%.1f°", s.CrosshairMedianDeg),
+			fmt.Sprintf("%.0f%%", s.CrosshairPctUnder5),
+			fmt.Sprintf("%.1f°", s.CrosshairMedianYawDeg),
+			fmt.Sprintf("%.1f°", s.CrosshairMedianPitchDeg),
+		}
+		if withMarker {
+			marker := " "
+			if s.SteamID == focusSteamID {
+				marker = color.CyanString(">")
+			}
+			row = append([]string{marker}, row...)
+		}
+		table.Append(toAny(row)...)
+	}
+	table.Render()
+}
+
+// PrintPlayerAggregateCrosshairTable is the cross-match version of
+// PrintCrosshairTable. Angle stats are encounter-weighted averages of
+// per-match medians (see PlayerAggregate).
+func PrintPlayerAggregateCrosshairTable(w io.Writer, aggs []model.PlayerAggregate) {
+	hasData := false
+	for _, a := range aggs {
+		if a.CrosshairEncounters > 0 {
+			hasData = true
+			break
+		}
+	}
+	if !hasData {
+		return
+	}
+	printSection(w, "Crosshair Placement (Aggregate)",
+		"N=total first-sight encounters across all matches in the filter\n"+
+			"MED_DEV=encounter-weighted median angular deviation at first sight (lower = better pre-aim)\n"+
+			"<5°%=share of encounters already within 5° of the enemy — effectively pre-aimed\n"+
+			"YAW=horizontal component (wrong angle held)  PITCH=vertical component (off head level)")
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header("PLAYER", "N", "MED_DEV", "<5°%", "YAW", "PITCH")
+	for _, a := range aggs {
+		if a.CrosshairEncounters == 0 {
+			continue
+		}
+		table.Append(
+			a.Name,
+			strconv.Itoa(a.CrosshairEncounters),
+			fmt.Sprintf("%.1f°", a.CrosshairMedianDeg),
+			fmt.Sprintf("%.0f%%", a.CrosshairPctUnder5),
+			fmt.Sprintf("%.1f°", a.CrosshairMedianYawDeg),
+			fmt.Sprintf("%.1f°", a.CrosshairMedianPitchDeg),
+		)
+	}
+	table.Render()
+}
+
 // PrintAWPTable prints the AWP death classification table.
 // Columns: PLAYER | AWP_D | DRY% | REPEEK% | ISOLATED%
 func PrintAWPTable(w io.Writer, stats []model.PlayerMatchStats, focusSteamID uint64) {
@@ -692,6 +792,13 @@ func PrintFHHSTable(w io.Writer, segs []model.PlayerDuelSegment, players []model
 		"FHHS%=% of won duels where first shot hit the head (higher = better aim transfer on first contact)\n"+
 			"N(hits)=sample count  FLAG=OK(≥50)/LOW(20–49) reliability  95% CI=Wilson confidence interval\n"+
 			"MED_CORR=median pre-shot crosshair correction in degrees  *=weakest stable high-sample bin\n"+
+			"MED_SIGHT=median first-sight angular deviation in this bin  EXPO_WIN=median ms from enemy visible\n"+
+			"to your kill in this bin (the per-bin version of Duel Intelligence's EXPO_WIN — shows *where* you're slow)\n"+
+			"SHOT_DLY=median ms from the enemy becoming visible to your FIRST SHOT. Read it against MED_CORR:\n"+
+			"  a big correction with a short delay is reaction under surprise; a big correction with a long\n"+
+			"  delay means you had time and still travelled too far — habit, not reflex.\n"+
+			"NOTE: every column here comes from duels you WON — the duel engine only records segments on the\n"+
+			"  killer's side, so lost duels are absent by construction.\n"+
 			"VERY_LOW entries (<20 hits) are excluded — not enough data to be actionable")
 
 	// Sort: by player SteamID, then weapon bucket, then distance bin.
@@ -715,7 +822,8 @@ func PrintFHHSTable(w io.Writer, segs []model.PlayerDuelSegment, players []model
 			Alignment: tw.CellAlignment{Global: tw.AlignCenter},
 		},
 	}))
-	table.Header(" ", "PLAYER", "WEAPON", "DISTANCE", "N(hits)", "FHHS%", "95% CI", "MED_CORR", "FLAG")
+	table.Header(" ", "PLAYER", "WEAPON", "DISTANCE", "N(hits)", "FHHS%", "95% CI",
+		"MED_CORR", "MED_SIGHT", "SHOT_DLY", "EXPO_WIN", "FLAG")
 
 	var priorityLines []string
 
@@ -736,6 +844,18 @@ func PrintFHHSTable(w io.Writer, segs []model.PlayerDuelSegment, players []model
 		corrStr := "—"
 		if s.MedianCorrDeg > 0 {
 			corrStr = fmt.Sprintf("%.1f°", s.MedianCorrDeg)
+		}
+		sightStr := "—"
+		if s.MedianSightDeg > 0 {
+			sightStr = fmt.Sprintf("%.1f°", s.MedianSightDeg)
+		}
+		expoStr := "—"
+		if s.MedianExpoWinMs > 0 {
+			expoStr = fmt.Sprintf("%.0fms", s.MedianExpoWinMs)
+		}
+		delayStr := "—"
+		if s.MedianShotDelayMs > 0 {
+			delayStr = fmt.Sprintf("%.0fms", s.MedianShotDelayMs)
 		}
 
 		flag := sampleFlag(s.FirstHitCount)
@@ -768,6 +888,9 @@ func PrintFHHSTable(w io.Writer, segs []model.PlayerDuelSegment, players []model
 			fhhsStr,
 			ciStr,
 			corrStr,
+			sightStr,
+			delayStr,
+			expoStr,
 			colorFlag(flag),
 		)
 	}
@@ -817,17 +940,22 @@ func PrintAimTimingTable(w io.Writer, stats []model.PlayerMatchStats, focusSteam
 			"MEDIAN_TTD=median ms from enemy's first shot → your death, multi-hit only (lower = died faster)\n"+
 			"ONE_TAP%=% of kills where the first shot fired in a 3s window was the killing shot\n"+
 			"CS%=% of shots fired while horizontal speed ≤ 34 u/s (counter-strafed)\n"+
+			"TRADE_K_MS=median ms from a teammate's death to your trade kill (lower = faster refrag)\n"+
+			"TRADE_D_MS=median ms from your kill to your own death when traded back\n"+
 			"DWELL%=out-of-combat time with crosshair settled (<25°/s); low = panic swiping\n"+
-			"REV/MIN=out-of-combat yaw direction reversals (both legs ≥60°/s) per minute")
+			"REV/MIN=out-of-combat yaw direction reversals (both legs ≥60°/s) per minute\n"+
+			"YAW°/S=mean out-of-combat yaw speed; pairs with DWELL% to separate slow scanning from swiping")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
 	withMarker := focusSteamID != 0
 	if withMarker {
-		table.Header(" ", "PLAYER", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%", "DWELL%", "REV/MIN")
+		table.Header(" ", "PLAYER", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%",
+			"TRADE_K_MS", "TRADE_D_MS", "DWELL%", "REV/MIN", "YAW°/S")
 	} else {
-		table.Header("PLAYER", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%", "DWELL%", "REV/MIN")
+		table.Header("PLAYER", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%",
+			"TRADE_K_MS", "TRADE_D_MS", "DWELL%", "REV/MIN", "YAW°/S")
 	}
 
 	for _, s := range stats {
@@ -847,12 +975,22 @@ func PrintAimTimingTable(w io.Writer, stats []model.PlayerMatchStats, focusSteam
 		if s.CounterStrafePercent > 0 {
 			csStr = fmt.Sprintf("%.0f%%", s.CounterStrafePercent)
 		}
-		dwellStr, revStr := "—", "—"
+		tradeKStr := "—"
+		if s.MedianTradeKillDelayMs > 0 {
+			tradeKStr = fmt.Sprintf("%.0fms", s.MedianTradeKillDelayMs)
+		}
+		tradeDStr := "—"
+		if s.MedianTradeDeathDelayMs > 0 {
+			tradeDStr = fmt.Sprintf("%.0fms", s.MedianTradeDeathDelayMs)
+		}
+		dwellStr, revStr, yawStr := "—", "—", "—"
 		if s.ScanOOCSeconds > 0 {
 			dwellStr = fmt.Sprintf("%.0f%%", s.ScanDwellPct)
 			revStr = fmt.Sprintf("%.1f", s.ScanReversalsPerMin)
+			yawStr = fmt.Sprintf("%.0f", s.ScanAvgYawDegPerSec)
 		}
-		row := []string{s.Name, ttkStr, ttdStr, oneTapStr, csStr, dwellStr, revStr}
+		row := []string{s.Name, ttkStr, ttdStr, oneTapStr, csStr,
+			tradeKStr, tradeDStr, dwellStr, revStr, yawStr}
 		if withMarker {
 			marker := " "
 			if s.SteamID == focusSteamID {
@@ -915,12 +1053,15 @@ func PrintAimTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
 		"Per-match aim timing in chronological order.\n"+
 			"MEDIAN_TTK/TTD=ms from first shot fired to kill/death (multi-hit only)\n"+
 			"ONE_TAP%=% of kills that were one-taps  CS%=% of shots fired while counter-strafed (speed ≤ 34 u/s)\n"+
-			"DWELL%=out-of-combat time with crosshair settled (<25°/s)  REV/MIN=yaw reversals per minute")
+			"TRADE_K_MS=median ms from a teammate's death to your trade kill\n"+
+			"DWELL%=out-of-combat time with crosshair settled (<25°/s)  REV/MIN=yaw reversals per minute\n"+
+			"YAW°/S=mean out-of-combat yaw speed")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	table.Header("DATE", "MAP", "RD", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%", "DWELL%", "REV/MIN")
+	table.Header("DATE", "MAP", "RD", "MEDIAN_TTK", "MEDIAN_TTD", "ONE_TAP%", "CS%",
+		"TRADE_K_MS", "DWELL%", "REV/MIN", "YAW°/S")
 
 	for _, s := range stats {
 		mapDisplay := strings.TrimPrefix(s.MapName, "de_")
@@ -940,10 +1081,15 @@ func PrintAimTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
 		if s.CounterStrafePercent > 0 {
 			csStr = fmt.Sprintf("%.0f%%", s.CounterStrafePercent)
 		}
-		dwellStr, revStr := "—", "—"
+		tradeKStr := "—"
+		if s.MedianTradeKillDelayMs > 0 {
+			tradeKStr = fmt.Sprintf("%.0fms", s.MedianTradeKillDelayMs)
+		}
+		dwellStr, revStr, yawStr := "—", "—", "—"
 		if s.ScanOOCSeconds > 0 {
 			dwellStr = fmt.Sprintf("%.0f%%", s.ScanDwellPct)
 			revStr = fmt.Sprintf("%.1f", s.ScanReversalsPerMin)
+			yawStr = fmt.Sprintf("%.0f", s.ScanAvgYawDegPerSec)
 		}
 		table.Append(
 			s.MatchDate,
@@ -953,8 +1099,10 @@ func PrintAimTrendTable(w io.Writer, stats []model.PlayerMatchStats) {
 			ttdStr,
 			oneTapStr,
 			csStr,
+			tradeKStr,
 			dwellStr,
 			revStr,
+			yawStr,
 		)
 	}
 	table.Render()
@@ -1113,12 +1261,16 @@ func PrintRoundDetailTable(w io.Writer, stats []model.PlayerRoundStats, playerNa
 		"SIDE=CT or T  BUY=buy type (full/force/half/eco)  K/A/DMG=kills/assists/damage\n"+
 			"KAST=✓ if earned KAST that round  FLAGS=OPEN_K/OPEN_D/TRADE_K/TRADE_D/POST_PLT/CLUTCH_1vN\n"+
 			"DWELL%=out-of-combat time with crosshair settled (<25°/s); low = panic swiping  REV=yaw reversals\n"+
-			"— shown when the round had <5 s of qualifying out-of-combat time")
+			"YAW°/S=mean out-of-combat yaw speed  — shown when the round had <5 s of qualifying out-of-combat time")
+	// No UNUSED (unused_utility) column: the csraw2 bridge never populates
+	// RawRound.PlayerEndState.GrenadeCount (bridge.go), so the column is 0 for
+	// every demo ingested through convert/replay — i.e. the whole corpus. It
+	// would render a permanent zero. See docs/unrendered-metrics.md.
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	table.Header("RD", "SIDE", "BUY", "K", "A", "DMG", "KAST", "DWELL%", "REV", "FLAGS")
+	table.Header("RD", "SIDE", "BUY", "K", "A", "DMG", "KAST", "DWELL%", "REV", "YAW°/S", "FLAGS")
 
 	buyCount := make(map[string]int)
 	for _, s := range stats {
@@ -1154,10 +1306,11 @@ func PrintRoundDetailTable(w io.Writer, stats []model.PlayerRoundStats, playerNa
 		}
 		flagStr := strings.Join(flags, ",")
 
-		dwellStr, revStr := "—", "—"
+		dwellStr, revStr, yawStr := "—", "—", "—"
 		if s.ScanOOCSeconds >= 5 {
 			dwellStr = fmt.Sprintf("%.0f%%", s.ScanDwellPct)
 			revStr = strconv.Itoa(s.ScanReversals)
+			yawStr = fmt.Sprintf("%.0f", s.ScanAvgYawDegPerSec)
 		}
 
 		table.Append(
@@ -1170,6 +1323,7 @@ func PrintRoundDetailTable(w io.Writer, stats []model.PlayerRoundStats, playerNa
 			kastStr,
 			dwellStr,
 			revStr,
+			yawStr,
 			flagStr,
 		)
 	}
@@ -1203,13 +1357,17 @@ func PrintPlayerAggregateAimTable(w io.Writer, aggs []model.PlayerAggregate) {
 			"AVG_TTD=avg ms from enemy's first shot to your death (you as victim); higher than TTK is good\n"+
 			"ONE_TAP%=one-tap kills as % of total kills across all matches\n"+
 			"AVG_CS%=average per-match counter-strafe % (shots at horizontal speed ≤ 34 u/s)\n"+
+			"TRADE_K_MS=avg ms from a teammate's death to your trade kill (lower = faster refrag)\n"+
+			"TRADE_D_MS=avg ms from your kill to your own death when traded back\n"+
 			"DWELL%=out-of-combat time with crosshair settled (<25°/s), time-weighted; low = panic swiping\n"+
-			"REV/MIN=out-of-combat yaw direction reversals (both legs ≥60°/s) per minute, time-weighted")
+			"REV/MIN=out-of-combat yaw direction reversals (both legs ≥60°/s) per minute, time-weighted\n"+
+			"YAW°/S=mean out-of-combat yaw speed, time-weighted; pairs with DWELL% to separate slow scanning from swiping")
 	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	table.Header("PLAYER", "ROLE", "AVG_TTK", "AVG_TTD", "ONE_TAP%", "AVG_CS%", "DWELL%", "REV/MIN")
+	table.Header("PLAYER", "ROLE", "AVG_TTK", "AVG_TTD", "ONE_TAP%", "AVG_CS%",
+		"TRADE_K_MS", "TRADE_D_MS", "DWELL%", "REV/MIN", "YAW°/S")
 
 	for _, a := range aggs {
 		role := a.Role
@@ -1232,12 +1390,22 @@ func PrintPlayerAggregateAimTable(w io.Writer, aggs []model.PlayerAggregate) {
 		if a.AvgCounterStrafePct > 0 {
 			csStr = fmt.Sprintf("%.0f%%", a.AvgCounterStrafePct)
 		}
-		dwellStr, revStr := "—", "—"
+		tradeKStr := "—"
+		if a.AvgTradeKillDelayMs > 0 {
+			tradeKStr = fmt.Sprintf("%.0fms", a.AvgTradeKillDelayMs)
+		}
+		tradeDStr := "—"
+		if a.AvgTradeDeathDelayMs > 0 {
+			tradeDStr = fmt.Sprintf("%.0fms", a.AvgTradeDeathDelayMs)
+		}
+		dwellStr, revStr, yawStr := "—", "—", "—"
 		if a.ScanOOCSeconds > 0 {
 			dwellStr = fmt.Sprintf("%.0f%%", a.ScanDwellPct)
 			revStr = fmt.Sprintf("%.1f", a.ScanReversalsPerMin)
+			yawStr = fmt.Sprintf("%.0f", a.ScanAvgYawDegPerSec)
 		}
-		table.Append(a.Name, role, ttkStr, ttdStr, oneTapStr, csStr, dwellStr, revStr)
+		table.Append(a.Name, role, ttkStr, ttdStr, oneTapStr, csStr,
+			tradeKStr, tradeDStr, dwellStr, revStr, yawStr)
 	}
 	table.Render()
 }
@@ -1247,7 +1415,10 @@ func PrintPlayerAggregateAimTable(w io.Writer, aggs []model.PlayerAggregate) {
 func PrintWeaponTable(w io.Writer, stats []model.PlayerWeaponStats, players []model.PlayerMatchStats, focusSteamID uint64) {
 	printSection(w, "Weapon Breakdown",
 		"K=kills with this weapon  HS%=headshot kill %  A=assists  D=deaths  DAMAGE=total damage dealt\n"+
-			"HITS=total hits landed  DMG/HIT=average damage per hit")
+			"HITS=total hits landed  DMG/HIT=average damage per hit  SHOTS=weapon-fire events\n"+
+			"ACC%=raw hits per shot  ACC_VIS%=hits per shot with an enemy visible (excludes blind\n"+
+			"  fire — smoke spam, prefire, wallbangs — and is the comparable aim number)\n"+
+			"\"-\" means the weapon was never fired (grenade damage or deaths-only rows)")
 	// Build name lookup.
 	nameByID := make(map[uint64]string, len(players))
 	for _, p := range players {
@@ -1262,7 +1433,7 @@ func PrintWeaponTable(w io.Writer, stats []model.PlayerWeaponStats, players []mo
 			Alignment: tw.CellAlignment{Global: tw.AlignCenter},
 		},
 	}))
-	table.Header("PLAYER", "WEAPON", "K", "HS%", "A", "D", "DAMAGE", "HITS", "DMG/HIT")
+	table.Header("PLAYER", "WEAPON", "K", "HS%", "A", "D", "DAMAGE", "HITS", "DMG/HIT", "SHOTS", "ACC%", "ACC_VIS%")
 
 	for i := range stats {
 		s := &stats[i]
@@ -1283,6 +1454,92 @@ func PrintWeaponTable(w io.Writer, stats []model.PlayerWeaponStats, players []mo
 			strconv.Itoa(s.Damage),
 			strconv.Itoa(s.Hits),
 			fmt.Sprintf("%.1f", s.AvgDamagePerHit()),
+			shotCell(s.ShotsFired, strconv.Itoa(s.ShotsFired)),
+			shotCell(s.ShotsFired, fmt.Sprintf("%.1f%%", s.Accuracy())),
+			shotCell(s.ShotsVisible, fmt.Sprintf("%.1f%%", s.AccuracyVisible())),
+		)
+	}
+	table.Render()
+}
+
+// shotCell renders "-" when the denominator is zero, so a weapon that was
+// never fired (grenade damage, deaths-only rows) is visibly distinct from
+// one fired with 0% accuracy.
+func shotCell(n int, s string) string {
+	if n == 0 {
+		return "-"
+	}
+	return s
+}
+
+// weaponAccuracyMinShots is the sample floor for the aggregate accuracy
+// table. Below it the per-weapon rates swing too much to act on.
+const weaponAccuracyMinShots = 50
+
+// PrintPlayerWeaponAccuracyTable renders cross-demo shot accounting per
+// weapon: how many shots were fired, how many were blind, and what the hit
+// and head-hit rates look like once blind fire is excluded.
+//
+// stats may span several players; rows are grouped per player and ordered by
+// shots fired. nameByID supplies display names.
+func PrintPlayerWeaponAccuracyTable(w io.Writer, stats []model.PlayerWeaponStats, nameByID map[uint64]string) {
+	var rows []model.PlayerWeaponStats
+	for _, s := range stats {
+		if s.ShotsFired >= weaponAccuracyMinShots {
+			rows = append(rows, s)
+		}
+	}
+	if len(rows) == 0 {
+		return
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].SteamID != rows[j].SteamID {
+			return rows[i].SteamID < rows[j].SteamID
+		}
+		return rows[i].ShotsFired > rows[j].ShotsFired
+	})
+
+	printSection(w, "Weapon Accuracy (Aggregate)",
+		"SHOTS=weapon-fire events across all matches in the filter\n"+
+			"BLIND%=shots taken with no enemy in your spotted mask — smoke spam, prefire,\n"+
+			"  wallbangs, suppressing fire. Higher tiers deliberately do far more of this,\n"+
+			"  so raw ACC% is NOT comparable between players of different levels.\n"+
+			"ACC%=raw hits per shot  ACC_VIS%=hits per shot with an enemy visible (the comparable number)\n"+
+			"HS/HIT=head-hitbox hits per hit (counts head hits that did NOT kill, unlike HS% on kills)\n"+
+			"HS/HIT_V=same, restricted to shots with an enemy visible. NOTE: the spotted mask is set\n"+
+			"  after an enemy is acquired, so a duel's opening shot usually falls in the blind bucket\n"+
+			"  and the follow-up spray in the visible one — read HS/HIT_V as head rate once the duel\n"+
+			"  is running (spray discipline), not as first-shot precision.\n"+
+			"DMG/HIT=average damage per hit  SHOT/K=shots fired per kill\n"+
+			fmt.Sprintf("Weapons with fewer than %d shots are omitted.", weaponAccuracyMinShots))
+
+	table := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
+		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
+		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
+	}))
+	table.Header("PLAYER", "WEAPON", "SHOTS", "BLIND%", "ACC%", "ACC_VIS%", "HS/HIT", "HS/HIT_V", "DMG/HIT", "SHOT/K")
+
+	for i := range rows {
+		s := &rows[i]
+		name := nameByID[s.SteamID]
+		if name == "" {
+			name = strconv.FormatUint(s.SteamID, 10)
+		}
+		shotsPerKill := "-"
+		if s.Kills > 0 {
+			shotsPerKill = fmt.Sprintf("%.1f", float64(s.ShotsFired)/float64(s.Kills))
+		}
+		table.Append(
+			name,
+			s.Weapon,
+			strconv.Itoa(s.ShotsFired),
+			fmt.Sprintf("%.1f%%", s.BlindShotPct()),
+			fmt.Sprintf("%.1f%%", s.Accuracy()),
+			shotCell(s.ShotsVisible, fmt.Sprintf("%.1f%%", s.AccuracyVisible())),
+			fmt.Sprintf("%.1f%%", s.HeadHitPct()),
+			shotCell(s.HitsVisible, fmt.Sprintf("%.1f%%", s.HeadHitPctVisible())),
+			fmt.Sprintf("%.1f", s.AvgDamagePerHit()),
+			shotsPerKill,
 		)
 	}
 	table.Render()
@@ -1335,11 +1592,12 @@ func (o RoleViewOptions) sideSuffix() string {
 // the corresponding source has no rows for the player (see PlayerRoleStats
 // coverage flags).
 //
-// When opts.Side is "ct" or "t", per-round-derived metrics reflect only that
-// side's rounds; match-level totals (sniper kills, HLTV flash assists, etc.)
-// remain combined because the schema doesn't tag them by side. The Role
-// Overview RATING_CT / RATING_T columns also collapse to a single RATING in
-// side-restricted views.
+// When opts.Side is "ct" or "t", the headline (RATING, ROUNDS, KAST%, K/D/DMG
+// rates) and every per-round-derived metric reflect only that side's rounds;
+// metrics from non-side-tagged match-level columns (trade kills, saved /
+// saved-by, assisted kills, sniper kills, utility, HLTV flash assists, time
+// alive) remain combined across both sides. The Role Overview RATING_CT /
+// RATING_T columns also collapse to a single RATING in side-restricted views.
 func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats, opts RoleViewOptions) {
 	if len(roles) == 0 {
 		return
@@ -1429,18 +1687,22 @@ func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats, opts RoleV
 
 	// ---- §2.2 Entrying ----
 	printSection(w, "Entrying"+sideS+sampleS,
-		"OPEN_D_TRADED%=share of opening deaths that were traded by a teammate within 5s\n"+
-			"SUPPORT%=rounds with assist/survive/traded-death but no kill\n"+
+		"TRADED_D"+rateU+"=deaths traded by a teammate within 5s "+rateUnitWord(opts)+"  TRADED_D%=share of deaths traded\n"+
+			"OPEN_D_TRADED%=share of opening deaths that were traded by a teammate within 5s\n"+
+			"ASSISTS"+rateU+"=assists "+rateUnitWord(opts)+"  SUPPORT%=rounds with assist/survive/traded-death but no kill\n"+
 			"SAVED_BY"+rateU+"=times "+rateUnitWord(opts)+" a teammate killed your last attacker within 1s of damage")
 	t3 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	t3.Header("PLAYER", "OPEN_D_TRADED%", "SUPPORT%", "SAVED_BY"+rateU)
+	t3.Header("PLAYER", "TRADED_D"+rateU, "TRADED_D%", "OPEN_D_TRADED%", "ASSISTS"+rateU, "SUPPORT%", "SAVED_BY"+rateU)
 	for _, r := range roles {
 		t3.Append(
 			r.Name,
+			fmt.Sprintf("%.2f", opts.rate(r.TradedDeathsPerRound)),
+			fmt.Sprintf("%.1f%%", r.TradedDeathsPct),
 			fmt.Sprintf("%.1f%%", r.OpeningDeathTradedPct),
+			fmt.Sprintf("%.2f", opts.rate(r.AssistsPerRound)),
 			fmt.Sprintf("%.1f%%", r.SupportRoundsPct),
 			fmt.Sprintf("%.2f", opts.rate(r.SavedByTeammatePerRound)),
 		)
@@ -1449,17 +1711,20 @@ func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats, opts RoleV
 
 	// ---- §2.3 Trading ----
 	printSection(w, "Trading"+sideS+sampleS,
-		"DMG/KILL=total damage divided by total kills; <100 ⇒ kill-stealing tendency\n"+
+		"TRADE_K"+rateU+"=kills within 5s of a teammate's death "+rateUnitWord(opts)+"  TRADE_K%=share of kills that are trades\n"+
+			"DMG/KILL=total damage divided by total kills; <100 ⇒ kill-stealing tendency\n"+
 			"SAVED"+rateU+"=times "+rateUnitWord(opts)+" you killed an opponent attacking a teammate within 1s\n"+
 			"ASSISTED_K%=share of kills on opponents already damaged by a teammate this round")
 	t4 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	t4.Header("PLAYER", "DMG/KILL", "SAVED"+rateU, "ASSISTED_K%")
+	t4.Header("PLAYER", "TRADE_K"+rateU, "TRADE_K%", "DMG/KILL", "SAVED"+rateU, "ASSISTED_K%")
 	for _, r := range roles {
 		t4.Append(
 			r.Name,
+			fmt.Sprintf("%.2f", opts.rate(r.TradeKillsPerRound)),
+			fmt.Sprintf("%.1f%%", r.TradeKillsPct),
 			fmt.Sprintf("%.0f", r.DamagePerKill),
 			fmt.Sprintf("%.2f", opts.rate(r.SavedTeammatePerRound)),
 			fmt.Sprintf("%.1f%%", r.AssistedKillsPct),
@@ -1554,13 +1819,15 @@ func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats, opts RoleV
 	printSection(w, "Utility"+sideS+sampleS,
 		"UTIL_DMG"+rateU+"=HE+molotov damage "+rateUnitWord(opts)+"  UTIL_K/100R=HE+molotov+incendiary kills per 100 rounds\n"+
 			"FLASH"+rateU+"=flashbangs thrown "+rateUnitWord(opts)+"  OPP_FLASH_S"+rateU+"=opponent blind seconds produced "+rateUnitWord(opts)+"\n"+
+			"TEAM_FLASH_S"+rateU+"=teammate blind seconds caused "+rateUnitWord(opts)+" (flash discipline; compare against OPP_FLASH_S)\n"+
 			"FLASH_A"+rateU+"=HLTV-style flash assists "+rateUnitWord(opts)+" (killer dealt ≥25 dmg to victim during blind window)\n"+
-			"Note: UTIL_K, FLASH, OPP_FLASH_S come from event tables (sparse for older demos; run replay --force to backfill)")
+			"Note: UTIL_K, FLASH, OPP_FLASH_S, TEAM_FLASH_S come from event tables (sparse for older demos; run replay --force to backfill)")
 	t8 := tablewriter.NewTable(w, tablewriter.WithConfig(tablewriter.Config{
 		Row:    tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignRight}},
 		Header: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignCenter}},
 	}))
-	t8.Header("PLAYER", "UTIL_DMG"+rateU, "UTIL_K/100R", "FLASH"+rateU, "OPP_FLASH_S"+rateU, "FLASH_A"+rateU)
+	t8.Header("PLAYER", "UTIL_DMG"+rateU, "UTIL_K/100R", "FLASH"+rateU,
+		"OPP_FLASH_S"+rateU, "TEAM_FLASH_S"+rateU, "FLASH_A"+rateU)
 	for _, r := range roles {
 		utilK := "—"
 		if r.HasUtilityData {
@@ -1571,8 +1838,10 @@ func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats, opts RoleV
 			flashRd = fmt.Sprintf("%.2f", opts.rate(r.FlashesThrownPerRound))
 		}
 		oppFlash := "—"
+		teamFlash := "—"
 		if r.HasFlashTimeData {
 			oppFlash = fmt.Sprintf("%.2f", opts.rate(r.OppFlashSecPerRound))
+			teamFlash = fmt.Sprintf("%.2f", opts.rate(r.TeamFlashSecPerRound))
 		}
 		t8.Append(
 			r.Name,
@@ -1580,6 +1849,7 @@ func PrintPlayerRoleStats(w io.Writer, roles []model.PlayerRoleStats, opts RoleV
 			utilK,
 			flashRd,
 			oppFlash,
+			teamFlash,
 			fmt.Sprintf("%.2f", opts.rate(r.HltvFlashAssistsPerRound)),
 		)
 	}

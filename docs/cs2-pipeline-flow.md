@@ -39,7 +39,7 @@ demoget touch-dates --out ~/demos/pro
     │  fixes .dem mtimes to actual match dates encoded in RAR filenames
     ▼
 go-cs-metrics parse --dir ~/demos/pro/<event-slug>/ --tier pro   ← direct path
-    │  11-pass aggregator → player/round/weapon/duel stats
+    │  18-pass aggregator → player/round/weapon/duel stats
     │  storage: ~/.csmetrics/metrics.db
     │
     │   ── OR (recommended for long-term storage) ──
@@ -54,7 +54,7 @@ go-cs-metrics convert --dir ~/demos/pro/<event-slug>/ --tier pro
     │
     ▼
 go-cs-metrics replay --dir ~/demos/pro/<event-slug>/
-    │  reads .csraw2.tar → csraw2bridge → 11-pass aggregator → metrics.db
+    │  reads .csraw2.tar → csraw2bridge → 18-pass aggregator → metrics.db
     │  fast, low RAM; supports --workers > 1
     ▼
 go-cs-metrics export --roster <team>-roster.json --since 90 --quorum 3 --out <team>.json
@@ -217,7 +217,7 @@ Written to `~/.csmetrics/metrics.db`:
 | `demos` | One row per demo: hash, map_name, match_date, event_id, tier |
 | `player_match_stats` | Per-player per-demo aggregated stats (35+ columns) |
 | `player_round_stats` | Per-round breakdown for each player |
-| `player_weapon_stats` | Per-weapon kill/damage breakdown |
+| `player_weapon_stats` | Per-weapon kill/damage/shot breakdown (incl. accuracy and the aimed/blind split) |
 | `player_duel_segments` | FHHS duel segments (weapon+distance bins) |
 | `grenade_events` | One row per grenade throw-to-land (smoke/flash/he/molotov/decoy) with throw + land positions; `match_date` and `map_name` denormalized for fast meta queries |
 | `player_death_events` | One row per kill with victim/killer positions, victim yaw, distance, `was_flashed`, `was_traded`, `is_opening_death`, `round_phase`; `match_date` and `map_name` denormalized for heatmaps and meta tracking |
@@ -313,7 +313,7 @@ GOMEMLIMIT=4294967296 ./go-cs-metrics convert --dir ~/demos/pro/iem_cologne_2025
 
 Reads `.csraw2.tar` files produced by `convert`, runs them through the
 `csraw2bridge` adapter to produce a `model.RawMatch`, and feeds that through
-the 11-pass aggregator into `metrics.db`. Much faster and lower memory than
+the 18-pass aggregator into `metrics.db`. Much faster and lower memory than
 `parse` because no demoinfocs work is needed — only parquet decode and
 aggregation.
 

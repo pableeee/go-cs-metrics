@@ -4,6 +4,11 @@ Plan to surface every metric from §1 (top-level summary) and §2 (role-based
 decomposition) of `hltv-metrics-reference.md`. Slices are ordered easy → medium.
 **Round swing is deliberately skipped** — see §99.
 
+> **Status (2026-08-03): all five slices shipped and the corpus backfill is
+> complete.** For what remains unbuilt, see the
+> [gap list](#gap-list--whats-still-missing-vs-the-reference-audited-2026-08-03)
+> near the end of this file.
+
 Each slice is a single self-contained PR. Schema changes are additive
 (`ALTER TABLE ADD COLUMN ... DEFAULT`), so old demos populate the new column
 with the default value and **can be backfilled via `replay --force`** against
@@ -31,10 +36,10 @@ measures.
 - Sniper round-with-kill / Sniper multi-kill / Sniper opening kill rely on
   `player_death_events`. Utility kills/100R rely on the same table. Flashes
   thrown rely on `grenade_events`; opponent-flash seconds on `flash_events`.
-  All four event tables are sparse on legacy data (~12% of corpus at time of
-  shipping). The renderer prints `—` instead of misleading zeros when the
-  source has no rows for the player. Run `replay --dir <event>/ --force` over
-  the `.csraw2.tar` archives to backfill.
+  These tables were sparse at ship time (~12% of corpus); the corpus-wide
+  `replay --force` backfill has since been completed — as of 2026-08-03 all
+  three event tables cover 2062 of 2068 demos (~99.7%). The renderer still
+  prints `—` instead of misleading zeros for the rare uncovered demo.
 - Cohort percentile bars (the HLTV "Good / Okay / Below" labels) are not in
   Slice 1 — moved to Slice 5.
 
@@ -67,8 +72,11 @@ measures.
   the regulation length (24 for CS2 / 30 for CSGO). One-line CASE expression.
 
 **Entrying (§2.2)**
-- Opening-deaths-traded % — `SUM(is_opening_death AND is_trade_death) /
-  SUM(is_opening_death)`.
+- Opening-deaths-traded % — `SUM(is_opening_death AND was_traded) /
+  SUM(is_opening_death)`. (Originally shipped with `is_trade_death`, which is
+  the wrong flag — it marks deaths that were trades *for the opponent* (died
+  right after a kill) and can never coincide with an opening death, pinning
+  the metric at ~0%. Fixed 2026-08-03.)
 - Support rounds % — `SUM((got_assist OR survived OR was_traded) AND NOT
   got_kill) / rounds_played`.
 
@@ -135,8 +143,8 @@ kills with tight time windows:
 Entrying / Trading tables of `player --roles` (`SAVED_BY/RD`, `SAVED/RD`,
 `ASSISTED_K%`).
 
-**Coverage caveat:** existing rows default to 0; backfill via
-`replay --dir <event>/ --force` against the `.csraw2.tar` archives. Smoke-test
+**Coverage:** corpus-wide backfill completed — 2054 of 2068 demos carry
+non-zero save/assist credits as of 2026-08-03. Original smoke-test
 on the `blast_bounty_2026_s1` event (20 demos, January 2026):
 non-zero credits flow end-to-end with plausible per-match magnitudes
 (top fraggers showing 5–7 saves and 11–18 assisted kills per map).
@@ -207,21 +215,22 @@ we numbered sequentially after Pass 14). New column on `player_match_stats`:
 `FLASH_A/RD`. The original in-game `FlashAssists` field is preserved for
 side-by-side comparison.
 
-**Coverage caveat:** existing rows default to 0; backfill via
-`replay --dir <event>/ --force`. Smoke-test on `blast_bounty_2026_s1`:
+**Coverage:** corpus-wide backfill completed (1996 of 2068 demos non-zero as
+of 2026-08-03; the remainder plausibly have zero qualifying flash assists).
+Smoke-test on `blast_bounty_2026_s1`:
 HLTV vs in-game flash assists land 1.0–1.5× as expected (HLTV's 25 dmg
 threshold is looser than in-game's ~40, so HLTV counts more).
 
 ### Files to touch
-- `internal/aggregator/aggregator.go` — add **Pass 16: HLTV Flash Assists**.
-  Reuses the FlashEvent rows already produced by Pass 13 and the damages /
-  kills already in memory.
+- `internal/aggregator/aggregator.go` — add **Pass 15: HLTV Flash Assists**.
+  Reuses the FlashEvent rows already produced by the flash-events pass and
+  the damages / kills already in memory.
 - `internal/model/model.go` — new `HltvFlashAssists int` on `PlayerMatchStats`.
   Keep the existing `FlashAssists` field (in-game definition) for backwards
   compatibility and side-by-side comparison.
 - `internal/storage/schema.sql` + `storage.go` — one `ALTER TABLE`.
 
-### Algorithm sketch (Pass 16)
+### Algorithm sketch (Pass 15)
 ```
 for each kill K (killer=A, victim=V, tick=T_k):
     # Find the most recent blind on V before T_k
@@ -260,8 +269,8 @@ across the match) and `last_alive_server_rounds` (INTEGER, count). Surfaced
 in the Clutching table of `player --roles` as `TIME_ALIVE/RD` (formatted
 HLTV-style `1m 10s`) and `LAST_ALIVE_SVR%`.
 
-**Coverage caveat:** existing rows default to 0; backfill via
-`replay --dir <event>/ --force`. Smoke-tested on `blast_bounty_2026_s1`:
+**Coverage:** corpus-wide backfill completed (2062 of 2068 demos non-zero as
+of 2026-08-03). Smoke-tested on `blast_bounty_2026_s1`:
 top survivors (ZywOo, Bymas) land at 75–101 s/round avg, slightly above
 HLTV's stated 50–90 s cohort. This is partly expected — pro CT-side
 survival rates are high, and post-plant time for surviving T players
@@ -269,7 +278,9 @@ inflates the average — but worth a deeper calibration check if we ever
 build a cohort percentile layer (Slice 5).
 
 ### Files to touch
-- `internal/aggregator/aggregator.go` — add **Pass 17: Liveness**. Reuses
+- `internal/aggregator/aggregator.go` — add **Pass 16: Liveness**. (Pass 17
+  is now taken by the scan-volatility metric, shipped later and outside this
+  roadmap.) Reuses
   `RawRound.StartTick / EndTick / PlayerEndState` plus `RawKill.Tick` to mark
   each player's death tick. Then sweep ticks in increasing order to detect
   "sole survivor" moments.
@@ -278,7 +289,7 @@ build a cohort percentile layer (Slice 5).
   - `LastAliveServerRounds int`
 - `internal/storage/schema.sql` + `storage.go` — two `ALTER TABLE`s.
 
-### Algorithm sketch (Pass 17)
+### Algorithm sketch (Pass 16)
 ```
 for each round R:
     death_tick_by_player = map[steam_id]tick built from kills in R
@@ -334,11 +345,13 @@ s1mple lands at "top 2%" against the all-time DB cohort, which matches
 expectations.
 
 **Deferred (5th item):** the `--vs-top {5,10,20,30,50}` opponent-tier
-breakdown. Our `demos.tier` column is coarse (`pro`, `semi-pro`,
-`faceit-5`) and we don't have date-indexed opponent rankings to do
-HLTV's "vs Top-N at the time of the match" math properly. Will revisit
-when we have an HLTV-style ranking history table (could come from the
-new `internal/vrs` package as it grows).
+breakdown for `player --roles`. The original blocker — no date-indexed
+opponent rankings — is **gone**: `internal/vrs` now maintains a VRS
+snapshot store (`~/.csmetrics/vrs.db`, populated via `vrs_sync`), and
+`export` already computes VRS-stratified ratings
+(`players_rating_vs_top30/20/10`) by tagging each demo with the
+opponent's rank at match date. Wiring the same tagging into the `player`
+command is now straightforward unfinished work, not a research problem.
 
 ### What to ship
 - `cmd/player` — replace the current flat table with a section-per-role
@@ -372,7 +385,50 @@ new `internal/vrs` package as it grows).
 
 ---
 
-## Suggested order
+## Gap list — what's still missing vs the reference (audited 2026-08-03)
+
+All five slices are shipped and the corpus backfill is complete. Verified
+against `internal/report/report.go` (the `--roles` renderer) and the current
+DB (2068 demos). Remaining gaps, roughly cheapest first:
+
+> This list covers the HLTV-profile gap only. For the whole-DB inventory of
+> stored-but-unrendered data (write-only event tables, analyze-only fields,
+> metrics dropped before storage), see
+> [unrendered-metrics.md](unrendered-metrics.md).
+
+**~~Sub-metrics with data in the DB but absent from the `--roles` card~~ —
+SHIPPED 2026-08-03:**
+- §2.2 Entrying now renders *traded deaths per round* (`TRADED_D/RD`),
+  *traded deaths %* (`TRADED_D%`), and *assists per round* (`ASSISTS/RD`) —
+  all side-aware, computed from `player_round_stats` (`was_traded`,
+  `assists`).
+- §2.3 Trading now renders *trade kills per round* (`TRADE_K/RD`) and
+  *trade kills %* (`TRADE_K%`) from `player_match_stats.trade_kills`
+  (match-level; combined in side views — the per-round `is_trade_kill` flag
+  is a boolean and would undercount multi-trade rounds).
+- Same change fixed two bugs: (1) `--side ct/t` views previously kept the
+  both-sides headline (rating, ROUNDS, KAST/KPR/DPR/ADR) and both-sides
+  denominators, roughly halving every side-filtered rate; the headline and
+  all round-derived metrics are now truly side-restricted. (2)
+  `OPEN_D_TRADED%` used `is_trade_death` instead of `was_traded` and was
+  pinned at ~0% (see the Slice 1 formula note above).
+
+**Missing entirely (needs new aggregation or storage):**
+- §2.4 Opening — *attacks per round* (separate damage-dealing incidents,
+  incl. molotov ticks). We don't persist per-incident damage counts in the
+  DB; needs a new `player_match_stats` column fed from the damage stream,
+  plus a `replay --force` backfill.
+- §1 — *per-metric cohort percentile bars* and qualitative labels
+  ("Good / Okay / Below"). Only the Rating 2.0 percentile shipped (the
+  `RANK` column); HLTV shows a bar per sub-metric plus a "show player
+  average" toggle.
+- Side-tagged match-level metrics — sniper kills and HLTV flash assists are
+  stored per-match, not per-side, so `--side ct/t` leaves them combined
+  (flagged in the renderer). Fixing properly means per-side columns or
+  per-round attribution.
+- §4 — `--vs-top` opponent-tier breakdown in `player` (see Slice 5 note
+  above; blocker removed, work unstarted).
+- §1 / §99 — *Round swing* (deliberately deferred, below).
 
 Slice 1 is a single weekend's work and ships ~25 metrics. Slices 2–4 are each
 a small new aggregator pass + one schema migration + one replay backfill.

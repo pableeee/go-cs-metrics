@@ -28,7 +28,7 @@ The processing pipeline has five stages:
 1. **Ingestion** — Accept a `.dem` (or pre-converted `.csraw2.tar`), compute the SHA-256 hash, and dedup against the DB.
 2. **Parsing** — `internal/parserv2` walks the `.dem` and produces a `*csraw2.Match` (events + per-tick player samples). The reader in `internal/csraw2` produces the same value from a `.csraw2.tar` archive without demoinfocs.
 3. **Bridging** — `internal/csraw2bridge.ToRawMatch(m)` adapts `csraw2.Match` to the legacy `*model.RawMatch` the aggregator expects. (The bridge will disappear once the aggregator is rewritten against csraw2 directly.)
-4. **Aggregation** — 17-pass algorithm producing `[]PlayerMatchStats`, `[]PlayerRoundStats`, `[]PlayerWeaponStats`, `[]PlayerDuelSegment`, `[]PlayerDeathEvent`, `[]FlashEvent`.
+4. **Aggregation** — 18-pass algorithm producing `[]PlayerMatchStats`, `[]PlayerRoundStats`, `[]PlayerWeaponStats`, `[]PlayerDuelSegment`, `[]PlayerDeathEvent`, `[]FlashEvent`.
 5. **Presentation** — CLI output via `tablewriter`; storage is SQLite.
 
 Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.csmetrics/metrics.db`. Intermediate-format spec: `docs/csraw-v2-spec.md`.
@@ -44,6 +44,8 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `player <steamid64>...` | Cross-match aggregate report for one or more players (`--map`, `--since`, `--last` filters); `--top N` appends the top N players by Rating 2.0 proxy for comparison |
 | `rounds <hash-prefix> <steamid64>` | Per-round drill-down with buy type, flags (POST_PLT, CLUTCH_1vN); `--clutch`, `--post-plant`, `--side`, `--buy` filters |
 | `trend <steamid64>` | Chronological per-match performance trend (KPR/ADR/KAST% + TTK/TTD/CS%) |
+| `deaths <steamid64>` | Death drill-down from `player_death_events`: totals plus breakdowns by round phase, engagement distance, weapon, and map, each with HS_TAKEN%/FLASHED%/TRADED%/OPENING%/AVG_DIST (`--map`, `--since`, `--before`, `--phase`, `--top-weapons`) |
+| `swing <steamid64>...` | Round swing and duel swing (win-probability added) from empirical probability tables counted over the corpus; `--by-map`, `--by-side` (CT/T split of both metrics), `--tier`, `--since`, `--before`, `--show-tables` to audit the tables, `--top N` for the reference distribution + percentile rank |
 | `sql <query>` | Run an arbitrary SQL query against the metrics database; prints results as a table |
 | `drop [--force]` | Delete the metrics database file; requires `--force` to actually delete |
 | `analyze player <steamid64> <question>` | AI-powered grounded analysis of a player's aggregate stats (requires `ANTHROPIC_API_KEY`) |
@@ -106,29 +108,30 @@ Core types (all in `internal/model/model.go`):
 
 - **`PlayerMatchStats`** — aggregated metrics per player per demo (35+ columns)
 - **`PlayerRoundStats`** — per-round breakdown for drill-down
-- **`PlayerWeaponStats`** — per-weapon kill/damage breakdown
-- **`PlayerDuelSegment`** — FHHS counts per (weapon_bucket, distance_bin) per demo
+- **`PlayerWeaponStats`** — per-weapon kill/damage/shot breakdown (incl. accuracy and the aimed/blind split)
+- **`PlayerDuelSegment`** — FHHS counts per (round, weapon_bucket, distance_bin) per demo
 - **`PlayerAggregate`** — cross-demo sums/averages used by the `player` command
 
-## Aggregator: 17 Passes
+## Aggregator: 18 Passes
 
 1. Trade annotation (backward + forward scan within 5 s window); captures trade kill/death delay in ticks for timing metrics
 2. Opening kills (first kill after `FreezeEndTick`)
-3. Per-round per-player stats (buy type, post-plant flag, clutch detection, `won_round` flag)
+3. Per-round per-player stats (buy type, post-plant flag, clutch detection, `won_round` flag; **team is resolved per round** — end state → that round's kills → its damages → match-level fallback, because sides swap at halftime)
 4. Match-level rollup (includes `rounds_won`, `median_trade_kill_delay_ms`, `median_trade_death_delay_ms`)
 5. Crosshair placement (from `RawFirstSight` / `m_bSpottedByMask`)
-6. Duel engine + FHHS segments (exposure time, pre-shot correction, weapon+distance bins)
+6. Duel engine + FHHS segments (exposure time, pre-shot correction, sight→first-shot delay, weapon+distance bins, **per round** — `player_duel_segments.round_number` lets FHHS be sliced by side / buy type / round phase via `player_round_stats`)
 7. AWP death classifier (dry/repeek/isolated)
 8. Flash quality window (effective flashes within 1.5 s)
 9. Role classification (AWPer/Entry/Support/Rifler)
 10. TTK/TTD/one-tap kills (first shot fired → kill, 3 s rolling window)
 11. Counter-strafe % (shots fired at horizontal speed ≤ 34 u/s, via `e.Shooter.Velocity()` captured at WeaponFire time)
-12. Death events (per-kill rows with position, weapon, distance, victim yaw, tactical context — `player_death_events` table)
+12. Death events (per-kill rows with position, weapon, distance, victim yaw, tactical context, plus duel context — both parties' first-sight ticks and the plant state — in `player_death_events`. Each row is one duel seen from both sides, so unlike `player_duel_segments` this table covers **lost** duels too, which is what makes duel swing possible)
 13. Flash events (per-PlayerFlashed rows with blind angle, duration — `flash_events` table)
 14. Save & Assist annotation (HLTV-compatible 1 s save window + assisted-kill flag; populates `saved_by_teammate`, `saved_teammate`, `assisted_kills` on `player_match_stats`)
 15. HLTV-style flash assists (25 dmg threshold during blind window; populates `hltv_flash_assists` on `player_match_stats` — distinct from the in-game `flash_assists` field which uses the kill-feed ~40 dmg rule)
 16. Liveness — per-player action time alive and sole-survivor moments (populates `alive_seconds_total` and `last_alive_server_rounds` on `player_match_stats`; alive time anchored at `FreezeEndTick`)
 17. Scan volatility — out-of-combat crosshair discipline / "panic swiping" from 16 Hz view samples (dwell% below 25 °/s, yaw reversals with both legs ≥ 60 °/s, avg yaw speed; excludes enemy-visible samples and ±2 s around own combat events; populates `scan_*` columns on `player_match_stats` and `player_round_stats`)
+18. Shot accounting — per-weapon `shots_fired` plus the aimed/blind split (each weapon fire and each enemy hit tagged with whether an enemy was in the player's spotted mask at that tick, via the nearest `RawViewSample`); populates `shots_fired`, `shots_visible`, `hits_visible`, `head_hits`, `head_hits_visible` on `player_weapon_stats`
 
 ## Memory Behaviour of the Parser
 
@@ -312,11 +315,15 @@ r' = priorMean + (r − priorMean) · rounds / (rounds + shrinkRounds)
   VRS strata (`players_rating_vs_top30/20/10`). `backtest-dataset` always uses raw
   (un-shrunk) ratings.
 
-> **Note — KAST is broken DB-wide (as of 2026-06-05):** ~95% of `player_match_stats`
-> rows have `kast_rounds == rounds_played` (KAST pinned at 100%), inflating every
-> rating by ~+0.2 and lifting the population mean to ~1.24 instead of ~1.0. This is an
-> aggregator bug (separate from shrinkage) requiring a full re-aggregation to fix.
-> Shrinkage toward the *empirical* mean is robust to it; a hardcoded 1.0 prior is not.
+> **Note — the DB-wide KAST bug is FIXED (verified 2026-08-03).** It previously
+> pinned ~95% of `player_match_stats` rows at `kast_rounds == rounds_played`
+> (KAST 100%), inflating every rating by ~+0.2 and lifting the population mean
+> to ~1.24. After the corpus re-aggregation only 4.4% of rows sit at 100% (a
+> plausible rate for genuinely perfect-KAST matches), mean KAST is 73.2%, and
+> the population mean rating is **1.029** — i.e. the rating scale is now
+> correctly centred on ~1.0. The auto prior (`--rating-prior -1`) tracks this
+> empirically, so it needed no change; a hardcoded 1.0 prior would now also be
+> defensible.
 
 ## Key Validation Rules
 

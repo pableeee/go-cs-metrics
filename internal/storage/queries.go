@@ -405,8 +405,9 @@ func (db *DB) InsertPlayerWeaponStats(stats []model.PlayerWeaponStats) error {
 	stmt, err := tx.Prepare(`
 		INSERT OR REPLACE INTO player_weapon_stats(
 			demo_hash, steam_id, weapon,
-			kills, headshot_kills, assists, deaths, damage, hits
-		) VALUES (?,?,?,?,?,?,?,?,?)`)
+			kills, headshot_kills, assists, deaths, damage, hits,
+			shots_fired, shots_visible, hits_visible, head_hits, head_hits_visible
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -416,6 +417,7 @@ func (db *DB) InsertPlayerWeaponStats(stats []model.PlayerWeaponStats) error {
 		_, err = stmt.Exec(
 			s.DemoHash, strconv.FormatUint(s.SteamID, 10), s.Weapon,
 			s.Kills, s.HeadshotKills, s.Assists, s.Deaths, s.Damage, s.Hits,
+			s.ShotsFired, s.ShotsVisible, s.HitsVisible, s.HeadHits, s.HeadHitsVisible,
 		)
 		if err != nil {
 			return fmt.Errorf("insert player_weapon_stats for %d/%s: %w", s.SteamID, s.Weapon, err)
@@ -427,7 +429,8 @@ func (db *DB) InsertPlayerWeaponStats(stats []model.PlayerWeaponStats) error {
 // GetPlayerWeaponStats returns all weapon stats for a demo, ordered by kills DESC then damage DESC.
 func (db *DB) GetPlayerWeaponStats(demoHash string) ([]model.PlayerWeaponStats, error) {
 	rows, err := db.conn.Query(`
-		SELECT steam_id, weapon, kills, headshot_kills, assists, deaths, damage, hits
+		SELECT steam_id, weapon, kills, headshot_kills, assists, deaths, damage, hits,
+		       shots_fired, shots_visible, hits_visible, head_hits, head_hits_visible
 		FROM player_weapon_stats WHERE demo_hash = ?
 		ORDER BY kills DESC, damage DESC`, demoHash)
 	if err != nil {
@@ -442,6 +445,7 @@ func (db *DB) GetPlayerWeaponStats(demoHash string) ([]model.PlayerWeaponStats, 
 		if err := rows.Scan(
 			&steamIDStr, &s.Weapon,
 			&s.Kills, &s.HeadshotKills, &s.Assists, &s.Deaths, &s.Damage, &s.Hits,
+			&s.ShotsFired, &s.ShotsVisible, &s.HitsVisible, &s.HeadHits, &s.HeadHitsVisible,
 		); err != nil {
 			return nil, err
 		}
@@ -523,9 +527,9 @@ func (db *DB) GetAllPlayerMatchStats(steamID uint64) ([]model.PlayerMatchStats, 
 func (db *DB) GetAllPlayerDuelSegments(steamID uint64) ([]model.PlayerDuelSegment, error) {
 	steamIDStr := strconv.FormatUint(steamID, 10)
 	rows, err := db.conn.Query(`
-		SELECT demo_hash, weapon_bucket, distance_bin,
+		SELECT demo_hash, round_number, weapon_bucket, distance_bin,
 		       duel_count, first_hit_count, first_hit_hs_count,
-		       median_corr_deg, median_sight_deg, median_expo_win_ms
+		       median_corr_deg, median_sight_deg, median_expo_win_ms, median_shot_delay_ms
 		FROM player_duel_segments WHERE steam_id = ?`, steamIDStr)
 	if err != nil {
 		return nil, err
@@ -536,9 +540,9 @@ func (db *DB) GetAllPlayerDuelSegments(steamID uint64) ([]model.PlayerDuelSegmen
 	for rows.Next() {
 		var s model.PlayerDuelSegment
 		if err := rows.Scan(
-			&s.DemoHash, &s.WeaponBucket, &s.DistanceBin,
+			&s.DemoHash, &s.RoundNumber, &s.WeaponBucket, &s.DistanceBin,
 			&s.DuelCount, &s.FirstHitCount, &s.FirstHitHSCount,
-			&s.MedianCorrDeg, &s.MedianSightDeg, &s.MedianExpoWinMs,
+			&s.MedianCorrDeg, &s.MedianSightDeg, &s.MedianExpoWinMs, &s.MedianShotDelayMs,
 		); err != nil {
 			return nil, err
 		}
@@ -559,12 +563,27 @@ func (db *DB) InsertPlayerDuelSegments(segs []model.PlayerDuelSegment) error {
 	}
 	defer tx.Rollback()
 
+	// Clear the demo's existing segments first. INSERT OR REPLACE alone is not
+	// enough: rows written under an older key shape (e.g. before round_number
+	// joined the UNIQUE constraint, or with a round that no longer produces a
+	// segment) would survive re-aggregation and double-count.
+	seenDemos := make(map[string]struct{}, 1)
+	for _, s := range segs {
+		if _, ok := seenDemos[s.DemoHash]; ok {
+			continue
+		}
+		seenDemos[s.DemoHash] = struct{}{}
+		if _, err := tx.Exec(`DELETE FROM player_duel_segments WHERE demo_hash = ?`, s.DemoHash); err != nil {
+			return fmt.Errorf("clear player_duel_segments for %s: %w", s.DemoHash, err)
+		}
+	}
+
 	stmt, err := tx.Prepare(`
 		INSERT OR REPLACE INTO player_duel_segments(
-			demo_hash, steam_id, weapon_bucket, distance_bin,
+			demo_hash, steam_id, round_number, weapon_bucket, distance_bin,
 			duel_count, first_hit_count, first_hit_hs_count,
-			median_corr_deg, median_sight_deg, median_expo_win_ms
-		) VALUES (?,?,?,?,?,?,?,?,?,?)`)
+			median_corr_deg, median_sight_deg, median_expo_win_ms, median_shot_delay_ms
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -572,9 +591,9 @@ func (db *DB) InsertPlayerDuelSegments(segs []model.PlayerDuelSegment) error {
 
 	for _, s := range segs {
 		_, err = stmt.Exec(
-			s.DemoHash, strconv.FormatUint(s.SteamID, 10), s.WeaponBucket, s.DistanceBin,
+			s.DemoHash, strconv.FormatUint(s.SteamID, 10), s.RoundNumber, s.WeaponBucket, s.DistanceBin,
 			s.DuelCount, s.FirstHitCount, s.FirstHitHSCount,
-			s.MedianCorrDeg, s.MedianSightDeg, s.MedianExpoWinMs,
+			s.MedianCorrDeg, s.MedianSightDeg, s.MedianExpoWinMs, s.MedianShotDelayMs,
 		)
 		if err != nil {
 			return fmt.Errorf("insert player_duel_segments for %d/%s/%s: %w", s.SteamID, s.WeaponBucket, s.DistanceBin, err)
@@ -657,8 +676,9 @@ func (db *DB) InsertPlayerDeathEvents(demoHash string, events []model.PlayerDeat
 			victim_id, victim_team, killer_id, killer_team, weapon, is_headshot,
 			victim_x, victim_y, victim_z, killer_x, killer_y, killer_z,
 			victim_yaw, distance_m,
-			was_flashed, was_traded, is_opening_death, round_phase
-		) VALUES (?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?, ?,?, ?,?,?,?)`)
+			was_flashed, was_traded, is_opening_death, round_phase,
+			killer_sight_tick, victim_sight_tick, bomb_planted
+		) VALUES (?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?, ?,?, ?,?,?,?, ?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -674,6 +694,7 @@ func (db *DB) InsertPlayerDeathEvents(demoHash string, events []model.PlayerDeat
 			d.KillerPos.X, d.KillerPos.Y, d.KillerPos.Z,
 			d.VictimYawDeg, d.DistanceMeters,
 			boolInt(d.WasFlashed), boolInt(d.WasTraded), boolInt(d.IsOpeningDeath), d.RoundPhase,
+			d.KillerSightTick, d.VictimSightTick, boolInt(d.BombPlanted),
 		); err != nil {
 			return fmt.Errorf("insert player_death_events for %s tick=%d: %w", demoHash, d.Tick, err)
 		}
@@ -730,9 +751,9 @@ func (db *DB) InsertGrenadeEvents(demoHash, matchDate, mapName string, events []
 // GetPlayerDuelSegments returns all FHHS segments for a demo hash.
 func (db *DB) GetPlayerDuelSegments(demoHash string) ([]model.PlayerDuelSegment, error) {
 	rows, err := db.conn.Query(`
-		SELECT steam_id, weapon_bucket, distance_bin,
+		SELECT steam_id, round_number, weapon_bucket, distance_bin,
 		       duel_count, first_hit_count, first_hit_hs_count,
-		       median_corr_deg, median_sight_deg, median_expo_win_ms
+		       median_corr_deg, median_sight_deg, median_expo_win_ms, median_shot_delay_ms
 		FROM player_duel_segments WHERE demo_hash = ?`, demoHash)
 	if err != nil {
 		return nil, err
@@ -744,9 +765,9 @@ func (db *DB) GetPlayerDuelSegments(demoHash string) ([]model.PlayerDuelSegment,
 		var s model.PlayerDuelSegment
 		var steamIDStr string
 		if err := rows.Scan(
-			&steamIDStr, &s.WeaponBucket, &s.DistanceBin,
+			&steamIDStr, &s.RoundNumber, &s.WeaponBucket, &s.DistanceBin,
 			&s.DuelCount, &s.FirstHitCount, &s.FirstHitHSCount,
-			&s.MedianCorrDeg, &s.MedianSightDeg, &s.MedianExpoWinMs,
+			&s.MedianCorrDeg, &s.MedianSightDeg, &s.MedianExpoWinMs, &s.MedianShotDelayMs,
 		); err != nil {
 			return nil, err
 		}

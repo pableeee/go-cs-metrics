@@ -20,6 +20,7 @@ A command-line tool for parsing Counter-Strike 2 match demos (`.dem`) and comput
   - [player](#player)
   - [rounds](#rounds)
   - [trend](#trend)
+  - [deaths](#deaths)
   - [sql](#sql)
   - [drop](#drop)
   - [analyze](#analyze)
@@ -426,7 +427,7 @@ Aggregate all stored demo data for one or more SteamID64s and print a full cross
 | `--top-min <N>` | `3` | Minimum number of qualifying demos a player must have to be considered for `--top` ranking |
 | `--roles` | `false` | Print HLTV-style role decomposition (Firepower / Entrying / Trading / Opening / Clutching / Sniping / Utility) after the default tables. See [docs/hltv-metrics-reference.md](docs/hltv-metrics-reference.md) for what each metric measures. |
 | `--per <unit>` | `round` | Rate denominator for `--roles` output. `round` shows per-round rates (KPR, ADR, etc.); `24` multiplies them by 24 for HLTV-style "per 24 rounds" (≈ one half) display. Percentages and per-round-win rates are unchanged. |
-| `--side <side>` | `both` | Compute `--roles` metrics from rounds on this side only. `both` shows the full picture (with CT and T columns side-by-side in Role Overview); `ct` or `t` narrows to that side. Match-level totals (sniper kills, HLTV flash assists) stay combined since the schema doesn't tag them by side. |
+| `--side <side>` | `both` | Restrict `--roles` metrics **and the FHHS table** to rounds on this side only. FHHS is sliced via `player_duel_segments.round_number` joined to `player_round_stats`; segments predating the round column (`round_number = -1`) cannot be attributed, are excluded, and their first-hit count is reported on stderr so a stale DB never looks like a genuine drop in sample size — run `replay --force` to backfill.  For `--roles`: `both` shows the full picture (with CT and T columns side-by-side in Role Overview); `ct` or `t` narrows the headline (rating, rounds, KAST/KPR/DPR/ADR) and every per-round metric to that side. Metrics from non-side-tagged match-level columns (trade kills, saved/saved-by, assisted kills, sniper kills, utility, HLTV flash assists, time alive) stay combined. |
 
 **Output tables** (all requested players appear as rows in the same combined tables):
 
@@ -554,7 +555,7 @@ Chronological per-match performance trend for a single player. Shows two tables 
 
 **Table 1 — Performance Trend:** DATE, MAP, RD (rounds), K, A, D, K/D, KPR (kills per round), ADR, KAST%
 
-**Table 2 — Aim Timing Trend** (only shown if TTK/TTD data exists): DATE, MAP, RD, MEDIAN_TTK, MEDIAN_TTD, ONE_TAP%, CS%, DWELL%, REV/MIN
+**Table 2 — Aim Timing Trend** (only shown if TTK/TTD data exists): DATE, MAP, RD, MEDIAN_TTK, MEDIAN_TTD, ONE_TAP%, CS%, TRADE_K_MS, DWELL%, REV/MIN, YAW°/S
 
 **Example:**
 
@@ -569,6 +570,65 @@ Chronological per-match performance trend for a single player. Shows two tables 
  2026-01-15  | Inferno | 26 | 22 | 3 | 11 | 2.00 | 0.85 |  97.1 |  77%
  ...
 ```
+
+---
+
+### deaths
+
+Death drill-down for a single player: how, where, and when you die. Aggregates
+`player_death_events` and breaks the deaths down by round phase, engagement
+distance, killing weapon, and map.
+
+```
+./go-cs-metrics deaths <steamid64> [flags]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--map <name>` | all | Filter to one map (with or without the `de_` prefix) |
+| `--since <date>` | none | Only deaths on or after this date (`YYYY-MM-DD`) |
+| `--before <date>` | none | Only deaths strictly before this date (`YYYY-MM-DD`) |
+| `--phase <phase>` | all | Restrict to one round phase: `pistol`, `early`, `mid`, `late`, `post_plant` |
+| `--top-weapons <n>` | `12` | Max rows in the weapon breakdown (`0` = all) |
+
+**Tables:**
+
+1. **Death Profile** — DEATHS, ROUNDS, DPR, HS_TAKEN%, FLASHED%, TRADED%, OPENING%, AVG_DIST
+2. **Deaths by Round Phase** — the round timeline (pistol → early/mid/late, with `post_plant` overriding once the bomb is down)
+3. **Deaths by Engagement Distance** — same bins as the FHHS duel table, so the two read side by side
+4. **Deaths by Weapon** — what kills you, most frequent first
+5. **Deaths by Map** — shown only when the filter spans more than one map
+
+Every breakdown carries the same rate columns (HS_TAKEN%, FLASHED%, TRADED%,
+OPENING%, AVG_DIST), so you can compare *how* you die across slices rather than
+just *how often*.
+
+`ROUNDS` and `DPR` render as `—` when `--phase` is set, since a phase covers
+only a subset of rounds and the rate would be misleading.
+
+**Example:**
+
+```sh
+./go-cs-metrics deaths 76561198XXXXXXXXX --map mirage
+```
+
+```
+--- Death Profile — cholove ♡ — 45 maps · 642 deaths · 2025-08-28 → 2026-07-24 ---
+ DEATHS | ROUNDS | DPR  | HS_TAKEN% | FLASHED% | TRADED% | OPENING% | AVG_DIST
+    642 |    919 | 0.70 |     44.2% |     3.6% |   16.5% |    11.4% |    13.3m
+
+--- Deaths by Round Phase ---
+ PHASE      | DEATHS | SHARE% | HS_TAKEN% | FLASHED% | TRADED% | OPENING% | AVG_DIST
+ pistol     |     62 |   9.7% |     74.2% |     0.0% |   19.4% |    16.1% |    12.6m
+ early      |    112 |  17.4% |     41.1% |     2.7% |   20.5% |    36.6% |    14.2m
+ mid        |    211 |  32.9% |     42.2% |     5.2% |   14.2% |     9.5% |    13.7m
+ late       |    162 |  25.2% |     38.9% |     3.1% |   18.5% |     1.2% |    12.7m
+ post_plant |     95 |  14.8% |     42.1% |     4.2% |   11.6% |     0.0% |    12.8m
+```
+
+> **Requires Pass 12 (death events).** Demos aggregated before it shipped
+> contribute no rows — backfill with `replay --dir <event>/ --force`. The
+> command says so explicitly when it finds nothing.
 
 ---
 
@@ -669,10 +729,10 @@ The query is passed as a single argument (quote it in the shell if it contains s
 | `demos` | `hash`, `map_name`, `match_date`, `match_type`, `ct_score`, `t_score`, `tier`, `is_baseline`, `event_id` |
 | `player_match_stats` | `demo_hash`, `steam_id` (TEXT), `name`, `kills`, `assists`, `deaths`, `total_damage`, `rounds_played`, `kast_rounds`, `role`, `median_ttk_ms`, `median_ttd_ms`, … |
 | `player_round_stats` | `demo_hash`, `steam_id` (TEXT), `round_number`, `team`, `kills`, `damage`, `buy_type`, `is_post_plant`, `is_in_clutch`, `clutch_enemy_count`, … |
-| `player_weapon_stats` | `demo_hash`, `steam_id` (TEXT), `weapon`, `kills`, `headshot_kills`, `damage`, `hits` |
-| `player_duel_segments` | `demo_hash`, `steam_id` (TEXT), `weapon_bucket`, `distance_bin`, `duel_count`, `first_hit_count`, `first_hit_hs_count`, … |
+| `player_weapon_stats` | `demo_hash`, `steam_id` (TEXT), `weapon`, `kills`, `headshot_kills`, `damage`, `hits`, `shots_fired`, `shots_visible`, `hits_visible`, `head_hits`, `head_hits_visible` |
+| `player_duel_segments` | `demo_hash`, `steam_id` (TEXT), `round_number`, `weapon_bucket`, `distance_bin`, `duel_count`, `first_hit_count`, `first_hit_hs_count`, `median_shot_delay_ms`, … |
 | `grenade_events` | `demo_hash`, `match_date`, `map_name`, `round_number`, `throw_tick`, `end_tick`, `thrower_id` (TEXT), `thrower_team`, `grenade_type` (`smoke`/`flash`/`he`/`molotov`/`decoy`), `throw_x/y/z`, `land_x/y/z` |
-| `player_death_events` | `demo_hash`, `match_date`, `map_name`, `round_number`, `tick`, `victim_id` (TEXT), `victim_team`, `killer_id` (TEXT), `killer_team`, `weapon`, `is_headshot`, `victim_x/y/z`, `killer_x/y/z`, `victim_yaw`, `distance_m`, `was_flashed`, `was_traded`, `is_opening_death`, `round_phase` (`pistol`/`early`/`mid`/`late`/`post_plant`) |
+| `player_death_events` | `demo_hash`, `match_date`, `map_name`, `round_number`, `tick`, `victim_id` (TEXT), `victim_team`, `killer_id` (TEXT), `killer_team`, `weapon`, `is_headshot`, `victim_x/y/z`, `killer_x/y/z`, `victim_yaw`, `distance_m`, `was_flashed`, `was_traded`, `is_opening_death`, `round_phase` (`pistol`/`early`/`mid`/`late`/`post_plant`), `killer_sight_tick`, `victim_sight_tick`, `bomb_planted` |
 
 > **Note:** `steam_id` is stored as TEXT. Use single quotes in WHERE clauses: `WHERE steam_id = '76561198012345678'`
 
@@ -968,6 +1028,8 @@ Measured at the moment an enemy is **first spotted** each round (server-side `m_
 | **% under 5°** | Percentage of encounters where the deviation was under 5°. |
 | **Pitch / Yaw split** | Median deviations separated into vertical (pitch) and horizontal (yaw) components, useful for diagnosing whether placement errors are height-related or angle-related. |
 
+All five render in the **Crosshair Placement** table (`show`, `parse`) and its cross-match twin **Crosshair Placement (Aggregate)** (`player`), with `N` giving the encounter count behind the medians — under ~20 the numbers are noisy. The combined median also appears as `XHAIR_MED` in the Performance Overview. In the aggregate view the angle stats are encounter-weighted averages of per-match medians, so a 3-encounter match doesn't count as much as a 60-encounter one.
+
 > **Note:** The crosshair placement formula uses server-side visibility flags and manually computed eye heights due to a Source 2 limitation where `PositionEyes()` panics. Values should be treated as directional proxies, not absolute ground truth, until validated against a known demo.
 
 ---
@@ -980,9 +1042,9 @@ Where crosshair placement measures readiness at the moment of contact, scan vola
 |--------|------------|
 | **DWELL%** | Percentage of out-of-combat time with yaw speed < 25 °/s (crosshair settled on an angle). Low dwell = the crosshair never settles — the "panic swiping" signature. |
 | **REV/MIN** | Yaw direction reversals per minute, counting only flips where both swings exceed 60 °/s. Deliberate angle-clearing (snap → hold → snap) produces few reversals; frantic back-and-forth scanning produces many. |
-| **AVG °/s** | Mean absolute yaw speed over out-of-combat time (stored as `scan_avg_yaw_deg_per_sec`; not shown in tables). |
+| **YAW°/S** | Mean absolute yaw speed over out-of-combat time. Read alongside DWELL%: low dwell with *low* yaw speed is slow drifting, low dwell with *high* yaw speed is genuine panic swiping. |
 
-Shown as `DWELL%` and `REV/MIN` in the Aim Timing & Movement tables (`show`, `player`) and per round in the `rounds` drill-down (rounds with < 5 s of qualifying time show `—`). Per-round raw values live in `player_round_stats` (`scan_ooc_seconds`, `scan_dwell_pct`, `scan_reversals`, `scan_avg_yaw_deg_per_sec`) for SQL analysis, e.g. comparing clutch vs. non-clutch rounds. Compare spike rounds against your own baseline rather than absolute thresholds.
+Shown as `DWELL%`, `REV/MIN`, and `YAW°/S` in the Aim Timing & Movement tables (`show`, `player`) and per round in the `rounds` drill-down (rounds with < 5 s of qualifying time show `—`). Per-round raw values live in `player_round_stats` (`scan_ooc_seconds`, `scan_dwell_pct`, `scan_reversals`, `scan_avg_yaw_deg_per_sec`) for SQL analysis, e.g. comparing clutch vs. non-clutch rounds. Compare spike rounds against your own baseline rather than absolute thresholds.
 
 > **Note:** Values require view samples, which the `.csraw2.tar` pipeline always carries. Demos ingested before this metric shipped show 0 / `—`; re-run `replay --dir <event>/ --force` to backfill.
 
@@ -1071,6 +1133,10 @@ Default location: `~/.csmetrics/metrics.db` (SQLite, WAL mode, foreign keys on).
 **`player_round_stats`** — one row per player per round per demo, for drill-down. Unique on `(demo_hash, steam_id, round_number)`.
 
 **`player_weapon_stats`** — one row per player per weapon per demo. Unique on `(demo_hash, steam_id, weapon)`.
+`shots_fired` counts weapon-fire events, so it is 0 for grenade damage rows and for weapons the player only died to.
+`shots_visible` / `hits_visible` / `head_hits_visible` are the subset taken with an enemy in the player's spotted mask;
+the complement is blind fire — smoke spam, prefire, wallbangs, suppression. `head_hits` counts head-hitbox hits whether
+or not they were lethal, unlike `headshot_kills`.
 
 Schema migrations run automatically at startup via `ALTER TABLE ... ADD COLUMN` statements (errors on duplicate columns are silently ignored). Performance indexes on commonly queried columns (`match_date`, `steam_id`, `demo_hash`) are created via `CREATE INDEX IF NOT EXISTS` in the base schema — safe to apply against existing databases.
 
@@ -1104,7 +1170,7 @@ Two ingestion paths feed the same pipeline:
                               │  *RawMatch
                               ▼
                ┌──────────────────────────────┐
-               │  aggregator (internal/       │  17-pass aggregation:
+               │  aggregator (internal/       │  18-pass aggregation:
                │  aggregator)                 │  trade annotation + timing,
                │                              │  opening kills, round W/L,
                │                              │  KAST, crosshair, duel engine,
@@ -1114,7 +1180,8 @@ Two ingestion paths feed the same pipeline:
                │                              │  save & assist annotation,
                │                              │  HLTV-style flash assists,
                │                              │  liveness (time-alive + sole-survivor),
-               │                              │  scan volatility (dwell% + reversals)
+               │                              │  scan volatility (dwell% + reversals),
+               │                              │  shot accounting (accuracy, aimed/blind)
                └──────────────┬───────────────┘
                               │  PlayerMatchStats
                               │  PlayerRoundStats
@@ -1244,6 +1311,8 @@ go test ./internal/aggregator/... -run TestTradeKill -v
 - ~~**Drill-down**~~ — done (`rounds` command shows per-round detail with buy type and flags).
 - ~~**TTK/TTD**~~ — done (median ms from first hit to kill/death).
 - ~~**Counter-strafe %**~~ — done. Shots fired at horizontal speed ≤ 34 u/s (≈ stopped/counter-strafed); shown as `CS%` in aim timing tables and `AVG_CS%` in the `player` command.
+- ~~**Weapon accuracy**~~ — done (Pass 18). Per-weapon `shots_fired` with the aimed/blind split, so accuracy is comparable
+  across skill tiers; `SHOTS`/`ACC%`/`ACC_VIS%` in `show`, full table in `player`.
 - ~~**Scan volatility**~~ — done (Pass 17). Out-of-combat crosshair dwell% and yaw-reversal rate ("panic swiping" detector); `DWELL%`/`REV/MIN` in aim timing tables, per-round in `rounds`.
 - ~~**Trend view**~~ — done (`trend` command, chronological KPR/ADR/KAST% and TTK/TTD tables per match).
 - ~~**Round context**~~ — done (`POST_PLT` and `CLUTCH_1vN` flags in `rounds` drill-down).

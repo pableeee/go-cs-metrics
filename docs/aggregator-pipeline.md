@@ -7,7 +7,9 @@ The aggregator transforms a parsed `RawMatch` into four output slices:
 - `[]PlayerWeaponStats` — one row per player per weapon
 - `[]PlayerDuelSegment` — one row per (player, weapon bucket, distance bin)
 
-The pipeline runs 11 sequential passes over the raw event data. Each pass reads from the raw events and/or the output of earlier passes. No pass modifies raw input.
+The pipeline runs 18 sequential passes over the raw event data. Each pass reads from the raw events and/or the output of earlier passes. No pass modifies raw input.
+
+This file documents passes 1–12 and 18 in detail. Passes 13–17 (flash events, save & assist annotation, HLTV-style flash assists, liveness, scan volatility) are summarised in `CLAUDE.md`, and Pass 17 is written up in `architecture.md`.
 
 ---
 
@@ -35,6 +37,8 @@ For each round, the kills list (already sorted by tick) is scanned forward. The 
 ---
 
 ## Pass 3 — Per-round per-player stats
+
+**Team is resolved per round, not per match.** Sides swap at halftime, so a match-level dominant team is wrong for one half of every game. Resolution order: the round's own `PlayerEndState`, then the team recorded on that round's kills, then its damages, and only then the match-level fallback. Using the match-level value directly (the original behaviour) put players who appeared in a round only through an event onto whichever side they played most, which collapsed 7% of rounds onto one side — some with all ten players marked CT.
 
 **Input:** `raw.Damages`, `raw.Kills`, `raw.Rounds`, `raw.Flashes`, annotations from Passes 1–2
 **Output:** `allRoundStats []PlayerRoundStats`, `matchAccums` (intermediate)
@@ -96,6 +100,10 @@ For each player, all their first-sight angles are collected. The median of all a
 ---
 
 ## Pass 6 — Duel engine + FHHS segments
+
+Segments are **win-side only** — a lost duel yields no segment, so every FHHS / correction / delay figure describes duels the player won. `median_shot_delay_ms` is the gap from first sight to the player's *first shot*, which disambiguates a large correction: short delay = reaction, long delay = habit.
+
+**Segments are keyed per round** — `(player, round, weapon_bucket, distance_bin)` — so FHHS can be sliced by side / buy type / round phase by joining `player_round_stats` on `(demo_hash, steam_id, round_number)`. Consumers that merge segments must weight the medians by `DuelCount`; an unweighted mean would make the result depend on how duels are partitioned across rows. `weaponBucket` matches the exact weapon strings the csraw2 table emits — unmatched names fall through to `"Other"` silently, so new names need a `TestWeaponBucket_CoversPrimaryWeapons` entry.
 
 **Input:** `raw.FirstSights`, `raw.Damages`, `raw.Kills`, `raw.WeaponFires`
 **Output:** Updates `matchStats` with duel stats; produces `duelSegments []PlayerDuelSegment`
@@ -234,3 +242,23 @@ For each annotated kill, emit a row combining the kill's raw data (positions, ya
   - Otherwise thirds of freeze-end → round-end: `early` / `mid` / `late`.
 
 World/fall deaths (`killer_id == victim_id`) appear with distance 0 and weapon `World`. The pass does not currently filter those out — downstream queries should exclude them with `WHERE killer_id != victim_id` when analysing player-vs-player kills.
+
+
+---
+
+## Pass 18 — Shot accounting (accuracy + aimed/blind split)
+
+**Input:** `raw.WeaponFires`, `raw.Damages`, `raw.ViewSamples`
+**Output:** `ShotsFired`, `ShotsVisible`, `HitsVisible`, `HeadHits`, `HeadHitsVisible` on `[]PlayerWeaponStats`.
+
+Keyed by `(player, weapon)`. Every weapon fire increments `ShotsFired`; every enemy damage row increments `HeadHits` when the hit group is `head`. Both are additionally tagged with whether an enemy was visible, producing the `*Visible` counters.
+
+**Why the split.** Raw accuracy mixes aimed fire with shots deliberately sent at nobody — smoke spam, prefire, wallbangs, suppression. Tiers differ enormously in how much of that they do (~79% of pro rifle shots vs ~59% for a mid-tier player on this corpus), which is enough to invert a raw-accuracy comparison. `AccuracyVisible()` is the number to compare across players.
+
+**Visibility lookup.** Binary search over the player's tick-sorted `RawViewSample` slice for the sample nearest the event tick, accepted only within `ceil(tickrate/16) + 2` ticks (`shotSampleToleranceTicks`). Weapon fires are events, so csraw2's 64 Hz event-window burst usually places a sample within a tick; the slack covers baseline 16 Hz sampling. Out-of-range events count as fired but not as visible — "not measured" is never reported as "aimed".
+
+**Phase bias in the visible bucket.** The spotted mask is set after an enemy is acquired, so an engagement's opening shot usually lands in the blind bucket and the follow-up spray in the visible one. Head-hit rate therefore runs higher blind than visible for everyone (pro AK-47: 26.7% blind vs 13.8% visible; mid-tier: 22.0% vs 6.4%). `HeadHitPctVisible()` measures head rate once the duel is running, not first-shot precision. Accuracy is not distorted the same way — excluding fire aimed at nobody is exactly the intent there.
+
+**Consistency with Pass 3's weapon hits.** The damage loop repeats the same filters (attacker known; team damage skipped via `AttackerTeam == VictimTeam`), so `HitsVisible ≤ Hits` always holds.
+
+**Degenerate inputs.** With no `ViewSamples` (data paths that carry no samples) shots are still counted and the visible counters stay 0, so callers can tell "all blind" from "not measured". Weapons fired without ever landing a hit still produce a weapon row.

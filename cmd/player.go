@@ -41,7 +41,7 @@ func init() {
 	playerCmd.Flags().IntVar(&playerTopMin, "top-min", 3, "minimum matches a player must have to appear in the top-N ranking")
 	playerCmd.Flags().BoolVar(&playerRoles, "roles", false, "print HLTV-style role decomposition (Firepower/Entry/Trade/Open/Clutch/Snipe/Util)")
 	playerCmd.Flags().StringVar(&playerPer, "per", "round", "rate denominator for --roles output: 'round' (default) or '24' (per 24 rounds, ≈ one half)")
-	playerCmd.Flags().StringVar(&playerSide, "side", "both", "compute --roles metrics from rounds on this side: 'both' (default), 'ct', or 't'")
+	playerCmd.Flags().StringVar(&playerSide, "side", "both", "restrict --roles metrics and the FHHS table to rounds on this side: 'both' (default), 'ct', or 't'")
 }
 
 // runPlayer loads all match data for each given SteamID64, builds cross-match
@@ -103,11 +103,13 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 		synth []model.PlayerMatchStats
 	}
 
-	var allAggs    []model.PlayerAggregate
+	var allAggs []model.PlayerAggregate
 	var allMapSide []model.PlayerMapSideAggregate
-	var fhhsList   []fhhsEntry
-	var allClutch  []model.PlayerClutchMatchStats
-	var allRoles   []model.PlayerRoleStats
+	var fhhsList []fhhsEntry
+	var allClutch []model.PlayerClutchMatchStats
+	var allRoles []model.PlayerRoleStats
+	var allWeapons []model.PlayerWeaponStats
+	weaponNames := map[uint64]string{}
 
 	// Cohort ratings for percentile labels. Built lazily and only when --roles
 	// is requested. Empty when the cohort is too small (see CohortMinPlayers).
@@ -158,6 +160,50 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 			segs = filteredSegs
 		}
 
+		// ---- Side filter for FHHS (--side ct|t) ----
+		// Duel segments carry a round number, so they can be attributed to the
+		// side the player was on that round via player_round_stats. Segments
+		// written before the round dimension existed (RoundNumber == -1) cannot
+		// be attributed and are dropped, with a count reported so a stale DB
+		// never looks like a real drop in sample size.
+		if side == "ct" || side == "t" {
+			roundStats, err := db.GetAllPlayerRoundStats(id)
+			if err != nil {
+				return fmt.Errorf("query round stats for %d: %w", id, err)
+			}
+			want := model.TeamCT
+			if side == "t" {
+				want = model.TeamT
+			}
+			type roundKey struct {
+				hash  string
+				round int
+			}
+			onSide := make(map[roundKey]struct{}, len(roundStats))
+			for _, r := range roundStats {
+				if r.Team == want {
+					onSide[roundKey{r.DemoHash, r.RoundNumber}] = struct{}{}
+				}
+			}
+			var sided []model.PlayerDuelSegment
+			unattributed := 0
+			for _, seg := range segs {
+				if seg.RoundNumber < 0 {
+					unattributed += seg.FirstHitCount
+					continue
+				}
+				if _, ok := onSide[roundKey{seg.DemoHash, seg.RoundNumber}]; ok {
+					sided = append(sided, seg)
+				}
+			}
+			if unattributed > 0 {
+				fmt.Fprintf(os.Stderr,
+					"warning: %d first-hits for %d have no round attribution and were excluded from --side %s; re-run `replay --force` to backfill\n",
+					unattributed, id, side)
+			}
+			segs = sided
+		}
+
 		agg := buildAggregate(stats)
 		merged := mergeSegments(id, segs)
 
@@ -202,6 +248,14 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 			}
 		}
 
+		// Weapon rows for the filtered demos, summed per weapon (Pass 18).
+		weaponRows, err := db.GetAllPlayerWeaponStats(id)
+		if err != nil {
+			return fmt.Errorf("query weapon stats for %d: %w", id, err)
+		}
+		allWeapons = append(allWeapons, sumWeaponStats(id, weaponRows, keep)...)
+		weaponNames[id] = agg.Name
+
 		allAggs = append(allAggs, agg)
 		allMapSide = append(allMapSide, buildMapSideAggregates(stats)...)
 		fhhsList = append(fhhsList, fhhsEntry{
@@ -237,10 +291,12 @@ func runPlayer(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(os.Stdout)
 	report.PrintPlayerAggregateOverview(os.Stdout, allAggs)
 	report.PrintPlayerAggregateDuelTable(os.Stdout, allAggs)
+	report.PrintPlayerAggregateCrosshairTable(os.Stdout, allAggs)
 	report.PrintPlayerAggregateAWPTable(os.Stdout, allAggs)
 	report.PrintPlayerMapSideTable(os.Stdout, allMapSide)
 	report.PrintPlayerMapMechanicsTable(os.Stdout, allMapSide)
 	report.PrintPlayerAggregateAimTable(os.Stdout, allAggs)
+	report.PrintPlayerWeaponAccuracyTable(os.Stdout, allWeapons, weaponNames)
 	report.PrintPlayerAggregateClutchTable(os.Stdout, allAggs, allClutch)
 	if playerRoles {
 		report.PrintPlayerRoleStats(os.Stdout, allRoles, report.RoleViewOptions{
@@ -297,6 +353,7 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 	var tradeKillDelaySum, tradeDeathDelaySum float64
 	var tradeKillDelayN, tradeDeathDelayN int
 	var scanDwellWSum, scanRevWSum, scanYawWSum float64
+	var xhairMedWSum, xhairUnder5WSum, xhairYawWSum, xhairPitchWSum float64
 	roleCounts := make(map[string]int)
 
 	for _, s := range stats {
@@ -364,6 +421,16 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 			scanRevWSum += s.ScanReversalsPerMin * s.ScanOOCSeconds
 			scanYawWSum += s.ScanAvgYawDegPerSec * s.ScanOOCSeconds
 		}
+		// Crosshair placement: weight per-match medians by encounter count so
+		// a 3-encounter match doesn't count as much as a 60-encounter one.
+		if s.CrosshairEncounters > 0 {
+			n := float64(s.CrosshairEncounters)
+			agg.CrosshairEncounters += s.CrosshairEncounters
+			xhairMedWSum += s.CrosshairMedianDeg * n
+			xhairUnder5WSum += s.CrosshairPctUnder5 * n
+			xhairYawWSum += s.CrosshairMedianYawDeg * n
+			xhairPitchWSum += s.CrosshairMedianPitchDeg * n
+		}
 		role := s.Role
 		if role == "" {
 			role = "Rifler"
@@ -374,6 +441,13 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 		agg.ScanDwellPct = scanDwellWSum / agg.ScanOOCSeconds
 		agg.ScanReversalsPerMin = scanRevWSum / agg.ScanOOCSeconds
 		agg.ScanAvgYawDegPerSec = scanYawWSum / agg.ScanOOCSeconds
+	}
+	if agg.CrosshairEncounters > 0 {
+		n := float64(agg.CrosshairEncounters)
+		agg.CrosshairMedianDeg = xhairMedWSum / n
+		agg.CrosshairPctUnder5 = xhairUnder5WSum / n
+		agg.CrosshairMedianYawDeg = xhairYawWSum / n
+		agg.CrosshairMedianPitchDeg = xhairPitchWSum / n
 	}
 
 	if expoWinN > 0 {
@@ -417,12 +491,56 @@ func buildAggregate(stats []model.PlayerMatchStats) model.PlayerAggregate {
 
 // mergeSegments groups segment rows by (WeaponBucket, DistanceBin), summing counts
 // and averaging float medians across demos. Returns a single merged slice.
+// sumWeaponStats collapses per-demo weapon rows into one row per weapon,
+// restricted to the demos in keep (the filtered set). Every field is a plain
+// count, so summing is exact — unlike the median-of-medians approximations
+// elsewhere in the aggregate path.
+func sumWeaponStats(steamID uint64, rows []model.PlayerWeaponStats, keep map[string]struct{}) []model.PlayerWeaponStats {
+	byWeapon := map[string]*model.PlayerWeaponStats{}
+	for _, r := range rows {
+		if _, ok := keep[r.DemoHash]; !ok {
+			continue
+		}
+		w := byWeapon[r.Weapon]
+		if w == nil {
+			w = &model.PlayerWeaponStats{SteamID: steamID, Weapon: r.Weapon}
+			byWeapon[r.Weapon] = w
+		}
+		w.Kills += r.Kills
+		w.HeadshotKills += r.HeadshotKills
+		w.Assists += r.Assists
+		w.Deaths += r.Deaths
+		w.Damage += r.Damage
+		w.Hits += r.Hits
+		w.ShotsFired += r.ShotsFired
+		w.ShotsVisible += r.ShotsVisible
+		w.HitsVisible += r.HitsVisible
+		w.HeadHits += r.HeadHits
+		w.HeadHitsVisible += r.HeadHitsVisible
+	}
+	out := make([]model.PlayerWeaponStats, 0, len(byWeapon))
+	for _, w := range byWeapon {
+		out = append(out, *w)
+	}
+	return out
+}
+
+// mergeSegments collapses duel segments into one row per (weapon bucket,
+// distance bin), summing counts and combining the per-segment medians.
+//
+// The medians are combined weighted by DuelCount rather than as a plain mean.
+// That matters because segments are stored per round: an unweighted mean would
+// let a round with one duel pull as hard as a round with five, and the result
+// would shift purely from how rows happen to be partitioned. Weighting by count
+// keeps the value stable across that. It is still a mean-of-medians — an
+// approximation of the pooled median, as elsewhere in the aggregate path — but
+// one that no longer depends on storage granularity.
 func mergeSegments(steamID uint64, segs []model.PlayerDuelSegment) []model.PlayerDuelSegment {
 	type key struct{ bucket, bin string }
 	type accum struct {
 		duelCount, firstHitCount, firstHitHSCount int
-		corrSum, sightSum, expoSum                float64
-		corrN, sightN, expoN                      int
+		corrSum, sightSum, expoSum, delaySum      float64
+		corrW, sightW, expoW, delayW              float64
 	}
 	m := make(map[key]*accum)
 	for _, s := range segs {
@@ -434,17 +552,25 @@ func mergeSegments(steamID uint64, segs []model.PlayerDuelSegment) []model.Playe
 		a.duelCount += s.DuelCount
 		a.firstHitCount += s.FirstHitCount
 		a.firstHitHSCount += s.FirstHitHSCount
+		w := float64(s.DuelCount)
+		if w <= 0 {
+			w = 1
+		}
 		if s.MedianCorrDeg > 0 {
-			a.corrSum += s.MedianCorrDeg
-			a.corrN++
+			a.corrSum += s.MedianCorrDeg * w
+			a.corrW += w
 		}
 		if s.MedianSightDeg > 0 {
-			a.sightSum += s.MedianSightDeg
-			a.sightN++
+			a.sightSum += s.MedianSightDeg * w
+			a.sightW += w
 		}
 		if s.MedianExpoWinMs > 0 {
-			a.expoSum += s.MedianExpoWinMs
-			a.expoN++
+			a.expoSum += s.MedianExpoWinMs * w
+			a.expoW += w
+		}
+		if s.MedianShotDelayMs > 0 {
+			a.delaySum += s.MedianShotDelayMs * w
+			a.delayW += w
 		}
 	}
 
@@ -452,20 +578,24 @@ func mergeSegments(steamID uint64, segs []model.PlayerDuelSegment) []model.Playe
 	for k, a := range m {
 		seg := model.PlayerDuelSegment{
 			SteamID:         steamID,
+			RoundNumber:     -1, // merged across rounds
 			WeaponBucket:    k.bucket,
 			DistanceBin:     k.bin,
 			DuelCount:       a.duelCount,
 			FirstHitCount:   a.firstHitCount,
 			FirstHitHSCount: a.firstHitHSCount,
 		}
-		if a.corrN > 0 {
-			seg.MedianCorrDeg = a.corrSum / float64(a.corrN)
+		if a.corrW > 0 {
+			seg.MedianCorrDeg = a.corrSum / a.corrW
 		}
-		if a.sightN > 0 {
-			seg.MedianSightDeg = a.sightSum / float64(a.sightN)
+		if a.sightW > 0 {
+			seg.MedianSightDeg = a.sightSum / a.sightW
 		}
-		if a.expoN > 0 {
-			seg.MedianExpoWinMs = a.expoSum / float64(a.expoN)
+		if a.expoW > 0 {
+			seg.MedianExpoWinMs = a.expoSum / a.expoW
+		}
+		if a.delayW > 0 {
+			seg.MedianShotDelayMs = a.delaySum / a.delayW
 		}
 		out = append(out, seg)
 	}

@@ -420,6 +420,21 @@ type PlayerWeaponStats struct {
 	Deaths        int
 	Damage        int
 	Hits          int
+
+	// Shot accounting (Pass 18). ShotsFired counts weapon_fire events, so it
+	// is 0 for grenades' damage-only rows and for weapons the player only
+	// died to. ShotsVisible / HitsVisible are the subset taken while at least
+	// one enemy was in the player's spotted mask; the complement is "blind"
+	// fire — smoke spam, prefire, wallbangs, suppression. Raw accuracy mixes
+	// the two and is therefore not comparable across skill tiers, which
+	// deliberately differ in how much they fire at nothing.
+	ShotsFired   int
+	ShotsVisible int
+	HitsVisible  int
+	// HeadHits counts hits on the head hitbox — distinct from HeadshotKills,
+	// which only counts hits that were also lethal.
+	HeadHits        int
+	HeadHitsVisible int
 }
 
 // HSPercent returns the headshot kill percentage (0-100) for this weapon.
@@ -436,6 +451,43 @@ func (s *PlayerWeaponStats) AvgDamagePerHit() float64 {
 		return 0
 	}
 	return float64(s.Damage) / float64(s.Hits)
+}
+
+// ShotsBlind returns shots fired with no enemy in the spotted mask.
+func (s *PlayerWeaponStats) ShotsBlind() int { return s.ShotsFired - s.ShotsVisible }
+
+// HitsBlind returns hits landed with no enemy in the spotted mask.
+func (s *PlayerWeaponStats) HitsBlind() int { return s.Hits - s.HitsVisible }
+
+// Accuracy returns raw hits per shot (0-100). Mixes aimed and blind fire —
+// prefer AccuracyVisible when comparing players or tiers.
+func (s *PlayerWeaponStats) Accuracy() float64 { return pct(s.Hits, s.ShotsFired) }
+
+// AccuracyVisible returns hits per shot (0-100) restricted to shots taken
+// with an enemy visible. This is the comparable aim measure.
+func (s *PlayerWeaponStats) AccuracyVisible() float64 { return pct(s.HitsVisible, s.ShotsVisible) }
+
+// AccuracyBlind returns hits per shot (0-100) for blind fire — wallbangs and
+// spam that happened to connect.
+func (s *PlayerWeaponStats) AccuracyBlind() float64 { return pct(s.HitsBlind(), s.ShotsBlind()) }
+
+// BlindShotPct returns the share of shots (0-100) taken with no enemy visible.
+func (s *PlayerWeaponStats) BlindShotPct() float64 { return pct(s.ShotsBlind(), s.ShotsFired) }
+
+// HeadHitPct returns head hits as a share of all hits (0-100).
+func (s *PlayerWeaponStats) HeadHitPct() float64 { return pct(s.HeadHits, s.Hits) }
+
+// HeadHitPctVisible returns head hits as a share of hits (0-100), restricted
+// to shots taken with an enemy visible.
+func (s *PlayerWeaponStats) HeadHitPctVisible() float64 {
+	return pct(s.HeadHitsVisible, s.HitsVisible)
+}
+
+func pct(num, den int) float64 {
+	if den == 0 {
+		return 0
+	}
+	return float64(num) / float64(den) * 100
 }
 
 // PlayerAggregate holds stats for a single player aggregated across all stored demos.
@@ -461,6 +513,15 @@ type PlayerAggregate struct {
 	AvgExpoLossMs    float64
 	AvgCorrectionDeg float64
 	AvgHitsToKill    float64
+
+	// Crosshair placement at first sight. CrosshairEncounters is summed;
+	// the angle stats are encounter-weighted averages of per-match medians
+	// (approximate, but better than an unweighted mean across matches).
+	CrosshairEncounters     int
+	CrosshairMedianDeg      float64
+	CrosshairPctUnder5      float64
+	CrosshairMedianYawDeg   float64
+	CrosshairMedianPitchDeg float64
 
 	// Role and aim timing
 	Role                string
@@ -678,12 +739,29 @@ type PlayerDeathEvent struct {
 	WasTraded      bool
 	IsOpeningDeath bool
 	RoundPhase     string // "pistol" | "early" | "mid" | "late" | "post_plant"
+
+	// Duel context (added for duel-swing modelling). Each kill row is one duel
+	// seen from both sides: a win for the killer and a loss for the victim, so
+	// this table — unlike player_duel_segments — covers lost duels too.
+	//
+	// *SightTick is the tick each party first spotted the other this round, or
+	// -1 if they never did (backstab, unaware victim). The difference is the
+	// first-sight advantage, the dominant predictor of who wins a duel.
+	KillerSightTick int
+	VictimSightTick int
+	// BombPlanted is the plant state at the kill tick. RoundPhase cannot be
+	// used for this: it reports "pistol" on rounds 1 and 13 even after a plant.
+	BombPlanted bool
 }
 
 // PlayerDuelSegment holds FHHS stats for one (weapon_bucket, distance_bin) segment per player per demo.
 type PlayerDuelSegment struct {
-	DemoHash        string
-	SteamID         uint64
+	DemoHash string
+	SteamID  uint64
+	// RoundNumber ties the segment to a round so FHHS can be sliced by side,
+	// buy type, or round phase via player_round_stats. -1 marks rows written
+	// before the round dimension existed (round unknown, not round zero).
+	RoundNumber     int
 	WeaponBucket    string  // e.g. "AK", "M4", "AWP", "Deagle", "Pistol", "Other"
 	DistanceBin     string  // e.g. "10-15m", "unknown"
 	DuelCount       int     // duels won in this segment (with a first-sight)
@@ -692,6 +770,11 @@ type PlayerDuelSegment struct {
 	MedianCorrDeg   float64 // median pre-shot correction angle (degrees)
 	MedianSightDeg  float64 // median first-sight angular deviation (degrees)
 	MedianExpoWinMs float64 // median exposure time for won duels (ms)
+	// MedianShotDelayMs is the median ms from the enemy becoming visible to
+	// the player's first shot in that duel. Paired with MedianCorrDeg it
+	// separates "overshot because there was no time" from "overshot with a
+	// second to spare" — the latter is habit, not reaction.
+	MedianShotDelayMs float64
 }
 
 // MatchSummary is a lightweight record for list/show commands.
@@ -742,11 +825,16 @@ type PlayerRoleStats struct {
 	PistolRoundRating float64 // Rating 2.0 over pistol rounds only
 
 	// §2.2 Entrying
+	TradedDeathsPerRound    float64 // deaths traded by a teammate within 5s, per round
+	TradedDeathsPct         float64 // share of deaths that were traded
 	OpeningDeathTradedPct   float64
+	AssistsPerRound         float64
 	SupportRoundsPct        float64
 	SavedByTeammatePerRound float64 // Pass 14
 
 	// §2.3 Trading
+	TradeKillsPerRound    float64 // kills within 5s of a teammate's death, per round (match-level; combined in side views)
+	TradeKillsPct         float64 // share of kills that were trades (match-level; combined in side views)
 	DamagePerKill         float64
 	SavedTeammatePerRound float64 // Pass 14
 	AssistedKillsPct      float64 // Pass 14 — % of kills that were on already-damaged opponents
@@ -775,6 +863,7 @@ type PlayerRoleStats struct {
 	SniperOpeningKillsPerRound float64
 
 	// §2.7 Utility
+	TeamFlashSecPerRound     float64 // teammate blind seconds caused (event-table)
 	UtilityDamagePerRound    float64 // from player_match_stats (full coverage)
 	UtilityKillsPer100R      float64 // (event-table)
 	FlashesThrownPerRound    float64 // (event-table)

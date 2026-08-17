@@ -110,12 +110,24 @@ CREATE TABLE IF NOT EXISTS player_weapon_stats (
     deaths         INTEGER NOT NULL DEFAULT 0,
     damage         INTEGER NOT NULL DEFAULT 0,
     hits           INTEGER NOT NULL DEFAULT 0,
+    -- Shot accounting (Pass 18). *_visible are the subset taken with an
+    -- enemy in the spotted mask; the complement is blind fire (smoke spam,
+    -- prefire, wallbangs). head_hits counts head-hitbox hits, lethal or not.
+    shots_fired       INTEGER NOT NULL DEFAULT 0,
+    shots_visible     INTEGER NOT NULL DEFAULT 0,
+    hits_visible      INTEGER NOT NULL DEFAULT 0,
+    head_hits         INTEGER NOT NULL DEFAULT 0,
+    head_hits_visible INTEGER NOT NULL DEFAULT 0,
     UNIQUE(demo_hash, steam_id, weapon)
 );
 
 CREATE TABLE IF NOT EXISTS player_duel_segments (
     demo_hash          TEXT NOT NULL REFERENCES demos(hash),
     steam_id           TEXT NOT NULL,
+    -- Round the duels in this segment happened in. Join player_round_stats on
+    -- (demo_hash, steam_id, round_number) to slice FHHS by side / buy type /
+    -- post-plant. -1 = written before the round dimension existed.
+    round_number       INTEGER NOT NULL DEFAULT -1,
     weapon_bucket      TEXT NOT NULL,
     distance_bin       TEXT NOT NULL,
     duel_count         INTEGER NOT NULL DEFAULT 0,
@@ -124,7 +136,9 @@ CREATE TABLE IF NOT EXISTS player_duel_segments (
     median_corr_deg    REAL    NOT NULL DEFAULT 0,
     median_sight_deg   REAL    NOT NULL DEFAULT 0,
     median_expo_win_ms REAL    NOT NULL DEFAULT 0,
-    UNIQUE(demo_hash, steam_id, weapon_bucket, distance_bin)
+    -- ms from the enemy becoming visible to the player's first shot in the duel.
+    median_shot_delay_ms REAL  NOT NULL DEFAULT 0,
+    UNIQUE(demo_hash, steam_id, round_number, weapon_bucket, distance_bin)
 );
 
 -- Per-death events. One row per kill with position, weapon, victim yaw, and
@@ -154,7 +168,14 @@ CREATE TABLE IF NOT EXISTS player_death_events (
     was_flashed      INTEGER NOT NULL DEFAULT 0,
     was_traded       INTEGER NOT NULL DEFAULT 0,
     is_opening_death INTEGER NOT NULL DEFAULT 0,
-    round_phase      TEXT NOT NULL
+    round_phase      TEXT NOT NULL,
+    -- Duel context: tick each party first spotted the other this round (-1 =
+    -- never). The difference is the first-sight advantage. bomb_planted is the
+    -- plant state at the kill tick (round_phase reports 'pistol' on rounds 1
+    -- and 13 even after a plant, so it cannot be used for this).
+    killer_sight_tick INTEGER NOT NULL DEFAULT -1,
+    victim_sight_tick INTEGER NOT NULL DEFAULT -1,
+    bomb_planted      INTEGER NOT NULL DEFAULT 0
 );
 
 -- Per-flash events. One row per PlayerFlashed event (victim-scoped, so a

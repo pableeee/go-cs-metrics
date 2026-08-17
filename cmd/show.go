@@ -65,6 +65,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 	report.PrintPlayerTable(stats, showPlayerID)
 	report.PrintPlayerSideTable(os.Stdout, sideStats, showPlayerID)
 	report.PrintDuelTable(os.Stdout, stats, showPlayerID)
+	report.PrintCrosshairTable(os.Stdout, stats, showPlayerID)
 	report.PrintAWPTable(os.Stdout, stats, showPlayerID)
 	report.PrintWeaponTable(os.Stdout, weaponStats, stats, showPlayerID)
 	report.PrintAimTimingTable(os.Stdout, stats, showPlayerID)
