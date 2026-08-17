@@ -97,6 +97,13 @@ func Open(path string) (*DB, error) {
 		`ALTER TABLE player_death_events ADD COLUMN bomb_planted INTEGER NOT NULL DEFAULT 0`,
 		// Pass 6: sight → first-shot delay, to separate reaction from habit.
 		`ALTER TABLE player_duel_segments ADD COLUMN median_shot_delay_ms REAL NOT NULL DEFAULT 0`,
+		// Pass 19: round context — resource share, pack distance, contact timing.
+		`ALTER TABLE player_round_stats ADD COLUMN gun_samples INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_round_stats ADD COLUMN gun_samples_rifle INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_round_stats ADD COLUMN gun_samples_sniper INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_round_stats ADD COLUMN pack_dist_avg_m REAL NOT NULL DEFAULT -1`,
+		`ALTER TABLE player_round_stats ADD COLUMN first_contact_sec REAL NOT NULL DEFAULT -1`,
+		`ALTER TABLE player_round_stats ADD COLUMN death_sec REAL NOT NULL DEFAULT -1`,
 	}
 	for _, stmt := range altMigrations {
 		if _, err := conn.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {

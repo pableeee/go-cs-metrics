@@ -28,7 +28,7 @@ The processing pipeline has five stages:
 1. **Ingestion** — Accept a `.dem` (or pre-converted `.csraw2.tar`), compute the SHA-256 hash, and dedup against the DB.
 2. **Parsing** — `internal/parserv2` walks the `.dem` and produces a `*csraw2.Match` (events + per-tick player samples). The reader in `internal/csraw2` produces the same value from a `.csraw2.tar` archive without demoinfocs.
 3. **Bridging** — `internal/csraw2bridge.ToRawMatch(m)` adapts `csraw2.Match` to the legacy `*model.RawMatch` the aggregator expects. (The bridge will disappear once the aggregator is rewritten against csraw2 directly.)
-4. **Aggregation** — 18-pass algorithm producing `[]PlayerMatchStats`, `[]PlayerRoundStats`, `[]PlayerWeaponStats`, `[]PlayerDuelSegment`, `[]PlayerDeathEvent`, `[]FlashEvent`.
+4. **Aggregation** — 19-pass algorithm producing `[]PlayerMatchStats`, `[]PlayerRoundStats`, `[]PlayerWeaponStats`, `[]PlayerDuelSegment`, `[]PlayerDeathEvent`, `[]FlashEvent`.
 5. **Presentation** — CLI output via `tablewriter`; storage is SQLite.
 
 Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.csmetrics/metrics.db`. Intermediate-format spec: `docs/csraw-v2-spec.md`.
@@ -45,7 +45,7 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `rounds <hash-prefix> <steamid64>` | Per-round drill-down with buy type, flags (POST_PLT, CLUTCH_1vN); `--clutch`, `--post-plant`, `--side`, `--buy` filters |
 | `trend <steamid64>` | Chronological per-match performance trend (KPR/ADR/KAST% + TTK/TTD/CS%) |
 | `deaths <steamid64>` | Death drill-down from `player_death_events`: totals plus breakdowns by round phase, engagement distance, weapon, and map, each with HS_TAKEN%/FLASHED%/TRADED%/OPENING%/AVG_DIST (`--map`, `--since`, `--before`, `--phase`, `--top-weapons`) |
-| `swing <steamid64>...` | Round swing and duel swing (win-probability added) from empirical probability tables counted over the corpus; `--by-map`, `--by-side` (CT/T split of both metrics), `--tier`, `--since`, `--before`, `--show-tables` to audit the tables, `--top N` for the reference distribution + percentile rank |
+| `swing <steamid64>...` | Round swing and duel swing (win-probability added) from empirical probability tables counted over the corpus; `--by-side`, `--by-weapon` (class that resolved the duel), `--by-map` (composable with `--by-side`), `--floor-ceiling` (p25/p50/p75 of per-demo rates, `--min-demos`), `--roster` (export-style JSON; also triggers the team-shape section), `--context` (Pass 19 resources/positioning per side), `--tier`, `--since`, `--before`, `--show-tables` to audit the tables, `--top N` for the reference distribution + percentile rank |
 | `sql <query>` | Run an arbitrary SQL query against the metrics database; prints results as a table |
 | `drop [--force]` | Delete the metrics database file; requires `--force` to actually delete |
 | `analyze player <steamid64> <question>` | AI-powered grounded analysis of a player's aggregate stats (requires `ANTHROPIC_API_KEY`) |
@@ -112,7 +112,7 @@ Core types (all in `internal/model/model.go`):
 - **`PlayerDuelSegment`** — FHHS counts per (round, weapon_bucket, distance_bin) per demo
 - **`PlayerAggregate`** — cross-demo sums/averages used by the `player` command
 
-## Aggregator: 18 Passes
+## Aggregator: 19 Passes
 
 1. Trade annotation (backward + forward scan within 5 s window); captures trade kill/death delay in ticks for timing metrics
 2. Opening kills (first kill after `FreezeEndTick`)
@@ -132,6 +132,7 @@ Core types (all in `internal/model/model.go`):
 16. Liveness — per-player action time alive and sole-survivor moments (populates `alive_seconds_total` and `last_alive_server_rounds` on `player_match_stats`; alive time anchored at `FreezeEndTick`)
 17. Scan volatility — out-of-combat crosshair discipline / "panic swiping" from 16 Hz view samples (dwell% below 25 °/s, yaw reversals with both legs ≥ 60 °/s, avg yaw speed; excludes enemy-visible samples and ±2 s around own combat events; populates `scan_*` columns on `player_match_stats` and `player_round_stats`)
 18. Shot accounting — per-weapon `shots_fired` plus the aimed/blind split (each weapon fire and each enemy hit tagged with whether an enemy was in the player's spotted mask at that tick, via the nearest `RawViewSample`); populates `shots_fired`, `shots_visible`, `hits_visible`, `head_hits`, `head_hits_visible` on `player_weapon_stats`
+19. Round context — the denominator axes for the swing metrics: per-round good-gun share (alive in-round 16 Hz samples holding a rifle/sniper, via `swing.WeaponClass` on the sample's active weapon), average distance to the nearest alive teammate (lurk index; sole-survivor time excluded), and first-contact / death timing in seconds after freeze end from the kill+damage logs (populates `gun_samples`, `gun_samples_rifle`, `gun_samples_sniper`, `pack_dist_avg_m`, `first_contact_sec`, `death_sec` on `player_round_stats`; `-1` = unmeasured/did-not-happen sentinel; surfaced by `swing --context`)
 
 ## Memory Behaviour of the Parser
 

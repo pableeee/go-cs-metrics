@@ -97,6 +97,12 @@ CREATE TABLE IF NOT EXISTS player_round_stats (
     scan_dwell_pct           REAL    NOT NULL DEFAULT 0,
     scan_reversals           INTEGER NOT NULL DEFAULT 0,
     scan_avg_yaw_deg_per_sec REAL    NOT NULL DEFAULT 0,
+    gun_samples        INTEGER NOT NULL DEFAULT 0,
+    gun_samples_rifle  INTEGER NOT NULL DEFAULT 0,
+    gun_samples_sniper INTEGER NOT NULL DEFAULT 0,
+    pack_dist_avg_m    REAL    NOT NULL DEFAULT -1,
+    first_contact_sec  REAL    NOT NULL DEFAULT -1,
+    death_sec          REAL    NOT NULL DEFAULT -1,
     UNIQUE(demo_hash, steam_id, round_number)
 );
 

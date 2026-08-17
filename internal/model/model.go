@@ -184,17 +184,21 @@ type RawMatch struct {
 	PlayerTeams    map[uint64]Team
 }
 
-// RawViewSample is one tick-sampled view-state row for one player, reduced
-// from csraw2 PlayerSamples to the fields the scan-volatility pass (Pass 17)
-// needs. Baseline sampling is 16 Hz with 64 Hz bursts around events; the
-// pass differences consecutive samples so it tolerates variable spacing.
+// RawViewSample is one tick-sampled state row for one player, reduced from
+// csraw2 PlayerSamples to the fields the sample-walking passes need: scan
+// volatility (Pass 17), shot accounting (Pass 18) and round context (Pass 19).
+// Baseline sampling is 16 Hz with 64 Hz bursts around events; consumers
+// difference consecutive samples so they tolerate variable spacing.
 type RawViewSample struct {
 	Tick           int
 	RoundNumber    int
 	SteamID        uint64
+	Team           Team    // side this round, from the sample itself (halftime-safe)
 	YawDeg         float64 // signed degrees, [-180, 180)
 	HP             int     // 0 = dead (sample skipped by the scan pass)
 	EnemiesVisible bool    // any enemy in the player's spotted mask this tick
+	Weapon         string  // active weapon name ("" = none), from the header weapon table
+	Pos            Vec3    // world position, Hammer units
 }
 
 // ---- Aggregated metrics ----
@@ -378,6 +382,16 @@ type PlayerRoundStats struct {
 	ScanDwellPct        float64
 	ScanReversals       int
 	ScanAvgYawDegPerSec float64
+
+	// Pass 19: round context. Counts, not percentages, so they aggregate
+	// across rounds; -1 is the "unmeasured / did not happen" sentinel and
+	// must be filtered before averaging.
+	GunSamples       int     // alive in-round 16 Hz samples
+	GunSamplesRifle  int     // ... with a rifle in hand
+	GunSamplesSniper int     // ... with a sniper in hand
+	PackDistAvgM     float64 // avg distance (m) to nearest alive teammate; -1 = unmeasured
+	FirstContactSec  float64 // seconds after freeze end of first combat involvement; -1 = none
+	DeathSec         float64 // seconds after freeze end of death; -1 = survived
 }
 
 // PlayerClutchMatchStats holds per-match clutch attempt/win counts broken down

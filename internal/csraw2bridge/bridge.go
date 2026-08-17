@@ -325,9 +325,10 @@ func ToRawMatch(m *csraw2.Match) (*model.RawMatch, error) {
 		}
 	}
 
-	// ── View samples (for the scan-volatility pass) ────────────────────
-	// Reduce PlayerSamples to the view-state fields Pass 17 needs. Rows for
-	// slots without a resolvable steamID are dropped.
+	// ── View samples (for the sample-walking passes) ───────────────────
+	// Reduce PlayerSamples to the fields Passes 17-19 need. Rows for slots
+	// without a resolvable steamID are dropped. Weapon strings share their
+	// backing with the header weapon table, so no per-sample allocation.
 	raw.ViewSamples = make([]model.RawViewSample, 0, len(m.PlayerSamples))
 	for _, s := range m.PlayerSamples {
 		id := idOf(s.PlayerSlot)
@@ -338,9 +339,12 @@ func ToRawMatch(m *csraw2.Match) (*model.RawMatch, error) {
 			Tick:           int(s.Tick),
 			RoundNumber:    int(s.Round),
 			SteamID:        id,
+			Team:           teamFromSample(s.Team),
 			YawDeg:         float64(s.YawDeg) / 100,
 			HP:             int(s.HP),
 			EnemiesVisible: s.VisibleEnemiesMask != 0,
+			Weapon:         weaponName(s.ActiveWeaponID),
+			Pos:            vec3From(s.PosX, s.PosY, s.PosZ),
 		})
 	}
 

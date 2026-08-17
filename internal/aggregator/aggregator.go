@@ -885,6 +885,30 @@ func Aggregate(raw *model.RawMatch) ([]model.PlayerMatchStats, []model.PlayerRou
 		}
 	}
 
+	// ---- Pass 19: round context — good-gun %, pack distance, contact timing. ----
+	// (Implementation in aggregator_context.go.) Rounds without a result keep
+	// the -1 sentinels so pre-backfill rows and unmeasured rounds are
+	// distinguishable from real zeros.
+	ctxByPlayer := computeRoundContext(raw)
+	for i := range allRoundStats {
+		rs := &allRoundStats[i]
+		res, ok := ctxByPlayer[rs.SteamID][rs.RoundNumber]
+		if !ok {
+			rs.PackDistAvgM, rs.FirstContactSec, rs.DeathSec = -1, -1, -1
+			continue
+		}
+		rs.GunSamples = res.gunSamples
+		rs.GunSamplesRifle = res.gunRifle
+		rs.GunSamplesSniper = res.gunSniper
+		if res.packDistN > 0 {
+			rs.PackDistAvgM = res.packDistSumM / float64(res.packDistN)
+		} else {
+			rs.PackDistAvgM = -1
+		}
+		rs.FirstContactSec = res.firstContactSec
+		rs.DeathSec = res.deathSec
+	}
+
 	// ---- Pass 4: roll up into PlayerMatchStats. ----
 	var matchStats []model.PlayerMatchStats
 	for playerID, acc := range matchAccums {

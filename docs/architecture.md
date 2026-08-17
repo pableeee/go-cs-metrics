@@ -42,10 +42,12 @@ go-cs-metrics/
     ├── csraw2bridge/                # csraw2.Match → model.RawMatch adapter for the aggregator
     ├── parser/parser.go             # legacy .dem → RawMatch direct walker (used by csraw2-compare validation only)
     ├── aggregator/
-    │   ├── aggregator.go            # RawMatch → PlayerMatchStats + all segment types (18-pass pipeline)
+    │   ├── aggregator.go            # RawMatch → PlayerMatchStats + all segment types (19-pass pipeline)
     │   ├── aggregator_test.go       # unit tests for metric logic (incl. Pass 14 save/assist, Pass 15 HLTV flash assists, Pass 16 liveness)
     │   ├── aggregator_scan_test.go  # unit tests for Pass 17 scan volatility
-    │   └── aggregator_shots_test.go # unit tests for Pass 18 shot accounting
+    │   ├── aggregator_shots_test.go # unit tests for Pass 18 shot accounting
+    │   ├── aggregator_context.go    # Pass 19: round context (resources, spacing, timing)
+    │   └── aggregator_context_test.go
     ├── storage/
     │   ├── schema.sql               # embedded SQL (go:embed)
     │   ├── storage.go               # DB open / schema apply
@@ -87,7 +89,7 @@ Two equivalent paths feed the same aggregator → storage → report chain:
                        ▼
 [aggregator]   Aggregate(raw) → ([]PlayerMatchStats, []PlayerRoundStats,
     │                            []PlayerWeaponStats, []PlayerDuelSegment, error)
-    │           • 18-pass algorithm over raw event slices
+    │           • 19-pass algorithm over raw event slices
     │           • no I/O, no external dependencies
     │
     ▼
@@ -397,7 +399,7 @@ A consequence worth knowing: the symmetric buckets (`even`, `neither`) are force
 
 ### Zero-sum validation
 
-Both metrics are zero-sum across all players by construction. `Validate` sums every player's totals and refuses to print if either is non-zero beyond floating-point slack — a leak means attribution is broken and the numbers are not trustworthy. The command runs it before any output. It also checks that each player's `CT` and `T` slices reconstruct their totals, which is the only structural check available on the side split (see below).
+Both metrics are zero-sum across all players by construction. `Validate` sums every player's totals and refuses to print if either is non-zero beyond floating-point slack — a leak means attribution is broken and the numbers are not trustworthy. The command runs it before any output. It also checks that each player's `CT` and `T` slices reconstruct their totals, that the per-weapon slices reconstruct them too, and that each weapon class is itself zero-sum across players — both parties of a duel share the killer's weapon bucket, so every class is a closed slice.
 
 ### The side split (`--by-side`)
 
@@ -406,6 +408,22 @@ Both metrics are zero-sum across all players by construction. `Validate` sums ev
 The split is the cut that matters for role analysis: holding a site above expectation and taking space below it average to nothing in the combined number. `--by-side` prints two rows per player and adds `CT_DUEL/DUEL` / `T_DUEL/DUEL` columns to the `--top` leaderboard, which is the axis pair to plot as a scatter — one point per player, corners as role archetypes.
 
 **A side is not zero-sum on its own.** Only the two together are. Summed over every player, CT duel swing is the whole CT side's net over expectation, and that is zero only if the probability tables happen to be side-neutral. **They are not**: over the pro corpus every one of the top 15 players by round swing has a higher CT duel swing than T, typically by 0.04–0.11. The duel table keys on first-sight advantage, range and weapon class, none of which capture that the CT side is usually the one holding an angle. So a raw CT number and a raw T number are on different scales — compare a CT value against other players' CT values, and centre each axis on its own side's population mean before plotting the two together.
+
+### The weapon split (`--by-weapon`)
+
+`PlayerSwing.Weapons` slices both metrics by the weapon class that **resolved** each duel — the killer's weapon, since the victim's own is not stored. The printed legend carries the caveat because it is the most likely misreading: a player's "sniper" slice is duels *decided by* a sniper, which on their losses means the opponent's AWP. Rounds stay 0 within a slice (a round is not played "with a weapon class"), so only per-duel rates and totals are reported. Classes come from `swing.WeaponClass`, the same taxonomy the duel table keys on.
+
+### Floor / ceiling (`--floor-ceiling`)
+
+`ComputeByDemo` (internal/swing/distribution.go) partitions rounds and kills by demo hash in one pass and runs `Compute` per demo with the corpus-wide tables — same principle as `--by-map`: tables global, attribution per subset. Summed over demos, the per-player totals reconstruct the full-corpus run exactly (tested). `FloorCeilings` then takes p25/p50/p75 of the per-demo rates per player, skipping demos below 10 rounds (fragment appearances produce garbage rates) and players below `--min-demos` (default 8). With `--top N` it prints a population leaderboard ranked by round-swing floor: the players who beat expectation even in their bad games. A per-demo `DuelSwingSE` is huge (~20–40 duels), which is exactly why this reports quantiles of the distribution rather than any single demo's number.
+
+### Team shape (`--roster` / ≥3 ids)
+
+Median vs best `DuelSwingPerDuel` across the queried set, and the gap — the "hard carried" measure. It is only meaningful when the queried ids are an actual roster; there is no population version because the DB stores no team identity (sides only), so team membership must come from the caller.
+
+### Round context (`--context`)
+
+Prints the Pass 19 aggregates per player per side against the population per-side mean: good-gun % (rifle+sniper share of alive in-round samples), pack distance, first-contact and death timing. This is the denominator axis the swing numbers should be read against — a star's swing is bought with resources and freedom a support never gets. Loaders live in `internal/storage/context_queries.go`; they count only measured rounds (`gun_samples > 0`) and exclude `-1` sentinels from every mean, so demos aggregated before the Pass 19 backfill never dilute the numbers.
 
 ### Reading the numbers
 

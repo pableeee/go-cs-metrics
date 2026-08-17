@@ -164,8 +164,10 @@ func (db *DB) InsertPlayerRoundStats(stats []model.PlayerRoundStats) error {
 			is_opening_kill, is_opening_death, is_trade_kill, is_trade_death,
 			kills, assists, damage, unused_utility, buy_type,
 			is_post_plant, is_in_clutch, clutch_enemy_count, won_round,
-			scan_ooc_seconds, scan_dwell_pct, scan_reversals, scan_avg_yaw_deg_per_sec
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+			scan_ooc_seconds, scan_dwell_pct, scan_reversals, scan_avg_yaw_deg_per_sec,
+			gun_samples, gun_samples_rifle, gun_samples_sniper,
+			pack_dist_avg_m, first_contact_sec, death_sec
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -182,6 +184,8 @@ func (db *DB) InsertPlayerRoundStats(stats []model.PlayerRoundStats) error {
 			boolInt(s.IsPostPlant), boolInt(s.IsInClutch), s.ClutchEnemyCount,
 			boolInt(s.WonRound),
 			s.ScanOOCSeconds, s.ScanDwellPct, s.ScanReversals, s.ScanAvgYawDegPerSec,
+			s.GunSamples, s.GunSamplesRifle, s.GunSamplesSniper,
+			s.PackDistAvgM, s.FirstContactSec, s.DeathSec,
 		)
 		if err != nil {
 			return fmt.Errorf("insert player_round_stats: %w", err)

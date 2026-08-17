@@ -632,6 +632,54 @@ only a subset of rounds and the rate would be misleading.
 
 ---
 
+### swing
+
+Round swing and duel swing — win-probability-added metrics computed from
+empirical probability tables counted over the corpus (not a fitted model).
+Round swing asks *did your kills and deaths matter*; duel swing asks *did you
+beat the odds of the fights you took*, xG-style. Both are zero-sum across all
+players and validated as such before anything prints.
+
+```
+./go-cs-metrics swing <steamid64> [<steamid64>...] [flags]
+./go-cs-metrics swing --roster navi-roster.json [flags]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--tier <tier>` | all | Restrict the corpus (tables + attribution) to one tier — always set this; the tables are counted over whatever the filter admits |
+| `--since <date>` | none | Only matches on or after this date (`YYYY-MM-DD`) |
+| `--before <date>` | none | Only matches strictly before this date; with `--since`, bounds a point-in-time window |
+| `--by-side` | off | CT/T split of both metrics; adds per-side duel-swing columns to `--top` |
+| `--by-weapon` | off | Split by the weapon class that **resolved** each duel (the killer's — see the printed legend) |
+| `--by-map` | off | Per-map attribution (tables stay corpus-wide); combine with `--by-side` for CT/T rows per map |
+| `--floor-ceiling` | off | p25/p50/p75 of per-demo rates; with `--top N`, a leaderboard by round-swing floor |
+| `--min-demos <n>` | `8` | Floor/ceiling: omit players with fewer qualifying demos |
+| `--roster <file>` | none | Export-style roster JSON; its players are added to the query and name the team-shape section |
+| `--context` | off | Per-side round context: good-gun %, pack distance, contact timing (needs the Pass 19 backfill) |
+| `--top <n>` | `0` | Reference population: distribution + leaderboard + percentile rank for the queried players |
+| `--show-tables` | off | Print the empirical probability tables backing the numbers, for auditing |
+| `--min-rounds <n>` | `20` | Hide per-map rows below this many rounds |
+
+**Sections** (flag-gated after the always-on overview):
+
+1. **Swing overview** — both metrics with `±1` standard error on DUEL/DUEL
+2. **Swing by Side** — the role-analysis cut; a side is *not* zero-sum on its own, so read CT against other CTs
+3. **Swing by Weapon** — rifle/sniper/pistol/… slices; each class is itself zero-sum across players
+4. **Team Shape** — median vs best duel swing of the queried set (the "hard carried" gap); printed for `--roster` or ≥3 ids
+5. **Floor / Ceiling** — per-demo rate quantiles; a floor above zero means beating expectation even on bad days
+6. **Round Context** — what the rounds *gave* the player (resources and positioning), against the population per-side mean
+7. **Leaderboard** (`--top`) and **per-map** tables
+
+> **Reading the numbers.** DUEL/DUEL carries a sampling standard error that is
+> a *floor* (duels cluster within rounds and matches). Treat two players as
+> tied unless their gap is at least twice the larger error bar — ranking
+> teammates is usually not resolvable. Swing is zero-sum **within the filtered
+> corpus**, so a personal-tier number measures rank within that pool and is
+> never comparable with a pro-tier number.
+
+---
+
 ### drop
 
 Permanently delete the metrics database file. All stored demo data is lost; re-parse your demos to rebuild.
@@ -1047,6 +1095,23 @@ Where crosshair placement measures readiness at the moment of contact, scan vola
 Shown as `DWELL%`, `REV/MIN`, and `YAW°/S` in the Aim Timing & Movement tables (`show`, `player`) and per round in the `rounds` drill-down (rounds with < 5 s of qualifying time show `—`). Per-round raw values live in `player_round_stats` (`scan_ooc_seconds`, `scan_dwell_pct`, `scan_reversals`, `scan_avg_yaw_deg_per_sec`) for SQL analysis, e.g. comparing clutch vs. non-clutch rounds. Compare spike rounds against your own baseline rather than absolute thresholds.
 
 > **Note:** Values require view samples, which the `.csraw2.tar` pipeline always carries. Demos ingested before this metric shipped show 0 / `—`; re-run `replay --dir <event>/ --force` to backfill.
+
+---
+
+### Round Context (resources & positioning)
+
+Where the swing metrics measure what a player *did*, round context measures what the round *gave* them — the denominator their output should be read against. Computed per round in Pass 19 from the 16 Hz samples (weapon in hand, position) and the kill/damage logs (timing).
+
+| Metric | Definition |
+|--------|------------|
+| **GOOD_GUN%** | Share of alive in-round samples with a rifle or sniper in hand. Stars get fed the good guns; IGLs and supports hold SMGs and pistols. |
+| **PACK_DIST** | Average distance (m) to the *nearest* alive teammate. High on T side = lurker; low = pack player. Sole-survivor time is excluded — "infinitely far from the pack" would poison the mean. |
+| **FIRST_CONTACT** | Average seconds after freeze end of the player's first combat involvement (kill, death, damage dealt or received). Early = space taker / opening AWPer; late = anchor. |
+| **DEATH** | Average seconds after freeze end of death, over the rounds the player died. |
+
+Shown per side by `swing --context`, against the population per-side mean. Per-round raw values live in `player_round_stats` (`gun_samples`, `gun_samples_rifle`, `gun_samples_sniper`, `pack_dist_avg_m`, `first_contact_sec`, `death_sec`); the counts aggregate, the `-1` sentinels mean "unmeasured / did not happen" and must be filtered before averaging.
+
+> **Note:** Requires Pass 19. Demos aggregated before it shipped have `gun_samples = 0` and sentinel values — the loaders exclude them automatically; backfill with `replay --dir <event>/ --force`.
 
 ---
 

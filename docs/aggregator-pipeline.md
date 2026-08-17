@@ -262,3 +262,18 @@ Keyed by `(player, weapon)`. Every weapon fire increments `ShotsFired`; every en
 **Consistency with Pass 3's weapon hits.** The damage loop repeats the same filters (attacker known; team damage skipped via `AttackerTeam == VictimTeam`), so `HitsVisible ≤ Hits` always holds.
 
 **Degenerate inputs.** With no `ViewSamples` (data paths that carry no samples) shots are still counted and the visible counters stay 0, so callers can tell "all blind" from "not measured". Weapons fired without ever landing a hit still produce a weapon row.
+
+## Pass 19 — Round context (resources, spacing, timing)
+
+**Input:** `raw.ViewSamples`, `raw.Kills`, `raw.Damages`, `raw.Rounds`
+**Output:** `GunSamples`, `GunSamplesRifle`, `GunSamplesSniper`, `PackDistAvgM`, `FirstContactSec`, `DeathSec` on `[]PlayerRoundStats`.
+
+The denominator axes for the swing metrics: what the round *gave* the player, so their output can be read against it. One combined pass — resource share, pack distance and contact timing all share the same per-(player, round) grouping, freeze-end gate and alive filter.
+
+**Resource share.** One walk over `ViewSamples`, skipping `HP == 0` and pre-freeze-end ticks. Every qualifying sample increments `GunSamples`; classification uses `swing.WeaponClass` on the sample's active weapon — deliberately NOT the FHHS `weaponBucket`, which has no SMG class and splits rifles. Rifle-class and sniper-class samples get their own counters; "good gun %" is their sum over the total. Counts, not percentages, so they aggregate across rounds and demos.
+
+**Pack distance.** Same walk groups team-known samples by `(round, tick)` — the emitter writes all alive players in the same frame, so exact tick equality is the correct join. Per tick, each player's distance to the *nearest* alive teammate (squared-distance comparison, one `Sqrt` at the end) accumulates into a per-round mean in meters. A sole survivor contributes nothing: "infinitely far from the pack" would poison the average. `PackDistAvgM = -1` when no tick qualified.
+
+**Contact and death timing.** From the kill and damage logs, not samples: the earliest tick per (player, round) at which the player killed, died, dealt or received enemy damage, as seconds after `FreezeEndTick` (freeze-time events clamp to 0). Suicides and same-team events are not enemy contact — but a teamkill victim's `DeathSec` still records. `-1` = no contact / survived.
+
+**Degenerate inputs.** Rounds with no samples still get valid timing (it comes from events); rounds absent from the result entirely are patched to `-1/-1/-1` with 0 gun samples, so pre-backfill rows and unmeasured rounds are distinguishable from real zeros. Consumers must filter (`gun_samples > 0`, `>= 0`) before averaging — `internal/storage/context_queries.go` does.
