@@ -77,11 +77,14 @@ func (db *DB) GetAllPlayerRoundStats(steamID uint64) ([]model.PlayerRoundStats, 
 }
 
 // GetAllPlayerWeaponStats returns every per-weapon row for a given SteamID64
-// across all demos. Used for sniper-share (AWP/SSG) and utility-kill totals.
+// across all demos. Used for sniper-share (AWP/SSG) and utility-kill totals,
+// and for the aggregate weapon-accuracy table. Callers narrow to a demo
+// subset via the returned DemoHash.
 func (db *DB) GetAllPlayerWeaponStats(steamID uint64) ([]model.PlayerWeaponStats, error) {
 	steamIDStr := strconv.FormatUint(steamID, 10)
 	rows, err := db.conn.Query(`
-		SELECT demo_hash, weapon, kills, headshot_kills, assists, deaths, damage, hits
+		SELECT demo_hash, weapon, kills, headshot_kills, assists, deaths, damage, hits,
+		       shots_fired, shots_visible, hits_visible, head_hits, head_hits_visible
 		FROM player_weapon_stats
 		WHERE steam_id = ?`,
 		steamIDStr)
@@ -96,6 +99,7 @@ func (db *DB) GetAllPlayerWeaponStats(steamID uint64) ([]model.PlayerWeaponStats
 		if err := rows.Scan(
 			&s.DemoHash, &s.Weapon,
 			&s.Kills, &s.HeadshotKills, &s.Assists, &s.Deaths, &s.Damage, &s.Hits,
+			&s.ShotsFired, &s.ShotsVisible, &s.HitsVisible, &s.HeadHits, &s.HeadHitsVisible,
 		); err != nil {
 			return nil, err
 		}
@@ -250,18 +254,31 @@ func (db *DB) GetCohortAggregates(since string, minRounds int) ([]CohortAggregat
 	return out, rows.Err()
 }
 
+// GetPlayerTeamFlashSecondsByDemo is the mirror of
+// GetPlayerOpponentFlashSecondsByDemo: per-demo total seconds of *teammate*
+// blind time the player caused (is_team_flash=1). High values relative to
+// opponent blind time indicate poor flash discipline.
+// Only covers demos with flash_events rows populated; see file header.
+func (db *DB) GetPlayerTeamFlashSecondsByDemo(steamID uint64) (map[string]float64, error) {
+	return db.flashSecondsByDemo(steamID, 1)
+}
+
 // GetPlayerOpponentFlashSecondsByDemo returns per-demo total seconds of
 // opponent blind time produced by the player's flashbangs (team flashes
 // excluded). Source: flash_events (is_team_flash=0).
 // Only covers demos with flash_events rows populated; see file header.
 func (db *DB) GetPlayerOpponentFlashSecondsByDemo(steamID uint64) (map[string]float64, error) {
+	return db.flashSecondsByDemo(steamID, 0)
+}
+
+func (db *DB) flashSecondsByDemo(steamID uint64, teamFlash int) (map[string]float64, error) {
 	steamIDStr := strconv.FormatUint(steamID, 10)
 	rows, err := db.conn.Query(`
 		SELECT demo_hash, SUM(duration_s) AS s
 		FROM flash_events
-		WHERE thrower_id = ? AND is_team_flash = 0
+		WHERE thrower_id = ? AND is_team_flash = ?
 		GROUP BY demo_hash`,
-		steamIDStr)
+		steamIDStr, teamFlash)
 	if err != nil {
 		return nil, err
 	}

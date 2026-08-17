@@ -28,7 +28,7 @@ func makeRound(demoHash string, n int, team model.Team) model.PlayerRoundStats {
 // TestBuildRoleStats_EmptyInput verifies the all-zero case: empty stats slice
 // returns the zero value with no allocations and no panics.
 func TestBuildRoleStats_EmptyInput(t *testing.T) {
-	rs := buildRoleStats(nil, nil, nil, model.PlayerClutchMatchStats{}, nil, nil, nil, nil)
+	rs := buildRoleStats(nil, nil, nil, model.PlayerClutchMatchStats{}, nil, nil, nil, nil, nil, "both")
 	if rs.SteamID != 0 || rs.Matches != 0 || rs.RoundsPlayed != 0 {
 		t.Errorf("expected zero stats, got %+v", rs)
 	}
@@ -45,7 +45,7 @@ func TestBuildRoleStats_DivByZeroGuards(t *testing.T) {
 		RoundsPlayed: 5,
 		// Everything else 0.
 	}}
-	rs := buildRoleStats(stats, nil, nil, model.PlayerClutchMatchStats{}, nil, nil, nil, nil)
+	rs := buildRoleStats(stats, nil, nil, model.PlayerClutchMatchStats{}, nil, nil, nil, nil, nil, "both")
 	checks := map[string]float64{
 		"Rating2Combined":            rs.Rating2Combined,
 		"KASTPct":                    rs.KASTPct,
@@ -115,7 +115,7 @@ func TestBuildRoleStats_HappyPath(t *testing.T) {
 		KASTRounds:      6,
 		OpeningKills:    2,
 		OpeningDeaths:   2,
-		TradeKills:      0,
+		TradeKills:      2,
 		TradeDeaths:     1,
 		RoundsWon:       5,
 		SavedByTeammate:       2,
@@ -182,7 +182,7 @@ func TestBuildRoleStats_HappyPath(t *testing.T) {
 	oppFlashSecByDemo := map[string]float64{demoHash: 12.5}
 
 	rs := buildRoleStats(stats, roundStats, weaponStats, clutch,
-		sniperRounds, utilityKillsByDemo, flashesByDemo, oppFlashSecByDemo)
+		sniperRounds, utilityKillsByDemo, flashesByDemo, oppFlashSecByDemo, nil, "both")
 
 	// ---- Headline assertions ----
 	if rs.SteamID != 42 {
@@ -258,6 +258,18 @@ func TestBuildRoleStats_HappyPath(t *testing.T) {
 		t.Errorf("SupportRoundsPct = %v, want 20.0", rs.SupportRoundsPct)
 	}
 
+	// Traded deaths: only r5 has IsTradeDeath. 1/10 rounds = 0.1; 1/6 deaths ≈ 16.67%.
+	if !almostEq(rs.TradedDeathsPerRound, 0.1) {
+		t.Errorf("TradedDeathsPerRound = %v, want 0.1", rs.TradedDeathsPerRound)
+	}
+	if !almostEq(rs.TradedDeathsPct, 100.0/6.0) {
+		t.Errorf("TradedDeathsPct = %v, want %v", rs.TradedDeathsPct, 100.0/6.0)
+	}
+	// Assists: r4 only = 1 / 10 rounds = 0.1.
+	if !almostEq(rs.AssistsPerRound, 0.1) {
+		t.Errorf("AssistsPerRound = %v, want 0.1", rs.AssistsPerRound)
+	}
+
 	// ---- §2.2 Entrying — Pass 14 ----
 	// SavedByTeammate=2 / 10 rounds = 0.2.
 	if !almostEq(rs.SavedByTeammatePerRound, 0.2) {
@@ -265,6 +277,13 @@ func TestBuildRoleStats_HappyPath(t *testing.T) {
 	}
 
 	// ---- §2.3 Trading ----
+	// TradeKills=2 (match-level) / 10 rounds = 0.2; / 8 kills = 25%.
+	if !almostEq(rs.TradeKillsPerRound, 0.2) {
+		t.Errorf("TradeKillsPerRound = %v, want 0.2", rs.TradeKillsPerRound)
+	}
+	if !almostEq(rs.TradeKillsPct, 25.0) {
+		t.Errorf("TradeKillsPct = %v, want 25.0", rs.TradeKillsPct)
+	}
 	// Damage / kill = 350 / 8 = 43.75.
 	if !almostEq(rs.DamagePerKill, 43.75) {
 		t.Errorf("DamagePerKill = %v, want 43.75", rs.DamagePerKill)
@@ -383,9 +402,78 @@ func TestBuildRoleStats_CoverageFlags(t *testing.T) {
 		DemoHash: "d1", SteamID: 1, Name: "x", RoundsPlayed: 10,
 	}}
 	rs := buildRoleStats(stats, nil, nil, model.PlayerClutchMatchStats{},
-		nil, nil, nil, nil)
+		nil, nil, nil, nil, nil, "both")
 	if rs.HasSniperData || rs.HasUtilityData || rs.HasFlashThrowData || rs.HasFlashTimeData {
 		t.Errorf("coverage flags should all be false on empty inputs, got %+v", rs)
+	}
+}
+
+// TestBuildRoleStats_SideView verifies that side="ct" replaces the headline
+// and per-round denominators with side-only numbers (regression: these used
+// to stay at both-sides match-level values), while metrics from
+// non-side-tagged match columns stay combined.
+func TestBuildRoleStats_SideView(t *testing.T) {
+	const demoHash = "d1"
+	stats := []model.PlayerMatchStats{{
+		DemoHash: demoHash, SteamID: 42, Name: "alice",
+		Kills: 8, Assists: 1, Deaths: 6, TotalDamage: 350,
+		RoundsPlayed: 10, RoundsWon: 5, KASTRounds: 6,
+		SavedByTeammate: 2, TradeKills: 2,
+	}}
+	round := func(n int, kills, damage int, survived, kast, won, tradeD bool) model.PlayerRoundStats {
+		r := makeRound(demoHash, n, model.TeamCT)
+		r.SteamID = 42
+		r.Kills = kills
+		r.Damage = damage
+		r.Survived = survived
+		r.KASTEarned = kast
+		r.WonRound = won
+		r.WasTraded = tradeD
+		return r
+	}
+	// CT-only rounds, as filterRoundStatsBySide would produce for side=ct:
+	// K=4 A=1 D=2 dmg=160 kast=5 rp=5, wins=3, 1 multi-kill, 1 traded death.
+	ctRounds := []model.PlayerRoundStats{
+		round(1, 2, 80, true, true, true, false),
+		round(2, 1, 50, true, true, true, false),
+		round(3, 0, 0, true, true, true, false),
+		round(4, 1, 30, false, true, false, false),
+		round(5, 0, 0, false, true, false, true),
+	}
+	ctRounds[3].Assists = 1
+
+	rs := buildRoleStats(stats, ctRounds, nil, model.PlayerClutchMatchStats{},
+		nil, nil, nil, nil, nil, "ct")
+
+	if rs.RoundsPlayed != 5 {
+		t.Errorf("RoundsPlayed = %d, want 5 (CT rounds only)", rs.RoundsPlayed)
+	}
+	if rs.RoundsWon != 3 {
+		t.Errorf("RoundsWon = %d, want 3", rs.RoundsWon)
+	}
+	wantRating := rating2(4, 1, 2, 5, 160, 5)
+	if !almostEq(rs.Rating2Combined, wantRating) {
+		t.Errorf("Rating2Combined = %v, want CT-only %v", rs.Rating2Combined, wantRating)
+	}
+	if !almostEq(rs.KPR, 0.8) || !almostEq(rs.DPR, 0.4) || !almostEq(rs.ADR, 32.0) || !almostEq(rs.KASTPct, 100.0) {
+		t.Errorf("headline rates = KPR %v DPR %v ADR %v KAST %v, want 0.8 / 0.4 / 32 / 100",
+			rs.KPR, rs.DPR, rs.ADR, rs.KASTPct)
+	}
+	if !almostEq(rs.MultiKillPct, 20.0) {
+		t.Errorf("MultiKillPct = %v, want 20.0 (1 of 5 CT rounds)", rs.MultiKillPct)
+	}
+	if !almostEq(rs.KillsPerRoundWin, 1.0) {
+		t.Errorf("KillsPerRoundWin = %v, want 1.0 (3 kills / 3 CT wins)", rs.KillsPerRoundWin)
+	}
+	if !almostEq(rs.TradedDeathsPerRound, 0.2) || !almostEq(rs.TradedDeathsPct, 50.0) {
+		t.Errorf("TradedDeaths = %v/rd %v%%, want 0.2 / 50", rs.TradedDeathsPerRound, rs.TradedDeathsPct)
+	}
+	// Match-level columns are not side-tagged: still divided by all 10 rounds.
+	if !almostEq(rs.SavedByTeammatePerRound, 0.2) {
+		t.Errorf("SavedByTeammatePerRound = %v, want combined 0.2", rs.SavedByTeammatePerRound)
+	}
+	if !almostEq(rs.TradeKillsPerRound, 0.2) {
+		t.Errorf("TradeKillsPerRound = %v, want combined 0.2", rs.TradeKillsPerRound)
 	}
 }
 

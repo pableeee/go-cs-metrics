@@ -113,8 +113,14 @@ func loadRoleStatsForPlayer(
 	}
 	oppFlashSec = filterFloatMapByDemo(oppFlashSec, keep)
 
+	teamFlashSec, err := db.GetPlayerTeamFlashSecondsByDemo(id)
+	if err != nil {
+		return model.PlayerRoleStats{}, fmt.Errorf("get team flash seconds: %w", err)
+	}
+	teamFlashSec = filterFloatMapByDemo(teamFlashSec, keep)
+
 	rs := buildRoleStats(stats, roundStats, weaponStats, clutch,
-		sniperRounds, utilityKills, flashesThrown, oppFlashSec)
+		sniperRounds, utilityKills, flashesThrown, oppFlashSec, teamFlashSec, side)
 	// Overwrite display name in case the caller computed a normalised version.
 	rs.Name = name
 	return rs, nil
@@ -223,6 +229,14 @@ func isSniperWeapon(weapon string) bool {
 // from pre-filtered inputs. Callers (cmd/player) must filter every slice /
 // map by the same set of surviving demo hashes before calling.
 //
+// `side` must match the filter already applied to roundStats ("both", "ct",
+// or "t"). When not "both", every round-stats-derived metric (headline rating,
+// KAST/KPR/DPR/ADR, sample sizes, per-round rates) is computed over the
+// side-filtered rounds only. Match-level metrics whose columns are not
+// side-tagged (saved/saved-by, assisted kills, trade kills, sniper kills,
+// utility, HLTV flash assists, time alive) stay combined across both sides —
+// documented in the renderer.
+//
 // All slices may be empty; the function returns a zero PlayerRoleStats with
 // the SteamID populated when stats is non-empty.
 func buildRoleStats(
@@ -234,6 +248,8 @@ func buildRoleStats(
 	utilityKillsByDemo map[string]int,
 	flashesByDemo map[string]int,
 	oppFlashSecByDemo map[string]float64,
+	teamFlashSecByDemo map[string]float64,
+	side string,
 ) model.PlayerRoleStats {
 	var rs model.PlayerRoleStats
 	if len(stats) == 0 {
@@ -249,6 +265,7 @@ func buildRoleStats(
 		totalDamage, utilityDamage, kastRounds          int
 		roundsPlayed, roundsWon                         int
 		openingKills, openingDeaths                     int
+		tradeKills                                      int
 		savedByTeammate, savedTeammate, assistedKills   int
 		hltvFlashAssists                                int
 		aliveSecondsTotal                               float64
@@ -265,6 +282,7 @@ func buildRoleStats(
 		roundsWon += s.RoundsWon
 		openingKills += s.OpeningKills
 		openingDeaths += s.OpeningDeaths
+		tradeKills += s.TradeKills
 		savedByTeammate += s.SavedByTeammate
 		savedTeammate += s.SavedTeammate
 		assistedKills += s.AssistedKills
@@ -272,6 +290,10 @@ func buildRoleStats(
 		aliveSecondsTotal += s.AliveSecondsTotal
 		lastAliveServerRounds += s.LastAliveServerRounds
 	}
+	// matchRounds is the both-sides denominator used by metrics whose
+	// numerators come from non-side-tagged match-level columns. roundsPlayed
+	// below may be replaced by the side-round count when side != "both".
+	matchRounds := roundsPlayed
 	rs.RoundsPlayed = roundsPlayed
 	rs.RoundsWon = roundsWon
 	rs.Rating2Combined = rating2(kills, assists, deaths, kastRounds, totalDamage, roundsPlayed)
@@ -280,7 +302,9 @@ func buildRoleStats(
 		rs.KPR = float64(kills) / float64(roundsPlayed)
 		rs.DPR = float64(deaths) / float64(roundsPlayed)
 		rs.ADR = float64(totalDamage) / float64(roundsPlayed)
-		rs.UtilityDamagePerRound = float64(utilityDamage) / float64(roundsPlayed)
+	}
+	if matchRounds > 0 {
+		rs.UtilityDamagePerRound = float64(utilityDamage) / float64(matchRounds)
 	}
 
 	// ---- Per-round aggregates: side split + Firepower + Entrying + Opening + Pistol ----
@@ -302,9 +326,37 @@ func buildRoleStats(
 		supportRounds                   int
 		openingAttempts                 int
 		winsAfterOpener                 int
+		// Side-aware counters recomputed from the (possibly side-filtered)
+		// round stream. A player records at most one death / opening kill /
+		// opening death per round, so these flag sums are exact counts.
+		prsRounds, prsWins, prsDeaths int
+		prsAssists                    int
+		prsOpeningKills               int
+		prsOpeningDeaths              int
+		tradedDeaths                  int
 	)
 
 	for _, r := range roundStats {
+		prsRounds++
+		if r.WonRound {
+			prsWins++
+		}
+		if !r.Survived {
+			prsDeaths++
+		}
+		prsAssists += r.Assists
+		if r.IsOpeningKill {
+			prsOpeningKills++
+		}
+		if r.IsOpeningDeath {
+			prsOpeningDeaths++
+		}
+		// HLTV "traded death" = my death was avenged by a teammate within the
+		// trade window — that is WasTraded. (IsTradeDeath is the opponent's
+		// perspective: this player died as a trade after making a kill.)
+		if r.WasTraded {
+			tradedDeaths++
+		}
 		// Per-side accumulator (CT or T). Skip if neither.
 		var sa *sideAccum
 		switch r.Team {
@@ -353,8 +405,10 @@ func buildRoleStats(
 			dmgInWonRounds += r.Damage
 		}
 
-		// §2.2 — entrying.
-		if r.IsOpeningDeath && r.IsTradeDeath {
+		// §2.2 — entrying. WasTraded, not IsTradeDeath: an opening death can
+		// never satisfy IsTradeDeath (there is no earlier kill to trade), so
+		// the old flag pinned this metric at ~0% DB-wide.
+		if r.IsOpeningDeath && r.WasTraded {
 			openingDeathTraded++
 		}
 		if !r.GotKill && (r.GotAssist || r.Survived || r.WasTraded) {
@@ -374,36 +428,67 @@ func buildRoleStats(
 	rs.Rating2T = rating2(t.kills, t.assists, t.deaths, t.kastRounds, t.damage, t.rp)
 	rs.PistolRoundRating = rating2(pistol.kills, pistol.assists, pistol.deaths, pistol.kastRounds, pistol.damage, pistol.rp)
 
-	if roundsPlayed > 0 {
-		rs.MultiKillPct = 100.0 * float64(roundsMultiKill) / float64(roundsPlayed)
-		rs.RoundsWithKillPct = 100.0 * float64(roundsWithKill) / float64(roundsPlayed)
-		rs.OpeningKPR = float64(openingKills) / float64(roundsPlayed)
-		rs.OpeningDPR = float64(openingDeaths) / float64(roundsPlayed)
-		rs.OpeningAttemptsPct = 100.0 * float64(openingAttempts) / float64(roundsPlayed)
-		rs.SupportRoundsPct = 100.0 * float64(supportRounds) / float64(roundsPlayed)
+	// Side-restricted view: replace the headline (which was computed from
+	// both-sides match-level columns) with side-only numbers, and shrink the
+	// sample sizes to side rounds. roundStats is already side-filtered, so
+	// the CT or T accumulator holds exactly the requested side.
+	if side == "ct" || side == "t" {
+		sa := &ct
+		if side == "t" {
+			sa = &t
+		}
+		rs.RoundsPlayed = sa.rp
+		rs.RoundsWon = prsWins
+		rs.Rating2Combined = rating2(sa.kills, sa.assists, sa.deaths, sa.kastRounds, sa.damage, sa.rp)
+		rs.KASTPct, rs.KPR, rs.DPR, rs.ADR = 0, 0, 0, 0
+		if sa.rp > 0 {
+			rs.KASTPct = 100.0 * float64(sa.kastRounds) / float64(sa.rp)
+			rs.KPR = float64(sa.kills) / float64(sa.rp)
+			rs.DPR = float64(sa.deaths) / float64(sa.rp)
+			rs.ADR = float64(sa.damage) / float64(sa.rp)
+		}
 	}
-	if roundsWon > 0 {
-		rs.KillsPerRoundWin = float64(killsInWonRounds) / float64(roundsWon)
-		rs.DamagePerRoundWin = float64(dmgInWonRounds) / float64(roundsWon)
+
+	if prsRounds > 0 {
+		rs.MultiKillPct = 100.0 * float64(roundsMultiKill) / float64(prsRounds)
+		rs.RoundsWithKillPct = 100.0 * float64(roundsWithKill) / float64(prsRounds)
+		rs.OpeningKPR = float64(prsOpeningKills) / float64(prsRounds)
+		rs.OpeningDPR = float64(prsOpeningDeaths) / float64(prsRounds)
+		rs.OpeningAttemptsPct = 100.0 * float64(openingAttempts) / float64(prsRounds)
+		rs.SupportRoundsPct = 100.0 * float64(supportRounds) / float64(prsRounds)
+		rs.TradedDeathsPerRound = float64(tradedDeaths) / float64(prsRounds)
+		rs.AssistsPerRound = float64(prsAssists) / float64(prsRounds)
 	}
-	if openingDeaths > 0 {
-		rs.OpeningDeathTradedPct = 100.0 * float64(openingDeathTraded) / float64(openingDeaths)
+	if prsDeaths > 0 {
+		rs.TradedDeathsPct = 100.0 * float64(tradedDeaths) / float64(prsDeaths)
+	}
+	if prsWins > 0 {
+		rs.KillsPerRoundWin = float64(killsInWonRounds) / float64(prsWins)
+		rs.DamagePerRoundWin = float64(dmgInWonRounds) / float64(prsWins)
+	}
+	if prsOpeningDeaths > 0 {
+		rs.OpeningDeathTradedPct = 100.0 * float64(openingDeathTraded) / float64(prsOpeningDeaths)
 	}
 	if openingAttempts > 0 {
-		rs.OpeningSuccessPct = 100.0 * float64(openingKills) / float64(openingAttempts)
+		rs.OpeningSuccessPct = 100.0 * float64(prsOpeningKills) / float64(openingAttempts)
 	}
-	if openingKills > 0 {
-		rs.WinAfterOpenPct = 100.0 * float64(winsAfterOpener) / float64(openingKills)
+	if prsOpeningKills > 0 {
+		rs.WinAfterOpenPct = 100.0 * float64(winsAfterOpener) / float64(prsOpeningKills)
 	}
 
 	// ---- §2.3 Trading ----
+	// Trade kills, saves, and assisted kills come from match-level columns
+	// that are not side-tagged, so they stay combined in side views (over
+	// matchRounds / match-level kill totals).
 	if kills > 0 {
 		rs.DamagePerKill = float64(totalDamage) / float64(kills)
 		rs.AssistedKillsPct = 100.0 * float64(assistedKills) / float64(kills)
+		rs.TradeKillsPct = 100.0 * float64(tradeKills) / float64(kills)
 	}
-	if roundsPlayed > 0 {
-		rs.SavedByTeammatePerRound = float64(savedByTeammate) / float64(roundsPlayed)
-		rs.SavedTeammatePerRound = float64(savedTeammate) / float64(roundsPlayed)
+	if matchRounds > 0 {
+		rs.TradeKillsPerRound = float64(tradeKills) / float64(matchRounds)
+		rs.SavedByTeammatePerRound = float64(savedByTeammate) / float64(matchRounds)
+		rs.SavedTeammatePerRound = float64(savedTeammate) / float64(matchRounds)
 	}
 
 	// ---- §2.5 Clutching ----
@@ -528,9 +613,14 @@ func buildRoleStats(
 	for _, v := range oppFlashSecByDemo {
 		oppFlashSec += v
 	}
-	if roundsPlayed > 0 {
-		rs.OppFlashSecPerRound = oppFlashSec / float64(roundsPlayed)
-		rs.HltvFlashAssistsPerRound = float64(hltvFlashAssists) / float64(roundsPlayed)
+	var teamFlashSec float64
+	for _, v := range teamFlashSecByDemo {
+		teamFlashSec += v
+	}
+	if matchRounds > 0 {
+		rs.OppFlashSecPerRound = oppFlashSec / float64(matchRounds)
+		rs.TeamFlashSecPerRound = teamFlashSec / float64(matchRounds)
+		rs.HltvFlashAssistsPerRound = float64(hltvFlashAssists) / float64(matchRounds)
 	}
 
 	return rs

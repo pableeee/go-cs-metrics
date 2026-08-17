@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"database/sql"
+	"path/filepath"
 	"testing"
 
 	"github.com/pable/go-cs-metrics/internal/model"
@@ -230,5 +232,264 @@ func TestInsertIdempotency(t *testing.T) {
 	// Second insert should not error (INSERT OR REPLACE).
 	if err := db.InsertDemo(s, ""); err != nil {
 		t.Errorf("second InsertDemo should succeed (idempotent): %v", err)
+	}
+}
+
+// TestPlayerWeaponStatsRoundTrip covers the Pass 18 shot-accounting columns
+// through both read paths: GetPlayerWeaponStats (per demo, used by `show`)
+// and GetAllPlayerWeaponStats (per player, used by `player`).
+func TestPlayerWeaponStatsRoundTrip(t *testing.T) {
+	db := openMemDB(t)
+
+	const hash = "wpn1"
+	if err := db.InsertDemo(model.MatchSummary{
+		DemoHash: hash, MapName: "de_mirage", MatchDate: "2025-01-01", Tickrate: 64,
+	}, ""); err != nil {
+		t.Fatalf("InsertDemo: %v", err)
+	}
+
+	want := model.PlayerWeaponStats{
+		DemoHash: hash, SteamID: 76561198000000001, Weapon: "AK-47",
+		Kills: 10, HeadshotKills: 4, Assists: 2, Deaths: 6, Damage: 1500, Hits: 40,
+		ShotsFired: 200, ShotsVisible: 80, HitsVisible: 30,
+		HeadHits: 8, HeadHitsVisible: 5,
+	}
+	if err := db.InsertPlayerWeaponStats([]model.PlayerWeaponStats{want}); err != nil {
+		t.Fatalf("InsertPlayerWeaponStats: %v", err)
+	}
+
+	byDemo, err := db.GetPlayerWeaponStats(hash)
+	if err != nil {
+		t.Fatalf("GetPlayerWeaponStats: %v", err)
+	}
+	if len(byDemo) != 1 {
+		t.Fatalf("GetPlayerWeaponStats returned %d rows, want 1", len(byDemo))
+	}
+	if byDemo[0] != want {
+		t.Errorf("GetPlayerWeaponStats round trip:\n got %+v\nwant %+v", byDemo[0], want)
+	}
+
+	byPlayer, err := db.GetAllPlayerWeaponStats(want.SteamID)
+	if err != nil {
+		t.Fatalf("GetAllPlayerWeaponStats: %v", err)
+	}
+	if len(byPlayer) != 1 {
+		t.Fatalf("GetAllPlayerWeaponStats returned %d rows, want 1", len(byPlayer))
+	}
+	if byPlayer[0] != want {
+		t.Errorf("GetAllPlayerWeaponStats round trip:\n got %+v\nwant %+v", byPlayer[0], want)
+	}
+
+	// Derived rates come off the stored counters, not a recomputation.
+	got := byPlayer[0]
+	if v := got.AccuracyVisible(); v != 37.5 { // 30/80
+		t.Errorf("AccuracyVisible() = %v, want 37.5", v)
+	}
+	if v := got.BlindShotPct(); v != 60 { // (200-80)/200
+		t.Errorf("BlindShotPct() = %v, want 60", v)
+	}
+	if v := got.ShotsBlind(); v != 120 {
+		t.Errorf("ShotsBlind() = %d, want 120", v)
+	}
+}
+
+// TestDuelSegmentsRoundRoundTrip covers the round_number dimension end to end.
+func TestDuelSegmentsRoundRoundTrip(t *testing.T) {
+	db := openMemDB(t)
+	const hash = "seg1"
+	if err := db.InsertDemo(model.MatchSummary{
+		DemoHash: hash, MapName: "de_nuke", MatchDate: "2025-01-01", Tickrate: 64,
+	}, ""); err != nil {
+		t.Fatalf("InsertDemo: %v", err)
+	}
+
+	segs := []model.PlayerDuelSegment{
+		{DemoHash: hash, SteamID: 1, RoundNumber: 3, WeaponBucket: "AK", DistanceBin: "10-15m",
+			DuelCount: 2, FirstHitCount: 2, FirstHitHSCount: 1,
+			MedianCorrDeg: 4.5, MedianSightDeg: 5.5, MedianExpoWinMs: 900},
+		// Same player/bucket/bin, different round: must be a distinct row now.
+		{DemoHash: hash, SteamID: 1, RoundNumber: 7, WeaponBucket: "AK", DistanceBin: "10-15m",
+			DuelCount: 1, FirstHitCount: 1, FirstHitHSCount: 0,
+			MedianCorrDeg: 2.0, MedianSightDeg: 3.0, MedianExpoWinMs: 400},
+	}
+	if err := db.InsertPlayerDuelSegments(segs); err != nil {
+		t.Fatalf("InsertPlayerDuelSegments: %v", err)
+	}
+
+	got, err := db.GetAllPlayerDuelSegments(1)
+	if err != nil {
+		t.Fatalf("GetAllPlayerDuelSegments: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d rows, want 2 — round must be part of the key", len(got))
+	}
+	rounds := map[int]bool{}
+	for _, s := range got {
+		rounds[s.RoundNumber] = true
+	}
+	if !rounds[3] || !rounds[7] {
+		t.Errorf("round numbers not round-tripped: %v", rounds)
+	}
+}
+
+// Re-inserting a demo's segments must replace them wholesale. Without the
+// delete-before-insert, a segment that no longer exists (or that was written
+// under an older key shape) would linger and double-count.
+func TestInsertPlayerDuelSegments_ReplacesDemoWholesale(t *testing.T) {
+	db := openMemDB(t)
+	const hash = "seg2"
+	if err := db.InsertDemo(model.MatchSummary{
+		DemoHash: hash, MapName: "de_nuke", MatchDate: "2025-01-01", Tickrate: 64,
+	}, ""); err != nil {
+		t.Fatalf("InsertDemo: %v", err)
+	}
+
+	first := []model.PlayerDuelSegment{
+		{DemoHash: hash, SteamID: 1, RoundNumber: 1, WeaponBucket: "AK", DistanceBin: "5-10m", DuelCount: 1, FirstHitCount: 1},
+		{DemoHash: hash, SteamID: 1, RoundNumber: 2, WeaponBucket: "AK", DistanceBin: "5-10m", DuelCount: 1, FirstHitCount: 1},
+	}
+	if err := db.InsertPlayerDuelSegments(first); err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+
+	// Re-aggregation now yields only one round.
+	second := []model.PlayerDuelSegment{
+		{DemoHash: hash, SteamID: 1, RoundNumber: 1, WeaponBucket: "AK", DistanceBin: "5-10m", DuelCount: 1, FirstHitCount: 1},
+	}
+	if err := db.InsertPlayerDuelSegments(second); err != nil {
+		t.Fatalf("second insert: %v", err)
+	}
+
+	got, err := db.GetAllPlayerDuelSegments(1)
+	if err != nil {
+		t.Fatalf("GetAllPlayerDuelSegments: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d rows, want 1 — round 2 should have been cleared, not left behind", len(got))
+	}
+	if got[0].RoundNumber != 1 {
+		t.Errorf("surviving row is round %d, want 1", got[0].RoundNumber)
+	}
+}
+
+// Segments for other demos must survive a re-insert of one demo.
+func TestInsertPlayerDuelSegments_ScopedToItsOwnDemos(t *testing.T) {
+	db := openMemDB(t)
+	for _, h := range []string{"segA", "segB"} {
+		if err := db.InsertDemo(model.MatchSummary{
+			DemoHash: h, MapName: "de_nuke", MatchDate: "2025-01-01", Tickrate: 64,
+		}, ""); err != nil {
+			t.Fatalf("InsertDemo %s: %v", h, err)
+		}
+	}
+	if err := db.InsertPlayerDuelSegments([]model.PlayerDuelSegment{
+		{DemoHash: "segA", SteamID: 1, RoundNumber: 1, WeaponBucket: "AK", DistanceBin: "5-10m", DuelCount: 1},
+		{DemoHash: "segB", SteamID: 1, RoundNumber: 1, WeaponBucket: "AK", DistanceBin: "5-10m", DuelCount: 1},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := db.InsertPlayerDuelSegments([]model.PlayerDuelSegment{
+		{DemoHash: "segA", SteamID: 1, RoundNumber: 2, WeaponBucket: "AK", DistanceBin: "5-10m", DuelCount: 1},
+	}); err != nil {
+		t.Fatalf("re-insert segA: %v", err)
+	}
+	got, err := db.GetAllPlayerDuelSegments(1)
+	if err != nil {
+		t.Fatalf("GetAllPlayerDuelSegments: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d rows, want 2 (segA round 2 + untouched segB)", len(got))
+	}
+	for _, s := range got {
+		if s.DemoHash == "segB" && s.RoundNumber != 1 {
+			t.Errorf("segB was modified: %+v", s)
+		}
+	}
+}
+
+// TestMigrateDuelSegmentsRound builds a database with the pre-round table
+// shape, then opens it through Open and checks the rebuild happened: the
+// column exists, old rows survive marked as round -1, and the new UNIQUE key
+// admits two rounds that the old key would have collapsed into one row.
+func TestMigrateDuelSegmentsRound(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+
+	// Build the old shape by hand — no round_number, old UNIQUE key.
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatalf("open raw: %v", err)
+	}
+	_, err = raw.Exec(`
+		CREATE TABLE demos (hash TEXT PRIMARY KEY, map_name TEXT, match_date TEXT,
+			match_type TEXT, tickrate REAL, ct_score INT, t_score INT);
+		INSERT INTO demos(hash) VALUES ('old1');
+		CREATE TABLE player_duel_segments (
+			demo_hash          TEXT NOT NULL REFERENCES demos(hash),
+			steam_id           TEXT NOT NULL,
+			weapon_bucket      TEXT NOT NULL,
+			distance_bin       TEXT NOT NULL,
+			duel_count         INTEGER NOT NULL DEFAULT 0,
+			first_hit_count    INTEGER NOT NULL DEFAULT 0,
+			first_hit_hs_count INTEGER NOT NULL DEFAULT 0,
+			median_corr_deg    REAL    NOT NULL DEFAULT 0,
+			median_sight_deg   REAL    NOT NULL DEFAULT 0,
+			median_expo_win_ms REAL    NOT NULL DEFAULT 0,
+			UNIQUE(demo_hash, steam_id, weapon_bucket, distance_bin)
+		);
+		INSERT INTO player_duel_segments VALUES
+			('old1','1','AK','10-15m',5,5,2,4.0,5.0,900);`)
+	if err != nil {
+		t.Fatalf("seed old schema: %v", err)
+	}
+	raw.Close()
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open (should migrate): %v", err)
+	}
+	defer db.Close()
+
+	got, err := db.GetAllPlayerDuelSegments(1)
+	if err != nil {
+		t.Fatalf("GetAllPlayerDuelSegments: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d rows, want 1 carried over", len(got))
+	}
+	if got[0].RoundNumber != -1 {
+		t.Errorf("carried-over row has round %d, want -1 (unknown)", got[0].RoundNumber)
+	}
+	if got[0].DuelCount != 5 || got[0].MedianCorrDeg != 4.0 {
+		t.Errorf("payload not preserved: %+v", got[0])
+	}
+
+	// The new key must allow the same (player, bucket, bin) in two rounds.
+	if err := db.InsertPlayerDuelSegments([]model.PlayerDuelSegment{
+		{DemoHash: "old1", SteamID: 1, RoundNumber: 1, WeaponBucket: "AK", DistanceBin: "10-15m", DuelCount: 1},
+		{DemoHash: "old1", SteamID: 1, RoundNumber: 2, WeaponBucket: "AK", DistanceBin: "10-15m", DuelCount: 1},
+	}); err != nil {
+		t.Fatalf("insert after migration: %v", err)
+	}
+	got, err = db.GetAllPlayerDuelSegments(1)
+	if err != nil {
+		t.Fatalf("GetAllPlayerDuelSegments: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d rows, want 2 distinct rounds", len(got))
+	}
+
+	// Re-opening an already-migrated DB must be a no-op, not a second rebuild.
+	db.Close()
+	db2, err := Open(path)
+	if err != nil {
+		t.Fatalf("second Open: %v", err)
+	}
+	defer db2.Close()
+	again, err := db2.GetAllPlayerDuelSegments(1)
+	if err != nil {
+		t.Fatalf("GetAllPlayerDuelSegments after reopen: %v", err)
+	}
+	if len(again) != 2 {
+		t.Errorf("got %d rows after reopen, want 2 — migration is not idempotent", len(again))
 	}
 }
