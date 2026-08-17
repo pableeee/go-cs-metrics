@@ -397,7 +397,15 @@ A consequence worth knowing: the symmetric buckets (`even`, `neither`) are force
 
 ### Zero-sum validation
 
-Both metrics are zero-sum across all players by construction. `Validate` sums every player's totals and refuses to print if either is non-zero beyond floating-point slack — a leak means attribution is broken and the numbers are not trustworthy. The command runs it before any output.
+Both metrics are zero-sum across all players by construction. `Validate` sums every player's totals and refuses to print if either is non-zero beyond floating-point slack — a leak means attribution is broken and the numbers are not trustworthy. The command runs it before any output. It also checks that each player's `CT` and `T` slices reconstruct their totals, which is the only structural check available on the side split (see below).
+
+### The side split (`--by-side`)
+
+`PlayerSwing.CT` / `.T` carry both metrics restricted to the side the player was on at the time; the duel's victim is on the opposite side by construction, so every attribution knows its side without extra lookups. Sides swap at halftime, so almost every player has both populated.
+
+The split is the cut that matters for role analysis: holding a site above expectation and taking space below it average to nothing in the combined number. `--by-side` prints two rows per player and adds `CT_DUEL/DUEL` / `T_DUEL/DUEL` columns to the `--top` leaderboard, which is the axis pair to plot as a scatter — one point per player, corners as role archetypes.
+
+**A side is not zero-sum on its own.** Only the two together are. Summed over every player, CT duel swing is the whole CT side's net over expectation, and that is zero only if the probability tables happen to be side-neutral. **They are not**: over the pro corpus every one of the top 15 players by round swing has a higher CT duel swing than T, typically by 0.04–0.11. The duel table keys on first-sight advantage, range and weapon class, none of which capture that the CT side is usually the one holding an angle. So a raw CT number and a raw T number are on different scales — compare a CT value against other players' CT values, and centre each axis on its own side's population mean before plotting the two together.
 
 ### Reading the numbers
 
@@ -410,10 +418,12 @@ Round swing per round is a fraction of a probability point, which means nothing 
 - The tables condition on states *reached*, which is not a random sample: teams that arrive at 3v2 differ systematically from those that do not. HLTV's round swing shares this property. Read a cell as "how this state resolves in practice", not as a causal claim.
 - This is **not** HLTV's published round swing. That one also credits damage, flash assists, trading and economy, so the scales are not comparable and an outside number must not be used as a reference for this one.
 - Round swing is attributed at kills only. Plants, defuses and utility damage move win probability too and are invisible to it.
-- The first-sight advantage is **not monotonic**: `+1000ms` wins only 51.8% against `+400ms`'s 61.7% (n = 9508 each). A long lead most likely means the player spotted someone distant who then chose when to engage, so the bucket mixes "saw and fought" with "saw and waited". Splitting those is the obvious next refinement.
+- The first-sight advantage is **not monotonic on its own**: `+1000ms` wins only 51.8% against `+400ms`'s 61.7%. The duel table therefore keys on a second axis, **freshness** — how long both players had been mutually aware when the duel resolved. It carries most of the missing signal: a `+400ms` lead is worth 0.680 when the duel resolves within 300ms of mutual awareness and only 0.503 once both sides have known for over three seconds. A stale lead is not a lead; the player saw and did not act, and the opponent picked the moment. Even at matched freshness `+1000ms` still trails `+400ms` (0.548 vs 0.680), so some of the effect remains unexplained — most likely a very long lead is a peripheral or distant spot rather than real awareness.
 - Duel swing conditions on first-sight advantage, range and weapon class. HP, armour, flashed state and movement are all in the corpus and would refine it.
+- **Duel swing per duel is printed with its standard error** (`DUEL/DUEL` reads `+0.0624 ±0.0187`). Each duel is one Bernoulli draw whose variance the table already supplies, so `Compute` accumulates `Σ p(1−p)` alongside the swing itself and `DuelSwingSE = √DuelVarSum / Duels`. Most duels sit in a bucket mirroring pins at exactly 0.500, so the result tracks `0.5/√duels` closely and runs a little tighter where the sighting was asymmetric. A player with ~700 T-side duels — a full season on one side — lands near ±0.018, so a 95% interval is ~0.07 wide, the same order as the entire spread between five teammates. **Ranking players inside one team is therefore usually not resolvable**; separating the top pair from the bottom pair often is. Two caveats the number does not cover: duels cluster within rounds and matches instead of being independent draws, so it is a floor; and it is sampling error only, silent about the features the table omits and the systematic CT/T offset those omissions produce.
 - `--by-map` recomputes attribution per map but keeps the tables corpus-wide, on purpose: splitting the tables per map would shrink every cell far more than map identity changes what a 3v2 is worth.
-- `player_round_stats` occasionally reports more than five players per side (mid-round reconnects), which shows up as 6v6 and 7v2 cells. Harmless to the walk, but it should not exist.
+- Symmetric advantage buckets (`even`, `neither`) sit at exactly 0.500 no matter what else is in the key: mirroring forces it. They hold the large majority of duels, so the model only truly discriminates where the sighting was asymmetric. Making the common case informative needs an asymmetric feature that is not the sighting — HP, armour, or who was holding versus moving.
+- `WeaponBucket` is the weapon the *kill* was made with, and the mirrored entry reuses it for the loser. The victim's own weapon is not stored, so a rifle-versus-pistol duel is keyed as if both sides held a rifle.
 
 ## Parser: Event Handling Notes
 

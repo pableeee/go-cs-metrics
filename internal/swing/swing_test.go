@@ -34,12 +34,12 @@ func TestBuildDuelTable_MirrorsBothSides(t *testing.T) {
 	dt := BuildDuelTable(kills)
 
 	// Winner spotted 500ms first → "+400ms" bucket, should be ~1.0.
-	p, n := dt.P("+400ms", "10-15m", "rifle")
+	p, n := dt.P("+400ms", "n/a", "10-15m", "rifle")
 	if n < 100 || p < 0.99 {
 		t.Errorf("P(win | +400ms) = %.3f (n=%d), want ~1.0", p, n)
 	}
 	// The mirrored side sat at -500ms and always lost → should be ~0.0.
-	p2, n2 := dt.P("-400ms", "10-15m", "rifle")
+	p2, n2 := dt.P("-400ms", "n/a", "10-15m", "rifle")
 	if n2 < 100 || p2 > 0.01 {
 		t.Errorf("P(win | -400ms) = %.3f (n=%d), want ~0.0", p2, n2)
 	}
@@ -212,7 +212,7 @@ func TestCompute_DuelSwingRewardsUnlikelyWins(t *testing.T) {
 	dt := BuildDuelTable(kills)
 
 	// Sanity: the table should have learned that seeing first wins ~80%.
-	if p, _ := dt.P("+400ms", "10-15m", "rifle"); p < 0.75 || p > 0.85 {
+	if p, _ := dt.P("+400ms", "n/a", "10-15m", "rifle"); p < 0.75 || p > 0.85 {
 		t.Fatalf("P(win | +400ms) = %.3f, want ~0.80 — fixture does not encode an advantage", p)
 	}
 
@@ -226,5 +226,224 @@ func TestCompute_DuelSwingRewardsUnlikelyWins(t *testing.T) {
 	}
 	if math.Abs(res[1].DuelSwingPerDuel) > math.Abs(res[3].DuelSwingPerDuel) {
 		t.Errorf("expected wins should score near zero, got %.4f", res[1].DuelSwingPerDuel)
+	}
+}
+
+// A sighting lead decays. Two duels with the same advantage but different
+// freshness must not be given the same expectation — that conflation is what
+// made the advantage axis look non-monotonic on the real corpus.
+func TestDuelTable_FreshnessSeparatesStaleLeads(t *testing.T) {
+	var kills []Kill
+	// killerAdvMs is always from the killer's point of view, so a negative
+	// value means the player who won had been at a sighting disadvantage.
+	add := func(n int, killerAdvMs, mutualMs float64) {
+		for i := 0; i < n; i++ {
+			k := mkKill("h", 1, len(kills), 1, 6, true)
+			k.SightAdvantageMs = killerAdvMs
+			k.MutualAwarenessMs = mutualMs
+			k.MutualKnown = true
+			kills = append(kills, k)
+		}
+	}
+	// Fresh: the sighting lead converts 90% of the time.
+	add(90, 800, 100)
+	add(10, -800, 100)
+	// Stale: the same lead is worth nothing.
+	add(50, 800, 5000)
+	add(50, -800, 5000)
+
+	dt := BuildDuelTable(kills)
+	fresh, nf := dt.P("+400ms", "<300ms", "10-15m", "rifle")
+	stale, ns := dt.P("+400ms", ">3s", "10-15m", "rifle")
+	if nf < MinCellSamples || ns < MinCellSamples {
+		t.Fatalf("insufficient samples: fresh n=%d stale n=%d", nf, ns)
+	}
+	if fresh <= stale {
+		t.Errorf("fresh lead %.3f should beat stale lead %.3f", fresh, stale)
+	}
+	if stale < 0.4 || stale > 0.6 {
+		t.Errorf("stale lead = %.3f, want ~0.5 (the lead should have decayed)", stale)
+	}
+	if fresh < 0.8 {
+		t.Errorf("fresh lead = %.3f, want ~0.9", fresh)
+	}
+}
+
+// Freshness is symmetric, so mirroring must not change it — otherwise the two
+// sides of one duel would be scored against different cells.
+func TestFreshnessBucket_IsSymmetricAndHandlesUnknown(t *testing.T) {
+	if got := FreshnessBucket(0, false); got != "n/a" {
+		t.Errorf("FreshnessBucket(_, false) = %q, want n/a", got)
+	}
+	for _, c := range []struct {
+		ms   float64
+		want string
+	}{{100, "<300ms"}, {500, "300ms-1s"}, {2000, "1-3s"}, {9000, ">3s"}} {
+		if got := FreshnessBucket(c.ms, true); got != c.want {
+			t.Errorf("FreshnessBucket(%v) = %q, want %q", c.ms, got, c.want)
+		}
+	}
+}
+
+// mkSwapRound puts 1-5 on CT and 6-10 on T for the first half and swaps them
+// for the second, which is what makes the side split non-trivial: without a
+// halftime swap every player has one empty side.
+func mkSwapRound(hash string, n int, ctWon bool) Round {
+	first := []uint64{1, 2, 3, 4, 5}
+	second := []uint64{6, 7, 8, 9, 10}
+	if n > 12 {
+		first, second = second, first
+	}
+	return Round{
+		DemoHash: hash, RoundNumber: n, CTWon: ctWon,
+		PlayersCT: first, PlayersT: second,
+	}
+}
+
+// The whole point of the split: a player who beats expectation on one side and
+// misses it by the same margin on the other has a combined number of zero. If
+// the sides were not attributed separately that player would be indistinguishable
+// from someone who was exactly average on both.
+func TestCompute_SideSplitSeparatesOpposingSides(t *testing.T) {
+	var rounds []Round
+	var kills []Kill
+	for r := 1; r <= 24; r++ {
+		rounds = append(rounds, mkSwapRound("h", r, r%2 == 0))
+		if r <= 12 {
+			// Player 1 is CT and wins every duel.
+			kills = append(kills, mkKill("h", r, 100, 1, 6, true))
+		} else {
+			// Sides swapped: player 6 is now CT, player 1 is T and loses.
+			kills = append(kills, mkKill("h", r, 100, 6, 1, true))
+		}
+	}
+	rt := BuildRoundTable(rounds, kills)
+	dt := BuildDuelTable(kills)
+	res := Compute(rounds, kills, rt, dt)
+	if err := Validate(res); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	p := res[1]
+	if p.Rounds != 24 || p.CT.Rounds != 12 || p.T.Rounds != 12 {
+		t.Fatalf("rounds = %d (CT %d, T %d), want 24 (12, 12)", p.Rounds, p.CT.Rounds, p.T.Rounds)
+	}
+	if p.CT.Duels != 12 || p.T.Duels != 12 || p.CT.DuelsWon != 12 || p.T.DuelsWon != 0 {
+		t.Fatalf("duels = CT %d/%d won, T %d/%d won; want CT 12/12, T 0/12",
+			p.CT.DuelsWon, p.CT.Duels, p.T.DuelsWon, p.T.Duels)
+	}
+
+	// Every duel is mutually-sighted and even, so mirroring pins P at exactly
+	// 0.500 and each outcome is worth ±0.5.
+	if math.Abs(p.DuelSwingPerDuel) > 1e-9 {
+		t.Errorf("combined DUEL/DUEL = %+.4f, want 0 — the sides should cancel", p.DuelSwingPerDuel)
+	}
+	if math.Abs(p.CT.DuelSwingPerDuel-0.5) > 1e-9 {
+		t.Errorf("CT DUEL/DUEL = %+.4f, want +0.5", p.CT.DuelSwingPerDuel)
+	}
+	if math.Abs(p.T.DuelSwingPerDuel+0.5) > 1e-9 {
+		t.Errorf("T DUEL/DUEL = %+.4f, want -0.5", p.T.DuelSwingPerDuel)
+	}
+}
+
+// A side is not zero-sum on its own — only the two together are. The report
+// tells readers to compare CT against CT for this reason, so pin the property
+// that makes that advice necessary.
+func TestCompute_SidesAreNotIndividuallyZeroSum(t *testing.T) {
+	var rounds []Round
+	var kills []Kill
+	for r := 1; r <= 24; r++ {
+		rounds = append(rounds, mkSwapRound("h", r, true))
+		// Every duel is mutually-sighted and even, so its cell is pinned at
+		// exactly 0.500 by mirroring no matter who actually wins. CT then wins
+		// three out of every four, which the 50/50 expectation cannot absorb.
+		ctWinsDuel := r%4 != 0
+		first, second := uint64(1), uint64(6) // CT, T for the first half
+		if r > 12 {
+			first, second = 6, 1
+		}
+		killer, victim, killerIsCT := first, second, true
+		if !ctWinsDuel {
+			killer, victim, killerIsCT = second, first, false
+		}
+		kills = append(kills, mkKill("h", r, 100, killer, victim, killerIsCT))
+	}
+	rt := BuildRoundTable(rounds, kills)
+	dt := BuildDuelTable(kills)
+	res := Compute(rounds, kills, rt, dt)
+	if err := Validate(res); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	var ctSum, tSum, total float64
+	for _, p := range res {
+		ctSum += p.CT.DuelSwingTotal
+		tSum += p.T.DuelSwingTotal
+		total += p.DuelSwingTotal
+	}
+	if math.Abs(total) > 1e-6 {
+		t.Fatalf("combined duel swing = %.9f, want 0", total)
+	}
+	if math.Abs(ctSum+tSum) > 1e-6 {
+		t.Fatalf("CT + T = %.9f, want 0", ctSum+tSum)
+	}
+	// 18 CT duel wins at +0.5 and 6 losses at -0.5 against a flat 0.500
+	// expectation: +6.0 for CT, the mirror image for T.
+	if math.Abs(ctSum-6) > 1e-9 || math.Abs(tSum+6) > 1e-9 {
+		t.Errorf("CT sum = %+.4f, T sum = %+.4f; want +6 / -6 — neither side is zero-sum alone", ctSum, tSum)
+	}
+}
+
+// The reported error bar must be the real Bernoulli standard error, not a
+// rule-of-thumb. Every duel in this fixture is mutually-sighted and even, so
+// mirroring pins P at exactly 0.500 and Σp(1−p) is exactly n/4 — which makes
+// the closed form 0.5/√n and lets the accumulator be checked against it.
+func TestCompute_DuelSwingStandardError(t *testing.T) {
+	var rounds []Round
+	var kills []Kill
+	for r := 1; r <= 24; r++ {
+		rounds = append(rounds, mkSwapRound("h", r, r%2 == 0))
+		if r <= 12 {
+			kills = append(kills, mkKill("h", r, 100, 1, 6, true))
+		} else {
+			kills = append(kills, mkKill("h", r, 100, 6, 1, true))
+		}
+	}
+	rt := BuildRoundTable(rounds, kills)
+	dt := BuildDuelTable(kills)
+	p := Compute(rounds, kills, rt, dt)[1]
+
+	if got, want := p.DuelVarSum, 0.25*float64(p.Duels); math.Abs(got-want) > 1e-9 {
+		t.Fatalf("DuelVarSum = %.6f, want %.6f (n/4 at p=0.5)", got, want)
+	}
+	for _, c := range []struct {
+		label string
+		se    float64
+		n     int
+	}{
+		{"overall", p.DuelSwingSE, p.Duels},
+		{"CT", p.CT.DuelSwingSE, p.CT.Duels},
+		{"T", p.T.DuelSwingSE, p.T.Duels},
+	} {
+		want := 0.5 / math.Sqrt(float64(c.n))
+		if math.Abs(c.se-want) > 1e-9 {
+			t.Errorf("%s SE = %.6f (n=%d), want %.6f", c.label, c.se, c.n, want)
+		}
+	}
+	// The error bar must shrink with sample, or it is not measuring anything:
+	// each side has half the duels, so its bar is √2 wider.
+	if p.CT.DuelSwingSE <= p.DuelSwingSE {
+		t.Errorf("per-side SE %.6f should exceed the combined SE %.6f", p.CT.DuelSwingSE, p.DuelSwingSE)
+	}
+}
+
+// A player with no duels must not produce a NaN error bar from a 0/0 divide.
+func TestCompute_NoDuelsHasZeroStandardError(t *testing.T) {
+	rounds := []Round{mkRound("h", 1, true)}
+	rt := BuildRoundTable(rounds, nil)
+	dt := BuildDuelTable(nil)
+	p := Compute(rounds, nil, rt, dt)[1]
+	if p.Duels != 0 || p.DuelSwingSE != 0 {
+		t.Errorf("duels=%d SE=%v, want 0 and 0", p.Duels, p.DuelSwingSE)
 	}
 }

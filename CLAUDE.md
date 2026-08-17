@@ -45,7 +45,7 @@ Storage: **SQLite** via `modernc.org/sqlite` (pure Go, no CGo). Default DB: `~/.
 | `rounds <hash-prefix> <steamid64>` | Per-round drill-down with buy type, flags (POST_PLT, CLUTCH_1vN); `--clutch`, `--post-plant`, `--side`, `--buy` filters |
 | `trend <steamid64>` | Chronological per-match performance trend (KPR/ADR/KAST% + TTK/TTD/CS%) |
 | `deaths <steamid64>` | Death drill-down from `player_death_events`: totals plus breakdowns by round phase, engagement distance, weapon, and map, each with HS_TAKEN%/FLASHED%/TRADED%/OPENING%/AVG_DIST (`--map`, `--since`, `--before`, `--phase`, `--top-weapons`) |
-| `swing <steamid64>...` | Round swing and duel swing (win-probability added) from empirical probability tables counted over the corpus; `--by-map`, `--tier`, `--since`, `--show-tables` to audit the tables, `--top N` for the reference distribution + percentile rank |
+| `swing <steamid64>...` | Round swing and duel swing (win-probability added) from empirical probability tables counted over the corpus; `--by-map`, `--by-side` (CT/T split of both metrics), `--tier`, `--since`, `--before`, `--show-tables` to audit the tables, `--top N` for the reference distribution + percentile rank |
 | `sql <query>` | Run an arbitrary SQL query against the metrics database; prints results as a table |
 | `drop [--force]` | Delete the metrics database file; requires `--force` to actually delete |
 | `analyze player <steamid64> <question>` | AI-powered grounded analysis of a player's aggregate stats (requires `ANTHROPIC_API_KEY`) |
@@ -116,7 +116,7 @@ Core types (all in `internal/model/model.go`):
 
 1. Trade annotation (backward + forward scan within 5 s window); captures trade kill/death delay in ticks for timing metrics
 2. Opening kills (first kill after `FreezeEndTick`)
-3. Per-round per-player stats (buy type, post-plant flag, clutch detection, `won_round` flag)
+3. Per-round per-player stats (buy type, post-plant flag, clutch detection, `won_round` flag; **team is resolved per round** — end state → that round's kills → its damages → match-level fallback, because sides swap at halftime)
 4. Match-level rollup (includes `rounds_won`, `median_trade_kill_delay_ms`, `median_trade_death_delay_ms`)
 5. Crosshair placement (from `RawFirstSight` / `m_bSpottedByMask`)
 6. Duel engine + FHHS segments (exposure time, pre-shot correction, sight→first-shot delay, weapon+distance bins, **per round** — `player_duel_segments.round_number` lets FHHS be sliced by side / buy type / round phase via `player_round_stats`)

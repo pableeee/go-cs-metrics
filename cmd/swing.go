@@ -17,7 +17,9 @@ import (
 var (
 	swingTier    string
 	swingSince   string
+	swingBefore  string
 	swingByMap   bool
+	swingBySide  bool
 	swingMinRnds int
 	swingTables  bool
 	swingTop     int
@@ -43,7 +45,12 @@ The two answer different questions. A player can win duels they should have lost
 (positive duel swing) while spending them in spots that barely move the round
 (low round swing), or the reverse. The comparison is the point.
 
-Both are zero-sum across all players, which is checked before anything prints.`,
+Both are zero-sum across all players, which is checked before anything prints.
+
+--by-side splits both metrics by the side the player was on. That cut is what
+separates the two things a combined number blends: holding a site above
+expectation and taking space below it average out to nothing. A side on its own
+is not zero-sum, so read a CT number against other players' CT numbers.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runSwing,
 }
@@ -51,7 +58,9 @@ Both are zero-sum across all players, which is checked before anything prints.`,
 func init() {
 	swingCmd.Flags().StringVar(&swingTier, "tier", "", "restrict to a tier ('personal', 'pro'); default all")
 	swingCmd.Flags().StringVar(&swingSince, "since", "", "only matches on or after this date (YYYY-MM-DD)")
+	swingCmd.Flags().StringVar(&swingBefore, "before", "", "only matches strictly before this date (YYYY-MM-DD); with --since, bounds a point-in-time window")
 	swingCmd.Flags().BoolVar(&swingByMap, "by-map", false, "break the player's swing down per map")
+	swingCmd.Flags().BoolVar(&swingBySide, "by-side", false, "break the player's swing down by CT/T side; adds per-side duel swing columns to --top")
 	swingCmd.Flags().IntVar(&swingMinRnds, "min-rounds", 20, "hide per-map rows below this many rounds")
 	swingCmd.Flags().BoolVar(&swingTables, "show-tables", false, "print the empirical probability tables that back the numbers")
 	swingCmd.Flags().IntVar(&swingTop, "top", 0, "also print the top N players by round swing, plus where the queried players rank")
@@ -73,7 +82,7 @@ func runSwing(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	base := storage.SwingFilter{Tier: swingTier, Since: swingSince}
+	base := storage.SwingFilter{Tier: swingTier, Since: swingSince, Before: swingBefore}
 
 	// The probability tables are built once over the whole filtered corpus.
 	// Building them per map would shrink every cell for no gain: what a 3v2
@@ -95,6 +104,9 @@ func runSwing(cmd *cobra.Command, args []string) error {
 	}
 	if swingSince != "" {
 		fmt.Fprintf(os.Stdout, " (since=%s)", swingSince)
+	}
+	if swingBefore != "" {
+		fmt.Fprintf(os.Stdout, " (before=%s)", swingBefore)
 	}
 	fmt.Fprintln(os.Stdout)
 
@@ -119,10 +131,14 @@ func runSwing(cmd *cobra.Command, args []string) error {
 	if len(overall) == 0 {
 		return nil
 	}
-	report.PrintSwingOverview(os.Stdout, overall, nameLookup(db, ids))
+	names := nameLookup(db, ids)
+	report.PrintSwingOverview(os.Stdout, overall, names)
+	if swingBySide {
+		report.PrintSwingBySide(os.Stdout, overall, names)
+	}
 
 	if swingTop > 0 {
-		names, err := db.PlayerNames(base)
+		popNames, err := db.PlayerNames(base)
 		if err != nil {
 			return fmt.Errorf("player names: %w", err)
 		}
@@ -138,7 +154,7 @@ func runSwing(cmd *cobra.Command, args []string) error {
 				pop = append(pop, p)
 			}
 		}
-		report.PrintSwingLeaderboard(os.Stdout, pop, overall, names, tiers, swingTop, swingLeaderMinRounds)
+		report.PrintSwingLeaderboard(os.Stdout, pop, overall, popNames, tiers, swingTop, swingLeaderMinRounds, swingBySide)
 	}
 
 	if swingByMap {

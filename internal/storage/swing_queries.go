@@ -17,6 +17,7 @@ type SwingFilter struct {
 	Tier    string // "" = all tiers
 	MapName string // "" = all maps; normalized title-case (e.g. "Nuke")
 	Since   string // "" = no lower bound; YYYY-MM-DD inclusive
+	Before  string // "" = no upper bound; YYYY-MM-DD exclusive
 }
 
 func (f SwingFilter) where(prefix string) (string, []any) {
@@ -33,6 +34,10 @@ func (f SwingFilter) where(prefix string) (string, []any) {
 	if f.Since != "" {
 		clause += " AND " + prefix + ".match_date >= ?"
 		args = append(args, f.Since)
+	}
+	if f.Before != "" {
+		clause += " AND " + prefix + ".match_date < ?"
+		args = append(args, f.Before)
 	}
 	return clause, args
 }
@@ -90,6 +95,13 @@ func (db *DB) LoadSwingKills(f SwingFilter) ([]swing.Kill, error) {
 		}
 		if k.KillerSawFirst && k.VictimSawFirst {
 			k.SightAdvantageMs = float64(vicSight-killerSight) / tickrate * 1000
+			// How long both had been aware of each other when it resolved.
+			later := killerSight
+			if vicSight > later {
+				later = vicSight
+			}
+			k.MutualAwarenessMs = float64(k.Tick-later) / tickrate * 1000
+			k.MutualKnown = true
 		}
 		k.DistanceBin = swing.DistanceBin(distanceM)
 		k.WeaponBucket = swing.WeaponClass(weapon)
