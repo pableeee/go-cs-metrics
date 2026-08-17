@@ -124,11 +124,13 @@ func TestFloorCeilings(t *testing.T) {
 	byDemo := map[string]map[uint64]*PlayerSwing{}
 	// Player 1: 5 full demos with varying rates. Player 2: only 2 demos.
 	// Player 3: many demos but all below the per-demo round floor.
+	// Player 4: full demos but zero duels — a coach in the round rosters.
 	for i, rate := range []float64{-0.02, 0.01, 0.03, 0.00, 0.05} {
 		hash := string(rune('a' + i))
 		byDemo[hash] = map[uint64]*PlayerSwing{
 			1: {SteamID: 1, Rounds: 24, Duels: 30, RoundSwingPerRound: rate, DuelSwingPerDuel: rate * 2},
 			3: {SteamID: 3, Rounds: 5, Duels: 6, RoundSwingPerRound: 0.9},
+			4: {SteamID: 4, Rounds: 24, Duels: 0},
 		}
 		if i < 2 {
 			byDemo[hash][2] = &PlayerSwing{SteamID: 2, Rounds: 24, Duels: 30, RoundSwingPerRound: rate}
@@ -141,6 +143,9 @@ func TestFloorCeilings(t *testing.T) {
 	}
 	if _, ok := fc[3]; ok {
 		t.Error("player 3 has only sub-floor demos, should be omitted")
+	}
+	if _, ok := fc[4]; ok {
+		t.Error("player 4 never took a duel (a coach), should be omitted")
 	}
 	p1, ok := fc[1]
 	if !ok {

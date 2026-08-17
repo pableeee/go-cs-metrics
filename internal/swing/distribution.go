@@ -52,7 +52,11 @@ func FloorCeilings(byDemo map[string]map[uint64]*PlayerSwing, minDemos, minRound
 	roundsTotal := map[uint64]int{}
 	for _, players := range byDemo {
 		for id, p := range players {
-			if p.Rounds < minRoundsPerDemo {
+			// A full demo with zero duels is not a player having a quiet game
+			// — it is a coach, listed in the round rosters but never fighting.
+			// Their exact 0.0 every demo would otherwise out-floor most of the
+			// real field.
+			if p.Rounds < minRoundsPerDemo || p.Duels == 0 {
 				continue
 			}
 			rndRates[id] = append(rndRates[id], p.RoundSwingPerRound)
