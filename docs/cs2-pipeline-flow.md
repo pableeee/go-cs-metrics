@@ -477,6 +477,14 @@ When both team JSONs contain `vrs_global_rank` fields:
 > deployed `strat_rank_gate=20` model — VRS already absorbs the Major-favorite effect),
 > so it ships **disabled**. Retained for a future re-test if the corpus gains ≥2 Majors.
 
+> **Gate fallback (`strat_gate_fallback_rank`, default 0):** what the gate collapses
+> TO when both teams are ranked ≤ `strat_rank_gate`. 0 = legacy all-demos base stats;
+> 30 = the vs_top30 stratum, excluding farm games vs sub-top-30 opposition. Added
+> 2026-08-20 after the EWC B8 case: a borderline top-20 team's base stats were
+> inflated by open-event farm wins, and the gate fed those to the sim (B8 67% vs
+> Spirit; vs_top30 strata said 24–48% on the same maps). Requires a current vrs.db —
+> run `go-cs-metrics vrs-sync` regularly or gate decisions use stale ranks.
+
 ### Interactive web UI (`simbo3 serve`)
 
 `simbo3 serve` launches a localhost web UI over the same engine: team pickers
