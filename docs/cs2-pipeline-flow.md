@@ -383,6 +383,13 @@ Same as `parse` — writes to `metrics.db` tables: `demos`, `player_match_stats`
 1. **Qualifying demos**: demos where ≥ `quorum` roster players appear within `--since` days.
 2. **Temporal weights**: `w(demo) = exp(-ln(2) / halfLife * days_before_refDate)`.
 3. **Tier factor**: shrinks win-rate deviations toward 0.50 for non-top-tier event demos.
+   Top-tier `event_id` prefixes (keep in sync with `cs2-trade/pipeline.py`): `iem_`,
+   `esl_pro_league_`, `esl_one_`, `blast_`, `blasttv_`, `pgl_`, `faceit_major_`,
+   `major_`, `starladder_`, `esports_world_cup_`.
+   ⚠ `event_id` is read from the `event.json` sidecar in the demo directory at parse
+   time; demos parsed without a sidecar get `event_id = ''` (counted as regional).
+   Re-running `parse --dir` after adding the sidecar backfills `event_id` on
+   quick-hash-skipped demos without re-parsing.
 4. **Per-map stats**: `MapWinOutcomes` + `RoundSideStatsByDemo` → weighted win%/CT%/T%.
 5. **Player ratings**: HLTV Rating 2.0 proxy per player, weighted by rounds played.
    - **Optional shrinkage** (`--rating-shrink-rounds K > 0`): each player's rating is

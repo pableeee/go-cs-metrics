@@ -762,8 +762,8 @@ func formatRatings(r []float64) string {
 // topTierPrefixes lists event_id prefixes that indicate a top-tier international
 // event. Matches the list in cs2-trade/pipeline.py.
 var topTierPrefixes = []string{
-	"iem_", "esl_pro_league_", "esl_one_", "blast_", "pgl_",
-	"faceit_major_", "major_", "starladder_",
+	"iem_", "esl_pro_league_", "esl_one_", "blast_", "blasttv_", "pgl_",
+	"faceit_major_", "major_", "starladder_", "esports_world_cup_",
 }
 
 func isTopTier(eventID string) bool {
