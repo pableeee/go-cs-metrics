@@ -11,6 +11,10 @@ type Header struct {
 	DemoinfocsVersion  string `json:"writer_demoinfocs_version,omitempty"`
 
 	DemoHash           string `json:"demo_hash"`
+	// Truncated: el demo terminó sin stop-marker (ErrUnexpectedEndOfDemo)
+	// pero con >=13 rounds parseados — típico del GOTV de qualifiers. Los
+	// rounds presentes son válidos; el score final puede estar incompleto.
+	Truncated          bool   `json:"truncated,omitempty"`
 	QuickHash          string `json:"quick_hash,omitempty"`
 	SourceDemSizeBytes int64  `json:"source_dem_size_bytes,omitempty"`
 	SourceDemMtime     string `json:"source_dem_mtime,omitempty"`

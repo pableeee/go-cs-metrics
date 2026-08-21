@@ -13,6 +13,7 @@ package parserv2
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -116,6 +117,14 @@ func ParseDemoV2(path, tier, matchType string) (*csraw2.Match, error) {
 	for {
 		ok, err := p.ParseNextFrame()
 		if err != nil {
+			// El GOTV de qualifiers suele cortar el demo sin stop-marker.
+			// demoinfocs lo reporta como ErrUnexpectedEndOfDemo, pero los rounds
+			// ya parseados son válidos. Aceptar solo si hay al menos un mapa
+			// plausible (>=13 rounds) para no ingerir fragmentos.
+			if errors.Is(err, demoinfocs.ErrUnexpectedEndOfDemo) && s.roundNumber >= 13 {
+				s.match.Header.Truncated = true
+				break
+			}
 			return nil, fmt.Errorf("parse demo: %w", err)
 		}
 		s.onFrameDone(p)
