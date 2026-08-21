@@ -96,7 +96,11 @@ func ParseDemoV2(path, tier, matchType string) (*csraw2.Match, error) {
 	s.match.Header.SourceDemMtime = fi.ModTime().UTC().Format(time.RFC3339)
 	s.match.Header.Tier = tier
 	s.match.Header.MatchType = matchType
-	s.match.Header.MatchDate = fi.ModTime().Format("2006-01-02")
+	// .UTC() no es opcional: demoget touch-dates fija el mtime a medianoche UTC
+	// del día del partido, así que leerlo en hora local corre la fecha un día
+	// hacia atrás en cualquier huso al oeste de Greenwich (UTC-3 acá). Debe
+	// coincidir con SourceDemMtime arriba, que ya se guarda en UTC.
+	s.match.Header.MatchDate = fi.ModTime().UTC().Format("2006-01-02")
 	s.match.Header.Sampling = csraw2.Sampling{
 		BaselineHz:             BaselineHz,
 		EventWindowHz:          EventWindowHz,

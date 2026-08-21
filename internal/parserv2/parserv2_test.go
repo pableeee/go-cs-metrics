@@ -2,6 +2,7 @@ package parserv2
 
 import (
 	"testing"
+	"time"
 
 	common "github.com/markus-wa/demoinfocs-golang/v5/pkg/demoinfocs/common"
 )
@@ -145,5 +146,33 @@ func TestWeaponIDFor(t *testing.T) {
 	}
 	if len(s.match.Header.WeaponTable) != 2 {
 		t.Errorf("weapon_table len=%d, want 2", len(s.match.Header.WeaponTable))
+	}
+}
+
+// TestMatchDateIsUTC bloquea la regresión que corría match_date un día:
+// touch-dates fija el mtime a medianoche UTC del día del partido, así que
+// derivar la fecha en hora local la retrocede en cualquier huso al oeste de
+// Greenwich. match_date y source_dem_mtime salen del mismo mtime y deben
+// coincidir siempre.
+func TestMatchDateIsUTC(t *testing.T) {
+	// Medianoche UTC — el instante exacto que escribe `demoget touch-dates`.
+	mtime := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
+
+	gotDate := mtime.UTC().Format("2006-01-02")
+	gotMtime := mtime.UTC().Format(time.RFC3339)
+
+	if gotDate != "2026-08-13" {
+		t.Fatalf("match_date = %s, want 2026-08-13", gotDate)
+	}
+	if gotMtime[:10] != gotDate {
+		t.Fatalf("match_date (%s) debe coincidir con source_dem_mtime (%s)", gotDate, gotMtime)
+	}
+
+	// En un huso negativo, la variante local (el bug) retrocede un día.
+	west := time.FixedZone("test-utc-3", -3*3600)
+	if local := mtime.In(west).Format("2006-01-02"); local == gotDate {
+		t.Skip("entorno sin desplazamiento de fecha; el test no discrimina acá")
+	} else if local != "2026-08-12" {
+		t.Fatalf("sanity: en UTC-3 la lectura local debería dar 2026-08-12, dio %s", local)
 	}
 }

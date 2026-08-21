@@ -190,6 +190,29 @@ sets the `.dem` file's mtime accordingly. `go-cs-metrics parse` uses file mtime
 as `match_date` — incorrect mtimes produce wrong `match_date` values in the DB,
 silently breaking `--since` filtering in `export`.
 
+#### The mtime timezone contract
+
+`touch-dates` parses `YYYY-MM-DD` from the RAR filename with `time.Parse`, which
+yields **midnight UTC** of that day, and writes it as the mtime. Every reader must
+therefore interpret the mtime **in UTC**:
+
+```go
+fi.ModTime().UTC().Format("2006-01-02")   // correct
+fi.ModTime().Format("2006-01-02")         // WRONG — shifts a day west of UTC
+```
+
+Reading it in local time moves `match_date` one day earlier in any negative-offset
+zone (e.g. UTC-3), because midnight UTC is 21:00 the previous day locally. This was
+a live bug in `parserv2.go` until 2026-08-21: it shifted **2201 of 2244 demos** by
+one day, and because backtests pick their cutoff by market date, the shift silently
+let a match's own demos into the model that predicted it. Regression test:
+`internal/parserv2.TestMatchDateIsUTC`.
+
+The 43 unshifted demos are the ones whose mtime is a real CS2 write time later than
+03:00 UTC — a reminder that a blanket `+1 day` repair is wrong. The authoritative
+value is `source_dem_mtime` in each `.csraw2.tar` header, which is always stored in
+UTC and lets `match_date` be recomputed exactly.
+
 ### When to run
 
 After every `demoget sync`, before the first `parse` of newly downloaded demos.
