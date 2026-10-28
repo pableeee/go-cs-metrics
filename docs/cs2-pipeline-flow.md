@@ -162,6 +162,8 @@ comma-split player names (col 4, markdown links unwrapped).
 | `--limit` | 0 | Download at most N demos (0 = no limit) |
 | `--reresolve` | false | Force re-resolution of all matches with no demo yet (overrides the time-bounded auto-retry) |
 | `--dry-run` | false | Print planned work without downloading |
+| `--cf-clearance` | (none) | `cf_clearance` cookie from a browser that passed HLTV's Cloudflare JS challenge (env: `DEMOGET_CF_CLEARANCE`). Also on `retry`. |
+| `--cf-ua` | (none) | Exact User-Agent of the browser the cookie came from — the cookie is bound to IP + UA (env: `DEMOGET_CF_UA`). Also on `retry`. |
 
 ### Caveats
 
@@ -175,6 +177,12 @@ comma-split player names (col 4, markdown links unwrapped).
   to force a re-check of all demo-less matches (e.g. for a finished older event whose
   demos appeared late).
 - `--dir` mode only finds demos in the specific event subdirectory, not recursively.
+- **Cloudflare JS challenge (since Oct 2026):** hltv.org serves a managed challenge
+  that no plain HTTP client passes (HTTP 403, "Just a moment..."). Solve it once in a
+  real browser on the same IP, then pass the `cf_clearance` cookie and the browser's
+  User-Agent via `--cf-clearance`/`--cf-ua` (or the `DEMOGET_CF_CLEARANCE`/
+  `DEMOGET_CF_UA` env vars). The cookie expires (typically ~30 min) and must be
+  refreshed when demoget reports the challenge error again.
 
 ---
 
