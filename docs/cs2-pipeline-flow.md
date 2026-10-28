@@ -162,8 +162,10 @@ comma-split player names (col 4, markdown links unwrapped).
 | `--limit` | 0 | Download at most N demos (0 = no limit) |
 | `--reresolve` | false | Force re-resolution of all matches with no demo yet (overrides the time-bounded auto-retry) |
 | `--dry-run` | false | Print planned work without downloading |
-| `--cf-clearance` | (none) | `cf_clearance` cookie from a browser that passed HLTV's Cloudflare JS challenge (env: `DEMOGET_CF_CLEARANCE`). Also on `retry`. |
+| `--cf-clearance` | (none) | Manually seed a `cf_clearance` cookie from a browser that passed HLTV's Cloudflare JS challenge (env: `DEMOGET_CF_CLEARANCE`). Also on `retry`. |
 | `--cf-ua` | (none) | Exact User-Agent of the browser the cookie came from — the cookie is bound to IP + UA (env: `DEMOGET_CF_UA`). Also on `retry`. |
+| `--cf-browser` | autodetect | Browser binary for the automatic challenge solver (env: `DEMOGET_CF_BROWSER`; default: Windows Chrome under WSL). Also on `retry`. |
+| `--no-cf-solver` | false | Disable the automatic browser-based challenge solver. Also on `retry`. |
 
 ### Caveats
 
@@ -177,12 +179,17 @@ comma-split player names (col 4, markdown links unwrapped).
   to force a re-check of all demo-less matches (e.g. for a finished older event whose
   demos appeared late).
 - `--dir` mode only finds demos in the specific event subdirectory, not recursively.
-- **Cloudflare JS challenge (since Oct 2026):** hltv.org serves a managed challenge
-  that no plain HTTP client passes (HTTP 403, "Just a moment..."). Solve it once in a
-  real browser on the same IP, then pass the `cf_clearance` cookie and the browser's
-  User-Agent via `--cf-clearance`/`--cf-ua` (or the `DEMOGET_CF_CLEARANCE`/
-  `DEMOGET_CF_UA` env vars). The cookie expires (typically ~30 min) and must be
-  refreshed when demoget reports the challenge error again.
+- **Cloudflare JS challenge (since Oct 2026):** all `*.hltv.org` hosts serve a managed
+  challenge that no plain HTTP client passes (HTTP 403, "Just a moment..."). demoget
+  solves it automatically by briefly opening a real Chrome window (headless is
+  detected and fails), harvesting the `cf_clearance` cookie via DevTools, and
+  re-solving when it expires mid-run. When the demo CDN rejects even a fresh
+  clearance (it escalates during live events), demoget downloads those files with
+  the real Chrome itself. Expect Chrome windows to appear during syncs — brief for
+  solves, open for the duration of a download in fallback mode.
+  `--no-cf-solver` disables this; `--cf-clearance`/`--cf-ua` seed a manual cookie;
+  `demoget cf-solve` prints export lines for other tools. See cs-demo-downloader's
+  CLAUDE.md for details.
 
 ---
 
